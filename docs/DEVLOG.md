@@ -65,7 +65,7 @@
 | Tests | 10 | ~250 |
 
 ### 关键决策
-- **放弃 vcpkg**：网络访问 GitHub 超时，改为 FetchContent + Qt 单独安装
+- **vcpkg + 系统 Qt**：vcpkg 管理 C++ 库（nlohmann-json/spdlog/cpp-httplib/gtest），Qt 6.11.1 单独安装由 CMAKE_PREFIX_PATH 指定
 - **C++17 替代 C++20**：`operator<=>` 不可用，改用手动比较运算符
 - **AUTOMOC 修复**：静态库中 Q_OBJECT 需 `#include "moc_xxx.cpp"` 显式触发
 - **Qt DLL PATH**：ctest 需 Qt bin 在 PATH 中

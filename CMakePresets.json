@@ -3,11 +3,13 @@
   "configurePresets": [
     {
       "name": "default",
-      "displayName": "Default (MSVC + Ninja, Qt OFF)",
-      "description": "Debug build with MSVC. Qt must be enabled separately after installation.",
+      "displayName": "Default (MSVC + Ninja + vcpkg, Qt OFF)",
+      "description": "Debug build with MSVC + vcpkg. Qt separate via CMAKE_PREFIX_PATH.",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
         "CMAKE_BUILD_TYPE": "Debug",
         "BUILD_TESTS": "ON",
         "BUILD_WITH_QT": "OFF"
@@ -15,11 +17,13 @@
     },
     {
       "name": "with-qt",
-      "displayName": "With Qt (MSVC + Ninja)",
+      "displayName": "With Qt (MSVC + Ninja + vcpkg)",
       "description": "Debug build with Qt UI enabled",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
         "CMAKE_PREFIX_PATH": "D:/Qt/6.11.1/msvc2022_64",
         "CMAKE_BUILD_TYPE": "Debug",
         "BUILD_TESTS": "ON",
@@ -28,11 +32,13 @@
     },
     {
       "name": "release",
-      "displayName": "Release (MSVC + Ninja)",
+      "displayName": "Release (MSVC + Ninja + vcpkg)",
       "description": "Release build",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/release",
       "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
         "CMAKE_BUILD_TYPE": "Release",
         "BUILD_TESTS": "ON",
         "BUILD_WITH_QT": "OFF"
@@ -40,26 +46,15 @@
     }
   ],
   "buildPresets": [
-    {
-      "name": "default",
-      "configurePreset": "default"
-    },
-    {
-      "name": "with-qt",
-      "configurePreset": "with-qt"
-    },
-    {
-      "name": "release",
-      "configurePreset": "release"
-    }
+    { "name": "default", "configurePreset": "default" },
+    { "name": "with-qt", "configurePreset": "with-qt" },
+    { "name": "release", "configurePreset": "release" }
   ],
   "testPresets": [
     {
       "name": "default",
       "configurePreset": "default",
-      "output": {
-        "outputOnFailure": true
-      }
+      "output": { "outputOnFailure": true }
     }
   ]
 }

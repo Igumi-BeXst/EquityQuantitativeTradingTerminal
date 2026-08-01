@@ -59,6 +59,20 @@ ctest --preset default
 cmake --preset with-qt && cmake --build --preset with-qt
 ```
 
+## 技术栈
+
+| 类别 | 选择 |
+|------|------|
+| 语言 | C++17 |
+| UI | Qt 6.11.1 (MSVC 2022) |
+| 构建 | CMake 3.21+ + Ninja + vcpkg |
+| 包管理 | vcpkg (manifest mode) |
+| 数据 | SQLite (Qt6::Sql) |
+| 日志 | spdlog |
+| JSON | nlohmann/json |
+| HTTP | cpp-httplib |
+| 测试 | GoogleTest |
+
 ## 当前阶段
 
 **P0 ✅ → P1 进行中**

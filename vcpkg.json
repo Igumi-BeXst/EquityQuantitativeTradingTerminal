@@ -3,12 +3,9 @@
   "version": "0.1.0",
   "description": "Comprehensive Stock Trading Workstation",
   "dependencies": [
-    "qtbase",
-    "qtcharts",
     "nlohmann-json",
     "spdlog",
     "cpp-httplib",
-    "gtest",
-    "ninja"
+    "gtest"
   ]
 }
