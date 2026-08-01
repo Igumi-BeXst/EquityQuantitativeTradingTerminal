@@ -1,0 +1,75 @@
+# Build directories
+build/
+out/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Qt generated
+*.moc
+*.rcc
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+
+# Compiled output
+*.obj
+*.o
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.so
+*.dylib
+*.a
+
+# Object libraries
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# Temp files
+*.cache
+*.autosave
+*.tmp
+*.temp
+*.log
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# CMake generated
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+CTestTestfile.cmake
+_ctest*
+Testing/
+DartConfiguration.tcl
+
+# vcpkg (keep manifest)
+vcpkg_installed/
+
+# Patch files
+*.orig
+*.rej
+*.patch
+*~
+vcpkg/
+build/

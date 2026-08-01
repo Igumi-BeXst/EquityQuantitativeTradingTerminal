@@ -1,0 +1,65 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "Default (MSVC + Ninja, Qt OFF)",
+      "description": "Debug build with MSVC. Qt must be enabled separately after installation.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_TESTS": "ON",
+        "BUILD_WITH_QT": "OFF"
+      }
+    },
+    {
+      "name": "with-qt",
+      "displayName": "With Qt (MSVC + Ninja)",
+      "description": "Debug build with Qt UI enabled",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "D:/Qt/6.11.1/msvc2022_64",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_TESTS": "ON",
+        "BUILD_WITH_QT": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release (MSVC + Ninja)",
+      "description": "Release build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTS": "ON",
+        "BUILD_WITH_QT": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default"
+    },
+    {
+      "name": "with-qt",
+      "configurePreset": "with-qt"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
