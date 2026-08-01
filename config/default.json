@@ -1,0 +1,46 @@
+{
+  "app": {
+    "name": "StockTerminal",
+    "version": "0.1.0",
+    "theme": "dark"
+  },
+  "data": {
+    "provider": "akshare",
+    "dbPath": "data/stock_data.db",
+    "syncInterval": 300,
+    "cacheSize": 5000
+  },
+  "trading": {
+    "defaultMarket": "SH",
+    "initialCapital": 100000,
+    "feeConfig": {
+      "commissionRate": 0.00025,
+      "minCommission": 5.0,
+      "stampTaxRate": 0.001,
+      "transferFeeRate": 0.00002,
+      "handlingFeeRate": 0.0000487,
+      "regulatoryFeeRate": 0.00002
+    },
+    "slippage": 0.001,
+    "positionLimit": 0.3
+  },
+  "backtest": {
+    "defaultPeriod": "Daily",
+    "executionModel": "NextBarOpen",
+    "benchmark": "SH000001"
+  },
+  "notification": {
+    "enablePriceAlert": true,
+    "enableSignalAlert": true,
+    "enableSystemAlert": true
+  },
+  "ui": {
+    "language": "zh_CN",
+    "fontSize": 12,
+    "chartColors": {
+      "up": "#FF0000",
+      "down": "#00FF00",
+      "background": "#1E1E1E"
+    }
+  }
+}

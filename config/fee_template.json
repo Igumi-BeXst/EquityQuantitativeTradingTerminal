@@ -1,0 +1,40 @@
+{
+  "templates": {
+    "default_a_share": {
+      "name": "A股默认费率 (万2.5)",
+      "commissionRate": 0.00025,
+      "minCommission": 5.0,
+      "stampTaxRate": 0.001,
+      "transferFeeRate": 0.00002,
+      "handlingFeeRate": 0.0000487,
+      "regulatoryFeeRate": 0.00002
+    },
+    "low_commission_a": {
+      "name": "A股低佣金 (万1.5)",
+      "commissionRate": 0.00015,
+      "minCommission": 5.0,
+      "stampTaxRate": 0.001,
+      "transferFeeRate": 0.00002,
+      "handlingFeeRate": 0.0000487,
+      "regulatoryFeeRate": 0.00002
+    },
+    "etf": {
+      "name": "ETF (免印花税)",
+      "commissionRate": 0.0001,
+      "minCommission": 0.0,
+      "stampTaxRate": 0.0,
+      "transferFeeRate": 0.0,
+      "handlingFeeRate": 0.0,
+      "regulatoryFeeRate": 0.0
+    },
+    "hk_stock": {
+      "name": "港股费率",
+      "commissionRate": 0.0003,
+      "minCommission": 100.0,
+      "stampTaxRate": 0.0013,
+      "transferFeeRate": 0.00002,
+      "handlingFeeRate": 0.00005,
+      "regulatoryFeeRate": 0.000027
+    }
+  }
+}
