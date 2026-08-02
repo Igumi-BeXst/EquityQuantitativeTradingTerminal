@@ -3,6 +3,7 @@
 #include "ui/shortcut_manager.h"
 #include "ui/preferences_dialog.h"
 #include "ui/widgets/market_index_strip.h"
+#include "ui/widgets/central_chart_widget.h"
 #include "ui/panels/log_panel.h"
 #include "ui/panels/stock_search_bar.h"
 #include "ui/panels/market_panel.h"
@@ -24,6 +25,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QVBoxLayout>
+#include <QStackedWidget>
 #include <QApplication>
 #include <QCloseEvent>
 #include <QKeySequence>
@@ -47,9 +49,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     restoreGeometry(settings_->value(QStringLiteral("ui/geometry")).toByteArray());
     restoreState(settings_->value(QStringLiteral("ui/state")).toByteArray());
 
-    // 搜索/指数点击 → 状态栏反馈（P6 起跳转 K线图）
+    // 搜索/指数点击 → 中央图表打开对应标的
     connect(searchBar_, &StockSearchBar::stockSelected, this,
             [this](const StockInfo& info) {
+        centralStack_->setCurrentWidget(centralChart_);
+        centralChart_->loadStock(info.code, QString::fromStdString(info.name));
         statusBar()->showMessage(
             QStringLiteral("已选择 %1 (%2)")
                 .arg(QString::fromStdString(info.name),
@@ -59,8 +63,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
     connect(indexStrip_, &MarketIndexStrip::indexClicked, this,
             [this](const StockCode& code) {
+        centralStack_->setCurrentWidget(centralChart_);
+        centralChart_->loadStock(code, QString::fromStdString(code.displayCode()));
         statusBar()->showMessage(
-            QStringLiteral("点击指数 %1 (K线图 P6 提供)")
+            QStringLiteral("打开指数 %1 K线图")
                 .arg(QString::fromStdString(code.fullCode())), 5000);
     });
 }
@@ -92,24 +98,29 @@ void MainWindow::initServices() {
 }
 
 void MainWindow::createCentral() {
-    auto* central = new QWidget(this);
-    auto* layout = new QVBoxLayout(central);
+    centralStack_ = new QStackedWidget(this);
 
+    // 页 0: 欢迎
+    auto* welcome = new QWidget(centralStack_);
+    auto* layout = new QVBoxLayout(welcome);
     auto* title = new QLabel(QStringLiteral("StockTerminal"));
     title->setObjectName(QStringLiteral("welcomeTitle"));
     title->setAlignment(Qt::AlignCenter);
     title->setStyleSheet(QStringLiteral("font-size:32px; font-weight:bold;"));
-
-    auto* hint = new QLabel(tr("顶部搜索股票开始使用\nP6 阶段中央区域将显示 K 线图"));
+    auto* hint = new QLabel(tr("顶部搜索股票开始使用\n或点击顶部指数查看 K 线图"));
     hint->setAlignment(Qt::AlignCenter);
     hint->setStyleSheet(QStringLiteral("color:#888888;"));
-
     layout->addStretch();
     layout->addWidget(title);
     layout->addWidget(hint);
     layout->addStretch();
+    centralStack_->addWidget(welcome);
 
-    setCentralWidget(central);
+    // 页 1: 图表（分时 ↔ K线 + 周期栏）
+    centralChart_ = new CentralChartWidget(provider_.get(), centralStack_);
+    centralStack_->addWidget(centralChart_);
+
+    setCentralWidget(centralStack_);
 }
 
 void MainWindow::createDocks() {
@@ -117,22 +128,38 @@ void MainWindow::createDocks() {
                    QMainWindow::AllowTabbedDocks |
                    QMainWindow::AnimatedDocks);
 
-    // 左: 市场面板（P6 实现）
+    // 左: 市场面板（涨幅/跌幅榜 + 市场宽度）
     auto* marketDock = new QDockWidget(tr("市场"), this);
     marketDock->setObjectName(QStringLiteral("marketDock"));
-    marketDock->setWidget(new MarketPanel(marketDock));
+    marketPanel_ = new MarketPanel(provider_.get(), marketDock);
+    marketDock->setWidget(marketPanel_);
     addDockWidget(Qt::LeftDockWidgetArea, marketDock);
+    connect(marketPanel_, &MarketPanel::openChart, this, [this](const StockCode& code) {
+        centralStack_->setCurrentWidget(centralChart_);
+        centralChart_->loadStock(code, QString::fromStdString(code.displayCode()));
+    });
 
-    // 右: 策略 + 回测（tabify，P6 实现）
+    // 右: 策略 + 回测（tabify）
     auto* strategyDock = new QDockWidget(tr("策略"), this);
     strategyDock->setObjectName(QStringLiteral("strategyDock"));
-    strategyDock->setWidget(new StrategyPanel(strategyDock));
+    auto* strategyPanel = new StrategyPanel(strategyDock);
+    strategyDock->setWidget(strategyPanel);
     addDockWidget(Qt::RightDockWidgetArea, strategyDock);
+    connect(strategyPanel, &StrategyPanel::applyStrategy, this,
+            [this](const QString& id, const QVariantMap& params) {
+        if (backtestDock_) {
+            backtestDock_->raise();
+            backtestDock_->activateWindow();
+        }
+        if (auto* bt = findChild<BacktestPanel*>()) {
+            bt->loadStrategy(id, params);
+        }
+    });
 
-    auto* backtestDock = new QDockWidget(tr("回测"), this);
-    backtestDock->setObjectName(QStringLiteral("backtestDock"));
-    backtestDock->setWidget(new BacktestPanel(backtestDock));
-    tabifyDockWidget(strategyDock, backtestDock);
+    backtestDock_ = new QDockWidget(tr("回测"), this);
+    backtestDock_->setObjectName(QStringLiteral("backtestDock"));
+    backtestDock_->setWidget(new BacktestPanel(provider_.get(), backtestDock_));
+    tabifyDockWidget(strategyDock, backtestDock_);
 
     // 底: 日志面板（真实实现）
     logDock_ = new QDockWidget(tr("日志"), this);

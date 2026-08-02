@@ -7,6 +7,7 @@ add_library(st_foundation STATIC
     foundation/utils/datetime.cpp
     foundation/utils/string_utils.cpp
     foundation/utils/json_utils.cpp
+    foundation/utils/indicators.cpp
 )
 target_include_directories(st_foundation PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(st_foundation PUBLIC nlohmann_json::nlohmann_json)
@@ -69,6 +70,8 @@ add_library(st_ui STATIC
     ui/main_window.cpp
     ui/widgets/kline_chart.cpp
     ui/widgets/time_line_chart.cpp
+    ui/widgets/central_chart_widget.cpp
+    ui/widgets/equity_curve_widget.cpp
     ui/widgets/chart_layers.cpp
     ui/widgets/market_index_strip.cpp
     ui/widgets/crosshair.cpp
@@ -79,6 +82,8 @@ add_library(st_ui STATIC
     ui/panels/screener_panel.cpp
     ui/panels/log_panel.cpp
     ui/models/stock_list_model.cpp
+    ui/models/trade_table_model.cpp
+    ui/models/market_rank_model.cpp
 )
 target_link_libraries(st_ui PUBLIC st_engine Qt6::Widgets)
 
@@ -100,6 +105,14 @@ target_link_libraries(curated_check PRIVATE st_data st_core st_foundation)
 # QuotePoller 实时轮询验证工具（P5 验证用）
 add_executable(quote_test tools_quote_test.cpp)
 target_link_libraries(quote_test PRIVATE st_data st_core st_foundation)
+
+# K线/分时接口 live 验证工具（P6 验证用）
+add_executable(kline_test tools_kline_test.cpp)
+target_link_libraries(kline_test PRIVATE st_data st_core st_foundation)
+
+# 图表离屏渲染验证工具（P6 验证用）
+add_executable(chart_render tools_chart_render.cpp)
+target_link_libraries(chart_render PRIVATE st_ui st_engine st_data st_core st_foundation)
 
 else()
 # Without Qt: just build the Foundation CLI test runner

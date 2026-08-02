@@ -7,6 +7,7 @@ class QDockWidget;
 class QToolBar;
 class QLabel;
 class QSettings;
+class QStackedWidget;
 
 namespace st {
 
@@ -17,6 +18,7 @@ class StockSearchBar;
 class MarketPanel;
 class StrategyPanel;
 class BacktestPanel;
+class CentralChartWidget;
 class ShortcutManager;
 
 /// 主窗口 — 菜单栏 + 工具栏(搜索/指数条) + QDockWidget 布局 + 状态栏
@@ -49,9 +51,13 @@ private:
     std::unique_ptr<QSettings> settings_;
 
     QDockWidget* logDock_ = nullptr;
+    QDockWidget* backtestDock_ = nullptr;
     LogPanel* logPanel_ = nullptr;
     MarketIndexStrip* indexStrip_ = nullptr;
     StockSearchBar* searchBar_ = nullptr;
+    MarketPanel* marketPanel_ = nullptr;
+    CentralChartWidget* centralChart_ = nullptr;
+    QStackedWidget* centralStack_ = nullptr;
     QLabel* connLabel_ = nullptr;
 };
 
