@@ -3,6 +3,7 @@
 # ============================================
 add_library(st_foundation STATIC
     foundation/stock_code.cpp
+    foundation/bar.cpp
     foundation/utils/datetime.cpp
     foundation/utils/string_utils.cpp
     foundation/utils/json_utils.cpp
@@ -28,10 +29,12 @@ target_link_libraries(st_core PUBLIC st_foundation spdlog::spdlog Qt6::Core)
 add_library(st_data STATIC
     data/data_repository.cpp
     data/data_cache.cpp
+    data/akshare_provider.cpp
+    data/stock_search_index.cpp
     data/data_sync_scheduler.cpp
     data/ai_data_source.cpp
 )
-target_link_libraries(st_data PUBLIC st_foundation st_core Qt6::Sql httplib::httplib)
+target_link_libraries(st_data PUBLIC st_foundation st_core Qt6::Sql httplib::httplib nlohmann_json::nlohmann_json)
 
 add_library(st_engine STATIC
     engine/strategy/strategy_manager.cpp

@@ -3,6 +3,7 @@
 #include "foundation/types.h"
 #include "foundation/enums.h"
 #include "foundation/stock_code.h"
+#include <array>
 
 namespace st {
 
