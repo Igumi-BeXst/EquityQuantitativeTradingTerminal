@@ -197,8 +197,29 @@ std::string TencentProvider::fetch(const std::string& url, int maxRetries) {
     return {};
 }
 
-std::vector<Bar> TencentProvider::parseDailyKline(const std::string& json,
-                                                  const StockCode& code) {
+const char* TencentProvider::periodToFqKeyword(BarPeriod period) {
+    switch (period) {
+        case BarPeriod::Weekly:  return "week";
+        case BarPeriod::Monthly: return "month";
+        case BarPeriod::Quarterly: return "season";
+        case BarPeriod::Yearly:  return "year";
+        default:                 return "day";
+    }
+}
+
+const char* TencentProvider::periodToMinuteKeyword(BarPeriod period) {
+    switch (period) {
+        case BarPeriod::Minute1:  return "m1";
+        case BarPeriod::Minute15: return "m15";
+        case BarPeriod::Minute30: return "m30";
+        case BarPeriod::Minute60: return "m60";
+        default:                  return "m5";
+    }
+}
+
+std::vector<Bar> TencentProvider::parseFqKline(const std::string& json,
+                                               const StockCode& code,
+                                               BarPeriod period) {
     std::vector<Bar> result;
     if (json.empty()) return result;
 
@@ -207,15 +228,17 @@ std::vector<Bar> TencentProvider::parseDailyKline(const std::string& json,
         auto& data = doc["data"];
         if (data.is_null()) return result;
 
-        // 键名: qfqday (前复权日线) / day (不复权)
+        // 键名: qfq{day|week|month} (前复权) / {day|week|month} (不复权)
+        const char* kw = periodToFqKeyword(period);
         const nlohmann::json* klines = nullptr;
         auto key = toTencentCode(code);
         if (data.contains(key)) {
             auto& stock = data[key];
-            if (stock.contains("qfqday")) {
-                klines = &stock["qfqday"];
-            } else if (stock.contains("day")) {
-                klines = &stock["day"];
+            const std::string qfqKey = std::string("qfq") + kw;
+            if (stock.contains(qfqKey)) {
+                klines = &stock[qfqKey];
+            } else if (stock.contains(kw)) {
+                klines = &stock[kw];
             }
         }
         if (!klines) return result;
@@ -224,7 +247,7 @@ std::vector<Bar> TencentProvider::parseDailyKline(const std::string& json,
             if (!k.is_array() || k.size() < 6) continue;
             Bar bar;
             bar.code = code;
-            bar.period = BarPeriod::Daily;
+            bar.period = period;
             bar.time = utils::parseDate(k[0].get<std::string>());
             // 腾讯价格是字符串（如 "1544.661"），需转 double
             bar.open = k[1].is_number() ? k[1].get<double>() : std::stod(k[1].get<std::string>());
@@ -242,15 +265,21 @@ std::vector<Bar> TencentProvider::parseDailyKline(const std::string& json,
     return result;
 }
 
-std::vector<Bar> TencentProvider::fetchDailyBars(const StockCode& code,
+std::vector<Bar> TencentProvider::fetchKlineBars(const StockCode& code,
+                                                 BarPeriod period,
                                                  DateTime start, DateTime end) {
-    // param=sh600519,day,开始日期,结束日期,数量,qfq
-    std::string beg = utils::toDateString(start);
-    std::string endStr = utils::toDateString(end);
+    // param=sh600519,{day|week|month},开始日期,结束日期,数量,qfq
+    // start==epoch 表示拉最近 640 根（日期字段留空）
+    constexpr auto kAnchor = std::chrono::hours(24 * 365 * 30);  // 约 1970+30y
+    std::string beg = (start >= DateTime{} + kAnchor)
+        ? utils::toDateString(start) : "";
+    std::string endStr = (end >= DateTime{} + kAnchor)
+        ? utils::toDateString(end) : "";
     std::string url = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param="
-                      + toTencentCode(code) + ",day," + beg + "," + endStr + ",640,qfq";
+                      + toTencentCode(code) + "," + periodToFqKeyword(period) + ","
+                      + beg + "," + endStr + ",640,qfq";
     auto body = fetch(url);
-    return parseDailyKline(body, code);
+    return parseFqKline(body, code, period);
 }
 
 TencentProvider::ParsedQuote TencentProvider::parseQuoteWithName(
@@ -296,6 +325,7 @@ TencentProvider::ParsedQuote TencentProvider::parseQuoteWithName(
         if (f.size() > static_cast<size_t>(t + 3)) pq.quote.high   = parseNumber(f[static_cast<size_t>(t + 3)]);
         if (f.size() > static_cast<size_t>(t + 4)) pq.quote.low    = parseNumber(f[static_cast<size_t>(t + 4)]);
         if (f.size() > static_cast<size_t>(t + 7)) pq.quote.amount = parseNumber(f[static_cast<size_t>(t + 7)]) * 10000.0;
+        if (f.size() > static_cast<size_t>(t + 8)) pq.quote.turnover = parseNumber(f[static_cast<size_t>(t + 8)]);
     }
     return pq;
 }
@@ -427,14 +457,150 @@ std::vector<StockInfo> TencentProvider::getStockList(Market market) {
 
 std::vector<Bar> TencentProvider::getBars(const StockCode& code, BarPeriod period,
                                           DateTime start, DateTime end) {
-    if (period == BarPeriod::Daily || period == BarPeriod::Weekly ||
-        period == BarPeriod::Monthly) {
-        return fetchDailyBars(code, start, end);
+    switch (period) {
+        case BarPeriod::Daily:
+        case BarPeriod::Weekly:
+        case BarPeriod::Monthly:
+        case BarPeriod::Quarterly:
+        case BarPeriod::Yearly:
+            return fetchKlineBars(code, period, start, end);
+        case BarPeriod::Minute1:
+        case BarPeriod::Minute5:
+        case BarPeriod::Minute15:
+        case BarPeriod::Minute30:
+        case BarPeriod::Minute60:
+            return fetchMinuteBars(code, period);
+        default:
+            LogManager::instance()->log(LogLevel::Warn,
+                "TencentProvider: 暂不支持的周期 (period={})", static_cast<int>(period));
+            return {};
     }
-    // 分钟线暂未实现
-    LogManager::instance()->log(LogLevel::Warn,
-        "TencentProvider: 分钟线暂未实现 (period={})", static_cast<int>(period));
-    return {};
+}
+
+std::vector<Bar> TencentProvider::parseMinuteKline(const std::string& json,
+                                                   const StockCode& code,
+                                                   BarPeriod period) {
+    std::vector<Bar> result;
+    if (json.empty()) return result;
+
+    try {
+        auto doc = nlohmann::json::parse(json);
+        auto& data = doc["data"];
+        if (data.is_null()) return result;
+
+        const nlohmann::json* klines = nullptr;
+        auto key = toTencentCode(code);
+        const std::string mk = periodToMinuteKeyword(period);
+        if (data.contains(key)) {
+            auto& stock = data[key];
+            if (stock.contains(mk)) {
+                klines = &stock[mk];
+            } else {
+                // 防御性探测: 取第一个数组值
+                for (auto it = stock.begin(); it != stock.end(); ++it) {
+                    if (it->is_array()) { klines = &*it; break; }
+                }
+            }
+        }
+        if (!klines) return result;
+
+        for (const auto& k : *klines) {
+            if (!k.is_array() || k.size() < 6) continue;
+            Bar bar;
+            bar.code = code;
+            bar.period = period;
+            // ["yyyyMMddHHmm", 开, 收, 高, 低, 量, {}, 额]
+            bar.time = utils::parseMinuteTime(k[0].get<std::string>());
+            bar.open  = k[1].is_number() ? k[1].get<double>() : std::stod(k[1].get<std::string>());
+            bar.close = k[2].is_number() ? k[2].get<double>() : std::stod(k[2].get<std::string>());
+            bar.high  = k[3].is_number() ? k[3].get<double>() : std::stod(k[3].get<std::string>());
+            bar.low   = k[4].is_number() ? k[4].get<double>() : std::stod(k[4].get<std::string>());
+            bar.volume = static_cast<Volume>(
+                (k[5].is_number() ? k[5].get<double>() : std::stod(k[5].get<std::string>())) * 100.0);
+            result.push_back(std::move(bar));
+        }
+    } catch (const std::exception& e) {
+        LogManager::instance()->log(LogLevel::Warn, "Parse Tencent minute kline failed: {}", e.what());
+    }
+    return result;
+}
+
+std::vector<Bar> TencentProvider::fetchMinuteBars(const StockCode& code,
+                                                  BarPeriod period) {
+    // 分钟接口域是 ifzq（web 域 301）；默认 320 根
+    std::string url = "https://ifzq.gtimg.cn/appstock/app/kline/mkline?param="
+                      + toTencentCode(code) + "," + periodToMinuteKeyword(period) + ",,320";
+    auto body = fetch(url);
+    return parseMinuteKline(body, code, period);
+}
+
+std::optional<IntradayData> TencentProvider::parseIntraday(
+    const std::string& json, const StockCode& code) {
+    try {
+        auto doc = nlohmann::json::parse(json);
+        auto& data = doc["data"];
+        if (data.is_null()) return std::nullopt;
+
+        auto key = toTencentCode(code);
+        if (!data.contains(key)) return std::nullopt;
+        auto& stock = data[key];
+        if (!stock.contains("data")) return std::nullopt;
+
+        IntradayData out;
+        out.code = code;
+
+        // 响应结构: data[code].data = { data: [...], date: "20240802" }, data[code].qt = {...}
+        auto& dayData = stock["data"];
+        out.date = utils::parseDate(dayData.value("date", std::string("1970-01-01")));
+
+        // 昨收来自 qt 块（数组第 5 字段）
+        if (stock.contains("qt") && stock["qt"].contains(key)) {
+            auto& qt = stock["qt"][key];
+            if (qt.is_array() && qt.size() > 4) {
+                out.preClose = parseNumber(
+                    qt[4].is_number() ? std::to_string(qt[4].get<double>())
+                                      : qt[4].get<std::string>());
+            }
+        }
+
+        // dayData.data = ["0930 1330.03 1191 158406573.03", ...]
+        auto& inner = dayData["data"];
+        if (inner.is_null()) return std::nullopt;
+        std::istringstream iss;
+        for (const auto& line : inner) {
+            std::string text = line.get<std::string>();
+            std::istringstream ls(text);
+            std::string hhmm, price, vol, amt;
+            if (!(ls >> hhmm >> price >> vol >> amt)) continue;
+            if (hhmm.size() != 4) continue;
+
+            IntradayPoint p;
+            // date + HHMM 组合时间
+            std::string iso = utils::toDateString(out.date) + " " + hhmm.substr(0, 2)
+                              + ":" + hhmm.substr(2, 2) + ":00";
+            p.time = utils::parseDateTime(iso);
+            p.price  = std::strtod(price.c_str(), nullptr);
+            p.volume = static_cast<Volume>(std::strtoll(vol.c_str(), nullptr, 10) * 100);  // 手→股
+            p.amount = std::strtod(amt.c_str(), nullptr);   // 元
+            out.points.push_back(std::move(p));
+        }
+        if (out.points.empty()) return std::nullopt;
+        return out;
+    } catch (const std::exception& e) {
+        LogManager::instance()->log(LogLevel::Warn, "Parse Tencent intraday failed: {}", e.what());
+        return std::nullopt;
+    }
+}
+
+std::optional<IntradayData> TencentProvider::fetchIntraday(const StockCode& code) {
+    std::string url = "https://web.ifzq.gtimg.cn/appstock/app/minute/query?code="
+                      + toTencentCode(code);
+    auto body = fetch(url);
+    return parseIntraday(body, code);
+}
+
+std::optional<IntradayData> TencentProvider::getIntraday(const StockCode& code) {
+    return fetchIntraday(code);
 }
 
 // ============================================================

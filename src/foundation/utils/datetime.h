@@ -18,6 +18,9 @@ namespace st::utils {
 /// Parse "YYYY-MM-DD HH:MM:SS" to DateTime
 [[nodiscard]] DateTime parseDateTime(const std::string& s);
 
+/// Parse "yyyyMMddHHmm" (12 位，腾讯分钟 bar 时间) to DateTime
+[[nodiscard]] DateTime parseMinuteTime(const std::string& s);
+
 /// Current date (00:00:00)
 [[nodiscard]] DateTime today();
 

@@ -68,6 +68,22 @@ DateTime parseDateTime(const std::string& s) {
     return system_clock::from_time_t(std::mktime(&tm));
 }
 
+DateTime parseMinuteTime(const std::string& s) {
+    // "yyyyMMddHHmm" (12 位)
+    if (s.size() != 12) return DateTime{};
+    for (char c : s) {
+        if (!std::isdigit(static_cast<unsigned char>(c))) return DateTime{};
+    }
+    std::tm tm = {};
+    tm.tm_year = std::stoi(s.substr(0, 4)) - 1900;
+    tm.tm_mon  = std::stoi(s.substr(4, 2)) - 1;
+    tm.tm_mday = std::stoi(s.substr(6, 2));
+    tm.tm_hour = std::stoi(s.substr(8, 2));
+    tm.tm_min  = std::stoi(s.substr(10, 2));
+    tm.tm_sec  = 0;
+    return system_clock::from_time_t(std::mktime(&tm));
+}
+
 DateTime today() {
     auto now = system_clock::now();
     auto t = to_time_t(now);

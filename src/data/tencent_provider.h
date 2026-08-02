@@ -4,12 +4,31 @@
 #include "foundation/tick.h"
 #include "foundation/types.h"
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace st {
 
 class QuotePoller;
+
+/// 分时数据点（A 股日内逐分钟）
+struct IntradayPoint {
+    DateTime time;        // 当日 HH:MM
+    Price    price  = 0.0;
+    Volume   volume = 0;  // 股
+    Amount   amount = 0.0;// 元
+};
+
+/// 分时数据（来自腾讯 minute/query 接口）
+struct IntradayData {
+    StockCode code;
+    DateTime  date;          // 交易日
+    Price     preClose = 0.0;// 昨收（取自响应 qt 块，缺失为 0）
+    std::vector<IntradayPoint> points;
+
+    [[nodiscard]] bool empty() const { return points.empty(); }
+};
 
 /// 腾讯行情数据源
 ///
@@ -35,6 +54,9 @@ public:
     std::vector<Bar> getBars(const StockCode& code, BarPeriod period,
                              DateTime start, DateTime end) override;
 
+    /// 分时数据（同步，仅 SH/SZ A 股）
+    std::optional<IntradayData> getIntraday(const StockCode& code);
+
     void subscribeQuote(const StockCode& code) override;
     void unsubscribeQuote(const StockCode& code) override;
 
@@ -58,6 +80,18 @@ public:
     /// 腾讯代码格式: SH600519 → sh600519
     static std::string toTencentCode(const StockCode& code);
 
+    /// 解析日/周/月 K线 JSON: [日期, 开, 收, 高, 低, 量]（键 qfq{day|week|month}）
+    static std::vector<Bar> parseFqKline(const std::string& json, const StockCode& code,
+                                         BarPeriod period);
+
+    /// 解析分钟 K线 JSON: ["yyyyMMddHHmm", 开, 收, 高, 低, 量, {}, 额]
+    static std::vector<Bar> parseMinuteKline(const std::string& json, const StockCode& code,
+                                             BarPeriod period);
+
+    /// 解析分时 JSON（minute/query 接口）
+    static std::optional<IntradayData> parseIntraday(const std::string& json,
+                                                     const StockCode& code);
+
 private:
     struct ParsedQuote {
         Quote quote;
@@ -67,8 +101,15 @@ private:
     /// 同步 GET（NoProxy + 重试 + 超时），任意线程可安全调用
     std::string fetch(const std::string& url, int maxRetries = 3);
 
-    /// 拉取日K线（qfq 前复权）
-    std::vector<Bar> fetchDailyBars(const StockCode& code, DateTime start, DateTime end);
+    /// 拉取日/周/月K线（qfq 前复权）。start==epoch 表示拉最近 640 根。
+    std::vector<Bar> fetchKlineBars(const StockCode& code, BarPeriod period,
+                                    DateTime start, DateTime end);
+
+    /// 拉取分钟K线（m5/m15/m30/m60，320 根）
+    std::vector<Bar> fetchMinuteBars(const StockCode& code, BarPeriod period);
+
+    /// 拉取分时数据（A 股日内逐分钟）
+    std::optional<IntradayData> fetchIntraday(const StockCode& code);
 
     /// 解析一条记录 → Quote + 名称
     static ParsedQuote parseQuoteWithName(const std::string& record, const StockCode& code);
@@ -79,8 +120,10 @@ private:
     /// 批量拉取行情（分块 ≤50），返回 {quote, name} 列表
     std::vector<ParsedQuote> fetchBatch(const std::vector<StockCode>& codes);
 
-    /// 解析腾讯K线 JSON: [日期, 开, 收, 高, 低, 量]
-    static std::vector<Bar> parseDailyKline(const std::string& json, const StockCode& code);
+    /// 周期 → 腾讯 fqkline 关键字 (day/week/month)
+    static const char* periodToFqKeyword(BarPeriod period);
+    /// 周期 → 腾讯分钟关键字 (m5/m15/m30/m60)
+    static const char* periodToMinuteKeyword(BarPeriod period);
 
     bool connected_ = false;
     std::unique_ptr<QuotePoller> poller_;  // 实时行情轮询器（主线程亲和）

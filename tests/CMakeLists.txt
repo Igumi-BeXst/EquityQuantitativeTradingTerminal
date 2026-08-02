@@ -5,6 +5,7 @@ add_executable(test_foundation
     test_foundation/test_datetime.cpp
     test_foundation/test_string_utils.cpp
     test_foundation/test_json_utils.cpp
+    test_foundation/test_indicators.cpp
 )
 target_link_libraries(test_foundation PRIVATE st_foundation GTest::gtest GTest::gtest_main)
 gtest_discover_tests(test_foundation)

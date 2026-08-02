@@ -4,6 +4,7 @@
 #include "data/curated_stocks.h"
 #include "core/event_bus.h"
 #include "foundation/stock_code.h"
+#include "foundation/utils/datetime.h"
 
 #include <set>
 
@@ -97,6 +98,77 @@ TEST(TencentQuoteTest, PreservesIndexMarketFromPrefix) {
     EXPECT_EQ(quotes[0].code.displayCode(), "000001");
     EXPECT_NEAR(quotes[0].lastPrice, 3832.26, 1e-6);
     EXPECT_NEAR(quotes[0].change, 0.74, 1e-6);
+}
+
+TEST(TencentQuoteTest, ParsesFqKlineWeekly) {
+    std::string json = R"({"data":{"sh600519":{"qfqweek":[
+        ["2026-07-17","1197.120","1253.000","1269.330","1190.190","263482.000"],
+        ["2026-07-24","1270.000","1297.410","1344.700","1266.000","318097.000"]
+    ]}}})";
+    StockCode code(Market::SH, "600519");
+    auto bars = TencentProvider::parseFqKline(json, code, BarPeriod::Weekly);
+    ASSERT_EQ(bars.size(), 2u);
+    EXPECT_EQ(bars[0].period, BarPeriod::Weekly);
+    EXPECT_NEAR(bars[0].open, 1197.12, 1e-6);
+    EXPECT_NEAR(bars[0].close, 1253.0, 1e-6);
+    EXPECT_NEAR(bars[0].high, 1269.33, 1e-6);
+    EXPECT_EQ(bars[1].volume, 318097);
+    EXPECT_EQ(st::utils::toDateString(bars[0].time), "2026-07-17");
+}
+
+TEST(TencentQuoteTest, ParsesFqKlineMonthlyAndPeriod) {
+    std::string json = R"({"data":{"sh600519":{"qfqmonth":[
+        ["2026-07-01","1400.000","1350.600","1420.000","1280.000","1000000.000"]
+    ]}}})";
+    StockCode code(Market::SH, "600519");
+    auto bars = TencentProvider::parseFqKline(json, code, BarPeriod::Monthly);
+    ASSERT_EQ(bars.size(), 1u);
+    EXPECT_EQ(bars[0].period, BarPeriod::Monthly);
+    EXPECT_NEAR(bars[0].close, 1350.6, 1e-6);
+}
+
+TEST(TencentQuoteTest, ParsesMinuteKline) {
+    std::string json = R"({"data":{"sh600519":{"m5":[
+        ["202607311440","1350.78","1353.60","1353.69","1350.00","1039.00",{},"0.83"],
+        ["202607311445","1353.49","1351.95","1355.54","1351.00","1298.00",{},"1.04"]
+    ]}}})";
+    StockCode code(Market::SH, "600519");
+    auto bars = TencentProvider::parseMinuteKline(json, code, BarPeriod::Minute5);
+    ASSERT_EQ(bars.size(), 2u);
+    EXPECT_EQ(bars[0].period, BarPeriod::Minute5);
+    // 列序: 开, 收, 高, 低
+    EXPECT_NEAR(bars[0].open, 1350.78, 1e-6);
+    EXPECT_NEAR(bars[0].close, 1353.60, 1e-6);
+    EXPECT_NEAR(bars[0].high, 1353.69, 1e-6);
+    EXPECT_NEAR(bars[0].low, 1350.00, 1e-6);
+    // 量: 手→股
+    EXPECT_EQ(bars[0].volume, 103900);
+    EXPECT_EQ(st::utils::toDateTimeString(bars[0].time), "2026-07-31 14:40:00");
+}
+
+TEST(TencentQuoteTest, ParsesIntraday) {
+    std::string json = R"({"data":{"sh600519":{"data":{
+        "data":["0930 1330.03 1191 158406573.03","0931 1327.77 3547 471549408.00"],
+        "date":"20240802"
+    },"qt":{"sh600519":["1","贵州茅台","600519","1330.03","1361.76"]}}}})";
+    StockCode code(Market::SH, "600519");
+    auto data = TencentProvider::parseIntraday(json, code);
+    ASSERT_TRUE(data.has_value());
+    EXPECT_EQ(data->points.size(), 2u);
+    EXPECT_EQ(data->date, st::utils::parseDate("2024-08-02"));
+    EXPECT_NEAR(data->preClose, 1361.76, 1e-6);
+    // 第一点: 09:30 价格 1330.03, 量 119100 股, 额 158406573.03 元
+    EXPECT_NEAR(data->points[0].price, 1330.03, 1e-6);
+    EXPECT_EQ(data->points[0].volume, 119100);
+    EXPECT_NEAR(data->points[0].amount, 158406573.03, 1e-3);
+    EXPECT_EQ(st::utils::toDateTimeString(data->points[0].time), "2024-08-02 09:30:00");
+}
+
+TEST(TencentQuoteTest, ParsesTurnover) {
+    // 茅台换手率在时间戳 +8 = [38]
+    StockCode code(Market::SH, "600519");
+    auto q = TencentProvider::parseQuoteRecord(sampleRecord(), code);
+    EXPECT_NEAR(q.turnover, 0.44, 1e-6);
 }
 
 TEST(TencentQuoteTest, ParsesMultipleRecords) {

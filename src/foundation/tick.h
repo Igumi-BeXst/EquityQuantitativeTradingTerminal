@@ -51,6 +51,7 @@ struct Quote {
     Volume     volume        = 0;     // 成交量
     Amount     amount        = 0.0;   // 成交额
     Percentage change        = 0.0;   // 涨跌幅(%)
+    Percentage turnover      = 0.0;   // 换手率(%)
     Volume     bidVol1       = 0;     // 买一量
     Price      bidPrice1     = 0.0;   // 买一价
     Volume     askVol1       = 0;     // 卖一量
