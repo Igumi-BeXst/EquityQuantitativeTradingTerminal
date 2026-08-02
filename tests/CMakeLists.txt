@@ -32,7 +32,11 @@ if(BUILD_WITH_QT)
 
     add_executable(test_engine
         test_engine/test_main.cpp
+        test_engine/test_fee_calculator.cpp
+        test_engine/test_performance.cpp
+        test_engine/test_backtest_engine.cpp
+        test_engine/test_paper_trade.cpp
     )
-    target_link_libraries(test_engine PRIVATE st_engine GTest::gtest GTest::gtest_main)
+    target_link_libraries(test_engine PRIVATE st_engine st_data GTest::gtest GTest::gtest_main)
     gtest_discover_tests(test_engine)
 endif()

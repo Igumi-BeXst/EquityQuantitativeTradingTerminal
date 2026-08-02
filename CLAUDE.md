@@ -76,9 +76,9 @@ cmake --preset with-qt && cmake --build --preset with-qt
 
 ## 当前阶段
 
-**P1 ✅ → P2 进行中**
+**P2 ✅ → P3 进行中**
 
-Foundation: ✅ (18 tests) | Core: ✅ (7 tests) | Qt: ✅ 6.11.1 | Data: ✅ (14 tests) | Engine: ⏳ 待实现
+Foundation: ✅ (18) | Core: ✅ (18) | Data: ✅ (14) | Engine: ✅ (18) | 总计: ✅ 68 tests | Qt: ✅ 6.11.1
 
 | 阶段 | 内容 |
 |------|------|

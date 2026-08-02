@@ -39,6 +39,7 @@ add_library(st_data STATIC
 target_link_libraries(st_data PUBLIC st_foundation st_core Qt6::Sql httplib::httplib nlohmann_json::nlohmann_json)
 
 add_library(st_engine STATIC
+    engine/strategy/istrategy.cpp
     engine/strategy/strategy_manager.cpp
     engine/backtest/backtest_engine.cpp
     engine/backtest/order_matcher.cpp

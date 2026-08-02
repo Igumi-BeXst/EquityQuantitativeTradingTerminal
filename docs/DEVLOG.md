@@ -1,5 +1,46 @@
 # 开发日志 (Development Log)
 
+## 2026-08-02 — P2 Engine 核心引擎完成
+
+### 已完成
+- [x] **Strategy 基类** — IStrategy 完整接口
+  - 生命周期: initialize/onStart/onStop
+  - 核心入口: onBar, 可选 onTrade
+  - 下单 API: buy/sell/buyByAmount/sellAll (引擎注入交易回调)
+  - 查询 API: portfolio/currentCode
+- [x] **FeeCalculator** — 全参数可配置费用计算
+  - 佣金(含最低)、印花税、过户费、经手费、证管费、自定义规则
+  - 内置模板: A股/低佣金/ETF/港股
+  - FeeBreakdown 费用明细
+- [x] **OrderMatcher** — 订单撮合器
+  - 市价单/限价单, 资金/持仓限制
+  - 部分成交/全部成交/未触发
+- [x] **Performance** — 绩效统计器
+  - 核心: 总收益/年化/最大回撤/夏普/胜率
+  - 进阶: 卡玛/波动率/索提诺/Alpha/Beta
+- [x] **BacktestEngine** — 事件驱动回测引擎
+  - 全局时间轴对齐 → 逐Bar驱动策略 → 下一Bar开盘价撮合
+  - 内部 Account 管理资金/持仓/费用
+  - 净值曲线快照 → 绩效计算
+- [x] **PaperTradeEngine** — 模拟交易引擎
+  - 实时行情驱动, 即时成交+滑点
+  - 与回测共用 IStrategy 接口
+
+### 测试
+- **Total: 68 tests, 0 failed**（+18 新测试）
+  - FeeCalculatorTest: 7 tests
+  - PerformanceTest: 6 tests
+  - BacktestEngineTest: 2 tests (买入持有上涨+无数据报错)
+  - PaperTradeEngineTest: 3 tests
+
+### 排查记录
+- **空指针崩溃**：StrategyContext.portfolio 未设置导致策略解引用空指针（SEH）
+- **getCurrentCode 静态空码**：下单 code 为空导致撮合不匹配，改由 currentCode_ 成员追踪
+- **手续费断言**：测试预期未含全部费用项，修正为完整费用
+
+### 下一步 → P3 Engine 扩展引擎
+StockScreener + MarketEngine + Fundamental
+
 ## 2026-08-02 — 安全设计：敏感凭证保护
 
 ### 背景
