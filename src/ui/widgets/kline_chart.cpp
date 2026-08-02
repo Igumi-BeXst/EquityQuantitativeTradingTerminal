@@ -243,13 +243,15 @@ void KLineChart::drawCandles(QPainter& p) {
         const double bh = std::max(std::abs(closeY - openY), 1.0);
         body.addRect(QRectF(cx - bodyHalf, top, 2 * bodyHalf, bh));
     }
+    // 影线只画线（不填充！drawPath 会用当前 brush 填充路径，线段路径填充会变色块）
     p.setPen(QPen(kUpColor, 1));
-    p.setBrush(kUpColor);
+    p.setBrush(Qt::NoBrush);
     p.drawPath(upWick);
-    p.fillPath(upBody, kUpColor);
     p.setPen(QPen(kDownColor, 1));
-    p.setBrush(kDownColor);
+    p.setBrush(Qt::NoBrush);
     p.drawPath(downWick);
+    // 实体只填充
+    p.fillPath(upBody, kUpColor);
     p.fillPath(downBody, kDownColor);
 }
 
@@ -271,6 +273,13 @@ void KLineChart::drawVolume(QPainter& p) {
     }
     p.fillPath(upPath, kUpColor);
     p.fillPath(downPath, kDownColor);
+
+    // 图例
+    QFont lf = p.font();
+    lf.setPixelSize(11);
+    p.setFont(lf);
+    p.setPen(QColor("#d4d4d4"));
+    p.drawText(QPointF(volRect_.left() + 6, volRect_.top() + 12), tr("VOL"));
 }
 
 void KLineChart::drawOverlayLines(QPainter& p) {
@@ -278,12 +287,12 @@ void KLineChart::drawOverlayLines(QPainter& p) {
     const int start = firstVisible_;
     const int end = std::min(start + visibleCount_, static_cast<int>(bars_.size()));
 
-    auto drawLine = [&](const std::vector<double>& data, const QColor& color,
+    auto drawLine = [&](const std::vector<double>& series, const QColor& color,
                         Qt::PenStyle style = Qt::SolidLine) {
         QPainterPath path;
         bool started = false;
         for (int i = start; i < end; ++i) {
-            const double v = data[static_cast<size_t>(i)];
+            const double v = series[static_cast<size_t>(i)];
             if (!std::isfinite(v)) { started = false; continue; }
             if (!started) { path.moveTo(barCenterX(i), priceToY(v)); started = true; }
             else { path.lineTo(barCenterX(i), priceToY(v)); }
@@ -301,6 +310,25 @@ void KLineChart::drawOverlayLines(QPainter& p) {
     drawLine(ind_.bollMid, QColor("#f5f5f5"));
     drawLine(ind_.bollUpper, QColor("#ff8a65"), Qt::DashLine);
     drawLine(ind_.bollLower, QColor("#ff8a65"), Qt::DashLine);
+
+    // 主图图例（取鼠标所在 bar，无鼠标取最后一根）
+    const int idx = (mouseIndex_ >= 0) ? mouseIndex_ : static_cast<int>(bars_.size()) - 1;
+    QFont lf = p.font();
+    lf.setPixelSize(11);
+    p.setFont(lf);
+    double x = mainRect_.left() + 6;
+    const double y = mainRect_.top() + 12;
+    auto legend = [&](const QString& name, double v, const QColor& c) {
+        const QString text = QStringLiteral("%1 %2").arg(name, QString::number(v, 'f', 2));
+        p.setPen(c);
+        p.drawText(QPointF(x, y), text);
+        x += p.fontMetrics().horizontalAdvance(text) + 12;
+    };
+    legend("MA5", ind_.ma5[static_cast<size_t>(idx)], QColor("#ffd54f"));
+    legend("MA10", ind_.ma10[static_cast<size_t>(idx)], QColor("#ce93d8"));
+    legend("MA20", ind_.ma20[static_cast<size_t>(idx)], QColor("#4dd0e1"));
+    legend("MA60", ind_.ma60[static_cast<size_t>(idx)], QColor("#90a4ae"));
+    legend("BOLL", ind_.bollMid[static_cast<size_t>(idx)], QColor("#ff8a65"));
 }
 
 void KLineChart::drawMacd(QPainter& p) {
@@ -329,11 +357,11 @@ void KLineChart::drawMacd(QPainter& p) {
     p.fillPath(downHist, kDownColor);
 
     // DIF / DEA 线
-    auto drawLine = [&](const std::vector<double>& data, const QColor& color) {
+    auto drawLine = [&](const std::vector<double>& series, const QColor& color) {
         QPainterPath path;
         bool started = false;
         for (int i = start; i < end; ++i) {
-            const double v = data[static_cast<size_t>(i)];
+            const double v = series[static_cast<size_t>(i)];
             if (!std::isfinite(v)) { started = false; continue; }
             if (!started) { path.moveTo(barCenterX(i), macdToY(v)); started = true; }
             else { path.lineTo(barCenterX(i), macdToY(v)); }
@@ -343,6 +371,25 @@ void KLineChart::drawMacd(QPainter& p) {
     };
     drawLine(ind_.macdDif, QColor("#ffffff"));
     drawLine(ind_.macdDea, QColor("#ffd54f"));
+
+    // 图例: MACD(12,26,9) + DIF/DEA 值
+    const int idx = (mouseIndex_ >= 0) ? mouseIndex_ : static_cast<int>(bars_.size()) - 1;
+    QFont lf = p.font();
+    lf.setPixelSize(11);
+    p.setFont(lf);
+    double x = macdRect_.left() + 6;
+    const double y = macdRect_.top() + 12;
+    auto legend = [&](const QString& name, double v, const QColor& c) {
+        const QString text = QStringLiteral("%1 %2").arg(name, QString::number(v, 'f', 2));
+        p.setPen(c);
+        p.drawText(QPointF(x, y), text);
+        x += p.fontMetrics().horizontalAdvance(text) + 12;
+    };
+    p.setPen(QColor("#d4d4d4"));
+    p.drawText(QPointF(x, y), tr("MACD(12,26,9)"));
+    x += p.fontMetrics().horizontalAdvance(tr("MACD(12,26,9)")) + 14;
+    legend("DIF", ind_.macdDif[static_cast<size_t>(idx)], QColor("#ffffff"));
+    legend("DEA", ind_.macdDea[static_cast<size_t>(idx)], QColor("#ffd54f"));
 }
 
 void KLineChart::drawRsi(QPainter& p) {
@@ -355,11 +402,11 @@ void KLineChart::drawRsi(QPainter& p) {
     p.drawLine(QPointF(rsiRect_.left(), rsiToY(30)), QPointF(rsiRect_.right(), rsiToY(30)));
     p.drawLine(QPointF(rsiRect_.left(), rsiToY(70)), QPointF(rsiRect_.right(), rsiToY(70)));
 
-    auto drawLine = [&](const std::vector<double>& data, const QColor& color) {
+    auto drawLine = [&](const std::vector<double>& series, const QColor& color) {
         QPainterPath path;
         bool started = false;
         for (int i = start; i < end; ++i) {
-            const double v = data[static_cast<size_t>(i)];
+            const double v = series[static_cast<size_t>(i)];
             if (!std::isfinite(v)) { started = false; continue; }
             if (!started) { path.moveTo(barCenterX(i), rsiToY(v)); started = true; }
             else { path.lineTo(barCenterX(i), rsiToY(v)); }
@@ -370,6 +417,23 @@ void KLineChart::drawRsi(QPainter& p) {
     drawLine(ind_.rsi6, QColor("#ffd54f"));
     drawLine(ind_.rsi12, QColor("#4dd0e1"));
     drawLine(ind_.rsi24, QColor("#ce93d8"));
+
+    // 图例: RSI + 6/12/24 值
+    const int idx = (mouseIndex_ >= 0) ? mouseIndex_ : static_cast<int>(bars_.size()) - 1;
+    QFont lf = p.font();
+    lf.setPixelSize(11);
+    p.setFont(lf);
+    double x = rsiRect_.left() + 6;
+    const double y = rsiRect_.top() + 12;
+    auto legend = [&](const QString& name, double v, const QColor& c) {
+        const QString text = QStringLiteral("%1 %2").arg(name, QString::number(v, 'f', 1));
+        p.setPen(c);
+        p.drawText(QPointF(x, y), text);
+        x += p.fontMetrics().horizontalAdvance(text) + 12;
+    };
+    legend("RSI6", ind_.rsi6[static_cast<size_t>(idx)], QColor("#ffd54f"));
+    legend("RSI12", ind_.rsi12[static_cast<size_t>(idx)], QColor("#4dd0e1"));
+    legend("RSI24", ind_.rsi24[static_cast<size_t>(idx)], QColor("#ce93d8"));
 }
 
 void KLineChart::drawAxes(QPainter& p) {
