@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "engine/paper_trade/paper_trade_engine.h"
+#include "engine/strategy/templates/ma_cross_strategy.h"
 #include "foundation/utils/datetime.h"
 
 using namespace st;
@@ -14,7 +15,7 @@ public:
     void onStart() override {}
     void onStop() override {}
 
-    void onBar(const StrategyContext& ctx) override {
+    void onBar(const StrategyContext&) override {
         if (!bought_) {
             buy(100);
             bought_ = true;
@@ -90,4 +91,45 @@ TEST(PaperTradeEngineTest, NotRunningDoesNothing) {
     // 不运行 → 无交易、无持仓
     EXPECT_TRUE(engine.trades().empty());
     EXPECT_TRUE(engine.portfolio().positions.empty());
+}
+
+TEST(PaperTradeEngineTest, TrendStrategyTradesWithSeededHistory) {
+    // 历史播种后，趋势策略（双均线）能在模拟交易中触发买入
+    StockCode code(Market::SH, "600519");
+    PaperTradeEngine engine;
+    PaperTradeConfig config;
+    config.initialCapital = 100000.0;
+    config.slippage = 0.0;
+    engine.setConfig(config);
+
+    auto strategy = std::make_shared<MACrossStrategy>();
+    strategy->fastPeriod_ = 3;
+    strategy->slowPeriod_ = 5;
+    engine.addStrategy(strategy);
+
+    // 播种 8 根横盘日线（slow=5 立即可算均线）
+    std::vector<Bar> seed;
+    const auto base = utils::parseDate("2024-01-02");
+    for (int i = 0; i < 8; ++i) {
+        Bar b;
+        b.code = code;
+        b.period = BarPeriod::Daily;
+        b.time = utils::addTradingDays(base, i);
+        b.open = b.high = b.low = b.close = 100.0;
+        b.volume = 10000;
+        seed.push_back(b);
+    }
+    engine.seedHistory(code, seed);
+    engine.start();
+
+    // 连续喂上升报价 → 金叉 → 触发买入
+    const auto t = utils::parseDate("2024-01-10");
+    for (int i = 0; i < 5; ++i) {
+        engine.onQuote(code, 100.0 + static_cast<double>(i) * 2.0, t);
+    }
+
+    const auto& trades = engine.trades();
+    ASSERT_FALSE(trades.empty());
+    EXPECT_EQ(trades.front().direction, Direction::Buy);
+    engine.stop();
 }

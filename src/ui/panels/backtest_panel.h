@@ -25,7 +25,7 @@ class IStrategy;
 struct BacktestConfig;
 struct BacktestResult;
 struct Performance;
-struct StockCode;
+class StockCode;
 
 /// 回测面板 — 选股/选策略/参数/日期/资金 → 异步回测 → 指标+净值曲线+成交明细
 class BacktestPanel : public QWidget {

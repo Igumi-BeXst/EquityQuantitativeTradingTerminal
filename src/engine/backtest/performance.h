@@ -1,6 +1,7 @@
 #pragma once
 
 #include "foundation/types.h"
+#include "foundation/order.h"
 #include <vector>
 #include <string>
 
@@ -50,6 +51,18 @@ public:
 
     /// 便捷重载: 只给净值曲线
     static Performance calculate(const std::vector<double>& equity);
+
+    /// 交易统计（从成交记录派生）
+    struct TradeStats {
+        int    totalTrades   = 0;   // 平仓（卖出）笔数
+        int    winningTrades = 0;   // 盈利平仓笔数
+        double winRate       = 0.0; // 胜率 (%) = winning/total*100
+        double profitFactor  = 0.0; // 盈亏比 = 总盈利/总亏损
+        double totalPnl      = 0.0; // 已实现盈亏（FIFO 逐股配对）
+    };
+
+    /// FIFO 逐股配对计算交易统计（buy 净成本=amount+totalFee，sell 净回款=amount-totalFee）
+    static TradeStats computeTradeStats(const std::vector<Trade>& trades);
 
 private:
     static std::vector<double> computeDailyReturns(const std::vector<double>& equity);

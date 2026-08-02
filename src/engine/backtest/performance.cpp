@@ -2,8 +2,59 @@
 #include <cmath>
 #include <algorithm>
 #include <numeric>
+#include <deque>
+#include <map>
 
 namespace st {
+
+PerformanceCalculator::TradeStats
+PerformanceCalculator::computeTradeStats(const std::vector<Trade>& trades) {
+    TradeStats ts;
+    struct Lot { Volume vol; double unitCost; };
+    std::map<std::string, std::deque<Lot>> lots;  // code -> 买入开仓队列
+
+    double grossProfit = 0.0, grossLoss = 0.0;
+    double realized = 0.0;
+
+    for (const auto& t : trades) {
+        if (t.direction == Direction::Buy && t.volume > 0) {
+            const double unitCost =
+                (t.amount + t.totalFee) / static_cast<double>(t.volume);
+            lots[t.code.fullCode()].push_back({t.volume, unitCost});
+        } else if (t.direction == Direction::Sell && t.volume > 0) {
+            const double sellNet =
+                (t.amount - t.totalFee) / static_cast<double>(t.volume);
+            auto& q = lots[t.code.fullCode()];
+            double pnl = 0.0;
+            Volume remaining = t.volume;
+            while (remaining > 0 && !q.empty()) {
+                const Volume take = std::min(remaining, q.front().vol);
+                pnl += static_cast<double>(take) * (sellNet - q.front().unitCost);
+                q.front().vol -= take;
+                remaining -= take;
+                if (q.front().vol <= 0) q.pop_front();
+            }
+            realized += pnl;
+            ++ts.totalTrades;
+            if (pnl > 1e-9) {
+                ++ts.winningTrades;
+                grossProfit += pnl;
+            } else if (pnl < -1e-9) {
+                grossLoss += -pnl;
+            }
+        }
+    }
+
+    ts.winRate = ts.totalTrades > 0
+        ? ts.winningTrades * 100.0 / static_cast<double>(ts.totalTrades) : 0.0;
+    if (grossLoss > 1e-12) {
+        ts.profitFactor = grossProfit / grossLoss;
+    } else {
+        ts.profitFactor = grossProfit > 1e-12 ? 999.0 : 0.0;
+    }
+    ts.totalPnl = realized;
+    return ts;
+}
 
 double PerformanceCalculator::mean(const std::vector<double>& values) {
     if (values.empty()) return 0.0;

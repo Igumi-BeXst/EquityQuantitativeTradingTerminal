@@ -26,6 +26,28 @@ private:
     bool bought_ = false;
 };
 
+// 策略: 第1个Bar买入，第10个Bar清仓（产生一次平仓，验证交易统计填充）
+class BuyThenSellStrategy : public IStrategy {
+public:
+    std::string name() const override { return "BuyThenSell"; }
+    void initialize() override {}
+    void onStart() override {}
+    void onStop() override {}
+
+    void onBar(const StrategyContext& ctx) override {
+        if (!bought_) {
+            buyByAmount(ctx.portfolio->cash * 0.9);
+            bought_ = true;
+        } else if (!sold_ && ctx.history->size() >= 10) {
+            sellAll();
+            sold_ = true;
+        }
+    }
+private:
+    bool bought_ = false;
+    bool sold_ = false;
+};
+
 std::vector<Bar> makeRisingSeries(const StockCode& code, int n, double startPrice) {
     std::vector<Bar> bars;
     auto base = utils::parseDate("2024-01-02");
@@ -93,4 +115,35 @@ TEST(BacktestEngineTest, NoDataReturnsError) {
     auto result = engine.run();
     EXPECT_FALSE(result.success);
     EXPECT_FALSE(result.error.empty());
+}
+
+TEST(BacktestEngineTest, TradeStatsFilled) {
+    // 买入→卖出 一次平仓：交易统计应被填充
+    StockCode code(Market::SH, "600519");
+    auto bars = makeRisingSeries(code, 20, 100.0);
+
+    DataCache cache;
+    cache.cacheBars(code, BarPeriod::Daily, bars);
+
+    BacktestConfig config;
+    config.symbols = {code};
+    config.startDate = bars.front().time;
+    config.endDate = bars.back().time;
+    config.initialCapital = 100000.0;
+    config.period = BarPeriod::Daily;
+
+    BacktestEngine engine;
+    engine.setConfig(config);
+    engine.setDataCache(&cache);
+    engine.addStrategy(std::make_shared<BuyThenSellStrategy>());
+
+    auto result = engine.run();
+    ASSERT_TRUE(result.success) << result.error;
+
+    // 一次平仓 → 胜率 100%，盈亏为正（上涨行情）
+    EXPECT_EQ(result.performance.totalTrades, 1);
+    EXPECT_EQ(result.performance.winningTrades, 1);
+    EXPECT_NEAR(result.performance.winRate, 100.0, 0.01);
+    EXPECT_GT(result.performance.totalPnl, 0.0);
+    EXPECT_GT(result.performance.profitFactor, 1.0);
 }

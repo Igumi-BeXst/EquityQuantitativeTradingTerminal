@@ -59,6 +59,10 @@ add_library(st_engine STATIC
     engine/market/market_engine.cpp
     engine/market/market_scanner.cpp
     engine/market/market_breadth.cpp
+    engine/optimizer/grid_search.cpp
+    engine/analyzer/strategy_comparator.cpp
+    engine/analyzer/stress_test.cpp
+    engine/analyzer/monte_carlo.cpp
 )
 target_link_libraries(st_engine PUBLIC st_data st_core st_foundation talib::talib)
 
@@ -80,10 +84,17 @@ add_library(st_ui STATIC
     ui/panels/backtest_panel.cpp
     ui/panels/strategy_panel.cpp
     ui/panels/screener_panel.cpp
+    ui/panels/paper_trade_panel.cpp
+    ui/panels/optimization_panel.cpp
+    ui/panels/strategy_compare_panel.cpp
+    ui/panels/stress_test_panel.cpp
     ui/panels/log_panel.cpp
     ui/models/stock_list_model.cpp
     ui/models/trade_table_model.cpp
     ui/models/market_rank_model.cpp
+    ui/models/screen_result_model.cpp
+    ui/models/grid_search_table_model.cpp
+    ui/models/comparison_table_model.cpp
 )
 target_link_libraries(st_ui PUBLIC st_engine Qt6::Widgets)
 

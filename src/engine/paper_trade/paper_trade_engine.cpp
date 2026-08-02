@@ -23,6 +23,10 @@ void PaperTradeEngine::addStrategy(std::shared_ptr<IStrategy> strategy) {
     }
 }
 
+void PaperTradeEngine::seedHistory(const StockCode& code, const std::vector<Bar>& bars) {
+    history_[code.fullCode()] = bars;
+}
+
 void PaperTradeEngine::start() {
     if (running_) return;
     running_ = true;
@@ -36,7 +40,11 @@ void PaperTradeEngine::start() {
         api.getCurrentCode = [this]() -> const StockCode& {
             return currentCode_;
         };
-        api.placeOrder = [this](StockCode code, Direction dir, Volume vol, Amount) {
+        api.placeOrder = [this](StockCode code, Direction dir, Volume vol, Amount amount) {
+            // buyByAmount 传 vol=0 + amount → 按最近报价换算股数
+            if (vol <= 0 && amount > 0 && lastPrice_ > 0) {
+                vol = static_cast<Volume>(amount / lastPrice_);
+            }
             submitOrder(code, dir, vol);
         };
         s->setTradingApi(std::move(api));
@@ -72,16 +80,23 @@ void PaperTradeEngine::onQuote(const StockCode& code, Price price, DateTime time
     if (!running_ || price <= 0) return;
 
     currentCode_ = code;
+    lastPrice_ = price;
 
-    // 驱动策略 onBar（用当前报价构造 bar），策略可能下单
+    // 用当前报价构造 bar，累积历史供趋势策略计算均线
     Bar bar;
     bar.code = code;
     bar.time = time;
     bar.open = bar.high = bar.low = bar.close = price;
 
+    auto& hist = history_[code.fullCode()];
+    hist.push_back(bar);
+    BarSeries series(hist);
+
+    // 驱动策略 onBar，策略可能下单
     StrategyContext ctx;
     ctx.currentCode = &code;
     ctx.currentBar = &bar;
+    ctx.history = &series;
     ctx.portfolio = &portfolio_;
     for (auto& s : strategies_) {
         s->onBar(ctx);

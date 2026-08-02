@@ -298,6 +298,14 @@ BacktestResult BacktestEngine::run() {
         result_.totalFees += t.totalFee;
     }
 
+    // 交易统计（winRate/profitFactor/trades/totalPnl）
+    auto ts = PerformanceCalculator::computeTradeStats(result_.trades);
+    result_.performance.totalTrades = ts.totalTrades;
+    result_.performance.winningTrades = ts.winningTrades;
+    result_.performance.winRate = ts.winRate;
+    result_.performance.profitFactor = ts.profitFactor;
+    result_.performance.totalPnl = result_.finalPortfolio.totalPnl;
+
     result_.success = true;
     return result_;
 }

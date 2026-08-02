@@ -9,6 +9,11 @@
 #include "ui/panels/market_panel.h"
 #include "ui/panels/strategy_panel.h"
 #include "ui/panels/backtest_panel.h"
+#include "ui/panels/screener_panel.h"
+#include "ui/panels/paper_trade_panel.h"
+#include "ui/panels/optimization_panel.h"
+#include "ui/panels/strategy_compare_panel.h"
+#include "ui/panels/stress_test_panel.h"
 #include "data/tencent_provider.h"
 #include "core/app_paths.h"
 #include "core/config_manager.h"
@@ -16,6 +21,7 @@
 #include "core/event_bus.h"
 #include "foundation/stock_info.h"
 #include <QDockWidget>
+#include <QTabWidget>
 #include <QToolBar>
 #include <QStatusBar>
 #include <QLabel>
@@ -161,6 +167,40 @@ void MainWindow::createDocks() {
     backtestDock_->setWidget(new BacktestPanel(provider_.get(), backtestDock_));
     tabifyDockWidget(strategyDock, backtestDock_);
 
+    // 右: 量化面板（选股/模拟交易/参数优化/策略对比/压力测试 一个 dock 内嵌标签页）
+    quantDock_ = new QDockWidget(tr("量化"), this);
+    quantDock_->setObjectName(QStringLiteral("quantDock"));
+    quantTabs_ = new QTabWidget(quantDock_);
+    screenerPanel_ = new ScreenerPanel(provider_.get(), quantTabs_);
+    paperTradePanel_ = new PaperTradePanel(provider_.get(), quantTabs_);
+    optimizationPanel_ = new OptimizationPanel(provider_.get(), quantTabs_);
+    strategyComparePanel_ = new StrategyComparePanel(provider_.get(), quantTabs_);
+    stressTestPanel_ = new StressTestPanel(provider_.get(), quantTabs_);
+    quantTabs_->addTab(screenerPanel_, tr("选股"));
+    quantTabs_->addTab(paperTradePanel_, tr("模拟交易"));
+    quantTabs_->addTab(optimizationPanel_, tr("参数优化"));
+    quantTabs_->addTab(strategyComparePanel_, tr("策略对比"));
+    quantTabs_->addTab(stressTestPanel_, tr("压力测试"));
+    quantDock_->setWidget(quantTabs_);
+    tabifyDockWidget(backtestDock_, quantDock_);
+
+    // 选股双击 → 中央开图
+    connect(screenerPanel_, &ScreenerPanel::openChart, this, [this](const StockCode& code) {
+        centralStack_->setCurrentWidget(centralChart_);
+        centralChart_->loadStock(code, QString::fromStdString(code.displayCode()));
+    });
+    // 参数优化点行 → 应用到回测面板
+    connect(optimizationPanel_, &OptimizationPanel::applyParams, this,
+            [this](const QString& id, const QVariantMap& params) {
+        if (backtestDock_) {
+            backtestDock_->raise();
+            backtestDock_->activateWindow();
+        }
+        if (auto* bt = findChild<BacktestPanel*>()) {
+            bt->loadStrategy(id, params);
+        }
+    });
+
     // 底: 日志面板（真实实现）
     logDock_ = new QDockWidget(tr("日志"), this);
     logDock_->setObjectName(QStringLiteral("logDock"));
@@ -173,7 +213,7 @@ void MainWindow::createDocks() {
 void MainWindow::createMenus() {
     // 文件
     auto* fileMenu = menuBar()->addMenu(tr("文件(&F)"));
-    fileMenu->addAction(tr("退出(&X)"), this, &QWidget::close, QKeySequence::Quit);
+    fileMenu->addAction(tr("退出(&X)"), QKeySequence::Quit, this, &QWidget::close);
 
     // 视图
     auto* viewMenu = menuBar()->addMenu(tr("视图(&V)"));

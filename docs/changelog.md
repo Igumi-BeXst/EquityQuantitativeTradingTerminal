@@ -1,5 +1,19 @@
 # 变更记录
 
+## P7 (2026-08-03) — UI 量化面板
+- 引擎: 修复 Performance 交易统计（FIFO 配对 winRate/profitFactor/totalTrades/totalPnl）
+- 引擎: GridSearchOptimizer 网格搜索（参数组合 + 并行回测 + 5 目标函数排序）
+- 引擎: StrategyComparator 策略对比、StressTest 压力测试（5 预设极端窗口）、MonteCarlo 蒙特卡洛
+- 引擎: 修复 PaperTradeEngine（onQuote 注入历史使趋势策略可交易 + seedHistory + buyByAmount 成交）
+- UI: 选股面板（11 因子勾选 + 双击开图）
+- UI: 模拟交易面板（单股票实时行情驱动 + 账户状态 + 成交表 + 日志）
+- UI: 参数优化面板（范围搜索 + 点行应用到回测）
+- UI: 策略对比面板（6 预设净值叠加 + 蒙特卡洛置信区间）
+- UI: 压力测试面板（极端窗口回放 + 基线对比）
+- UI: EquityCurveWidget 多序列、ScreenResultModel/GridSearchTableModel/ComparisonTableModel
+- UI: "量化"dock 内嵌 5 标签页，tabify 到回测 dock
+- 测试 117 → 135
+
 ## v0.1.0 (2026-08-01)
 - 项目初始化
 - 需求分析与架构设计

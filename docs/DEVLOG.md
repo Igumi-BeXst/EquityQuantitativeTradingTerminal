@@ -1,5 +1,42 @@
 # 开发日志 (Development Log)
 
+## 2026-08-03 — P7 UI 量化面板完成
+
+### 背景
+P6 完成（117 tests）后搭建量化面板体系。探索确认：StockScreener(11因子)/PaperTradeEngine/BacktestEngine 已就绪，`optimizer/`、`analyzer/` 目录为空，`screener_panel` 是空桩。发现 **Performance 的 winRate/profitFactor/totalTrades/winningTrades/totalPnl 字段从未被填充**（性能展示和优化目标函数都依赖它）。
+
+### 已完成
+- [x] **Engine 修复与新增**
+  - 修复 `PerformanceCalculator::computeTradeStats`（FIFO 逐股配对，买成本=amount+totalFee、卖回款=amount-totalFee）→ BacktestEngine::run 填充 winRate/profitFactor/totalTrades/winningTrades/totalPnl
+  - `GridSearchOptimizer`（engine/optimizer/）：参数笛卡尔积 + std::async 并行回测（共享只读 DataCache 不重复 IO）+ 5 目标函数（总收益/夏普/最大回撤/卡玛/盈亏比）排序
+  - `StrategyComparator`（engine/analyzer/）：多策略同数据范围同时回测，按总收益降序
+  - `StressTest`（engine/analyzer/）：5 预设极端窗口（2015股灾/2016熔断/2018熊市/2020疫情/2024微盘股）+ 全期基线对比
+  - `MonteCarlo`（engine/analyzer/）：日收益有放回重采样 N 次 → P5/P50/P95 + 亏损概率
+  - 修复 `PaperTradeEngine`：onQuote 现在累积 per-code 历史并注入 ctx.history（此前趋势策略因 `!ctx.history` 永不交易）；新增 `seedHistory` 播种历史；修复 `placeOrder` 忽略 amount 导致 `buyByAmount` 不成交
+- [x] **UI 面板**（一个"量化"QDockWidget 内嵌 5 标签页，tabify 到右侧回测 dock）
+  - **选股面板**：11 因子勾选 + 精选129池 + topN/回看/截止 → StockScreener → 结果表（排名/代码/名称/总分/因子明细），双击开图
+  - **模拟交易面板**：单股票 + 策略参数 + 资金/滑点 → QTimer 3s 轮询 batchQuote 驱动 PaperTradeEngine → 现金/市值/总资产/总盈亏/持仓 + 成交表 + 日志
+  - **参数优化面板**：两参数 from/to/step + 目标函数 → GridSearch → 结果表按目标排序，单击行应用参数到回测面板
+  - **策略对比面板**：6 策略预设同时回测 + 多序列净值叠加（EquityCurveWidget 扩展）+ 蒙特卡洛置信区间
+  - **压力测试面板**：5 压力场景 + 基线对比 + 当前窗口净值曲线/指标（最大回撤红色高亮）
+- [x] **UI 基础**：EquityCurveWidget 多序列（setSeries + setData 兼容）、ScreenResultModel/GridSearchTableModel/ComparisonTableModel
+- [x] **MainWindow**：quantDock(5 tab) + 选股双击开图 + 优化点行应用到回测
+
+### 测试
+- **Total: 135 tests, 0 failed**（+18）
+  - test_performance +4: computeTradeStats 单赢/赢亏/空/FIFO部分
+  - test_backtest_engine +1: TradeStatsFilled（买入卖出→交易统计填充）
+  - test_grid_search +6: 组合生成/排序/目标映射/缓存复用/并行确定性
+  - test_analyzer +6: StressTest窗口+基线/Comparator降序/MonteCarlo恒定+分布+空
+  - test_paper_trade +1: TrendStrategyTradesWithSeededHistory（播种历史+金叉买入）
+
+### 排查记录
+- **PaperTradeEngine 趋势策略永不交易**：onQuote 未设置 ctx.history，MACross/Turtle 首行 `!ctx.history` return → 累积历史 + seedHistory
+- **buyByAmount 不成交**：placeOrder lambda 忽略 amount 参数 → 按 lastPrice_ 换算股数
+- **test_engine.exe 0xc0000135**（DLL 找不到）：构建 shell 缺 Qt bin PATH（build.bat 有 `set PATH=D:\Qt\...\bin`）
+- **C4099 预置警告**：backtest_panel.h `struct StockCode;` 前向声明与定义 `class StockCode` 冲突 → 改 class
+- **C4996 预置警告**：main_window.cpp QMenu::addAction 弃用重载 → 换 text,shortcut,obj,slot 顺序
+
 ## 2026-08-03 — P6 UI 图表核心完成
 
 ### 背景
