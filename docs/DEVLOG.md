@@ -1,6 +1,33 @@
 # 开发日志 (Development Log)
 
-## 2026-08-01 — 项目初始化
+## 2026-08-02 — P1 Data 层完成
+
+### 已完成
+- [x] Foundation 补充 `StockInfo` 类型（股票基本信息）
+- [x] `IDataProvider` 抽象接口完善（connect/getStockInfo/getStockList/getBars/订阅行情）
+- [x] **DataRepository** — SQLite 存储 (Qt6::Sql)
+  - stocks 表：股票信息
+  - daily_bars 表：日线 K 线（OHLCV + turnover）
+  - minute_bars 表：分钟 K 线
+  - data_sync_log 表：同步状态
+- [x] **AKShareProvider** — 东财 HTTP API 接入 (cpp-httplib)
+  - 股票列表、日线 K 线（JSON 解析）
+- [x] **DataCache** — 内存缓存（code+period 分组，线程安全）
+- [x] **StockSearchIndex** — 股票搜索索引（代码/名称/拼音首字母）
+- [x] Foundation 补充 `bar.cpp`（BarSeries 实现）
+
+### 测试结果
+- **Total: 39 tests, 0 failed**（+14 新测试）
+  - DataRepositoryTest: 4 tests（schema/股票保存加载/K线保存加载/同步日志）
+  - DataCacheTest: 4 tests
+  - StockSearchIndexTest: 6 tests
+
+### 排查记录
+- **Qt SQL 崩溃根因**：test_data 的 main 缺少 `QCoreApplication`，导致 SQL 驱动插件加载崩溃（SEH 0xc0000005）。加入 QCoreApplication 后修复。
+- **StockCode 解析 bug**：loadStockInfos 用完整 fullCode（SH600519）构造 code，改用 StockCode(fullCode) 解析构造函数修复。
+
+### 下一步 → P2 Engine 核心引擎
+Strategy 基类 + BacktestEngine + PaperTradeEngine + FeeCalculator + Performance
 - [x] 需求讨论：综合性股票交易工作站，30+功能
 - [x] 架构设计：分层服务架构（7层），UI→Intelligence→Engine→Core→Data→Foundation
 - [x] 技术栈确定：C++17 + Qt 6.5+ + CMake + Ninja + MSVC
