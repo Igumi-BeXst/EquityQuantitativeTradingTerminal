@@ -1,5 +1,48 @@
 # 开发日志 (Development Log)
 
+## 2026-08-03 — P5 UI 框架完成
+
+### 背景
+P4 完成后（87 tests 零失败）搭建 Qt UI 框架。探索确认 UI 层 13 个类全为空桩，且发现 **4 个必须前置修复的底层缺陷**：`LogManager::logMessage` 从未 emit、st_ui AUTOMOC 陈旧（12 类无 moc）、腾讯行情返回 GBK 编码、`toPinyinInitials` 对中文是占位符。
+
+### 已完成
+- [x] **Data 层增强（P5 前置）**
+  - `fetch()` 改 thread_local QNetworkAccessManager → 任意线程安全调用（IO 池加载股票列表不卡 10s）
+  - `parseQuoteRecord` 完整解析行情（实测字段索引 + GBK→UTF-8 转码 + 名称规范化去全角/空格）
+  - **时间戳锚定解析**：股票/指数字段布局不同（股票时间@30，指数@32），用 14 位时间戳字段定位后相对取值
+  - `batchQuote` / `parseQuotes` / `parseQuoteName` / `toTencentCode` 公共接口
+  - `curated_stocks.h` 内置精选股票池 **129 只**（沪66+深63，代码/名称/拼音硬编码），腾讯实时名称覆盖（离线回退）
+    - 已用 live 数据校验：0 错误代码；更新 601211 国泰海通（2025 国泰君安+海通合并）
+  - **QuotePoller** 实时轮询：主线程异步 QNAM + QTimer（5s）+ `pollInFlight_` 防堆积 + 注入式测试
+  - `subscribeQuote`/`unsubscribeQuote`/`refreshQuotes` 真实实现（原为空）
+- [x] **UI 类名重命名**（9 类统一 PascalCase）+ 全 .cpp 加 `#include "moc_X.cpp"`（moc 1→26 个）
+- [x] **主题系统**：ThemeManager + dark/light.qss（.qrc 内嵌）+ ConfigManager 持久化 `ui.theme`
+- [x] **日志面板**：LogManager `log()` 补 emit `logMessage`（fmt::format + 主线程 Queued 投递）；LogPanel 级别过滤/自动滚动/清空/有界缓冲
+- [x] **顶部指数条**：上证/深证/创业板/科创50 实时行情，红涨绿跌，可点击
+- [x] **全局搜索栏**：代码/名称/拼音首字母搜索，自定义 QListWidget 弹层 + 防抖 + 键盘导航，IO 池异步加载 129 只
+- [x] **快捷键系统**：ShortcutManager + ConfigManager 持久化映射（Ctrl+Space/Ctrl+L/F5/Ctrl+,）+ 偏好设置对话框
+- [x] **MainWindow 组装**：QDockWidget 布局（左市场/右策略+回测/底日志）+ 菜单 + 工具栏 + 状态栏 + QSettings 窗口/布局持久化 + 主题切换
+
+### 测试
+- **Total: 103 tests, 0 failed**（+16 新测试）
+  - test_data +13: TencentQuoteTest 8（字段解析/GBK/规范化/批量/指数市场前缀）、CuratedStocksTest 2、QuotePollerTest 3
+  - test_core +3: LogManagerTest（logMessage 信号投递）
+
+### 实测验证
+- `curated_check`：129 只精选股票池对比腾讯实时名称，0 错误代码
+- `quote_test`：QuotePoller 真实异步链路，4 大指数全部正确（上证 3832.26 +0.72% / 深成 13578.9 +2.21% / 创业 3343.96 +3.06% / 科创 1635.96 +2.99%）
+- 应用启动 8s 无崩溃；`%APPDATA%\StockTerminal\config\default.json` 生成 `ui.theme`/`ui.shortcuts.*`；ini 持久化窗口几何+dock 布局
+
+### 排查记录
+- **QToolButton::setFlat 移除**（Qt6）→ 改用 setAutoRaise(true)
+- **`class QWidget;` 误放 namespace st 内** → 遮蔽全局 ::QWidget，导致基类解析错乱 → 移到全局作用域
+- **指数/股票字段布局不同**：绝对索引硬编码解析指数会错 → 时间戳锚定相对取值
+- **指数市场识别错误**：parseQuoteBatch 用代码自动检测市场，sh000001 被误判 SZ → 从 `v_sh000001` 前缀解析市场
+- **start() 立即刷新只拉到 1 只**：订阅逐个调用 → singleShot(0) 延迟到本轮订阅完成
+
+### 下一步 → P6 UI 图表核心
+K线图（9 层渲染系统）+ 分时图 + 回测面板 + 策略面板 + 市场全景面板
+
 ## 2026-08-02 — P4 验证闭环 + 腾讯数据源完成
 
 ### 背景
