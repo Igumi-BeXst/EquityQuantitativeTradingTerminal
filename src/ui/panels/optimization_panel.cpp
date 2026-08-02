@@ -250,7 +250,12 @@ void OptimizationPanel::onAllDataFetched() {
     cfg.feeConfig = FeeConfig::defaultAShare();
     cfg.objective = currentObjective();
     cfg.cache = cache_.get();
+#ifdef _DEBUG
+    // Debug CRT 堆有全局锁，多线程抢锁反而比单线程慢（实测 8 线程 = 单线程 2.3 倍耗时）
+    cfg.parallelLanes = 2;
+#else
     cfg.parallelLanes = std::max(1, QThreadPool::globalInstance()->maxThreadCount());
+#endif
 
     const QString p1Name = p1Label_->text();
     const QString p2Name = p2Label_->text();

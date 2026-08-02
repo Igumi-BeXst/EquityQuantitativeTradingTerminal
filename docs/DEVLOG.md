@@ -1,5 +1,35 @@
 # 开发日志 (Development Log)
 
+## 2026-08-03 — P7 优化崩溃修复 + 回测性能优化
+
+### 背景
+用户测试参数优化面板时应用崩溃（WER: `ucrtbased.dll` + `0x80000003` = Debug CRT/STL 断言断点）。
+
+### 根因（两个叠加问题）
+1. **BacktestEngine::getPortfolio 用函数级 static Portfolio**：GridSearch 并行跑多个 BacktestEngine 时，多线程同时写同一个 static → 数据竞争/堆损坏 → 策略遍历 positions 时撞上对方释放 → STL 断言崩溃。回测面板只跑单引擎所以从未触发。
+2. **BacktestEngine 每 bar 整段拷贝历史**（`BarSeries series(hist)` O(n²)）：网格搜索 90 组合 × 6 股从 38s（单线程）到 123s（8 线程 Debug 堆锁竞争）——优化"假死"。
+
+### 修复
+- [x] `cachedPortfolio_` 实例成员替代函数级 static（每引擎独立，线程隔离）
+- [x] **BarSeries 重构**：内部改 `shared_ptr<vector<Bar>>` 存储 + 新增 `append()`；backtest/paper_trade 热循环从"每 bar 整段拷贝"变 O(1) 追加
+- [x] backtest_engine：删除死代码 `filteredBarsByCode`/`currentIndexByCode`，改 `map<StockCode, BarSeries> seriesByCode` 增量构建
+- [x] paper_trade：`history_` 改 `map<string, BarSeries>` + `seedHistory` 按值移动
+- [x] 优化面板：Debug 下 `parallelLanes=2`（实测 Debug CRT 堆全局锁使 8 线程 = 单线程 2.3 倍耗时），Release 用 maxThreadCount
+
+### 性能对比（6 股 × 90 组合）
+| lanes | 修复前 | 修复后 |
+|---|---|---|
+| 1 | 38s | 6.0s |
+| 2 | - | 5.6s |
+| 8 | 123s | 14.0s |
+
+### 排查过程
+- WER 拿到崩溃签名（ucrtbased.dll + 0x80000003 = Debug 断言断点）
+- 无头复现工具发现单线程通过、并行卡死 → 定位 BarSeries O(n²) 拷贝
+- gtest 全崩但独立 exe 通过 → 二分测试文件定位为**陈旧对象 ABI 不匹配**（bar.h 变更后部分测试对象未重编），强制重编后 135 全绿
+- 新增回归测试 `ConcurrentEnginesPortfolioSafe`（4 线程并发引擎 + 高频 getPortfolio）
+- 测试 135 → 136
+
 ## 2026-08-03 — P7 UI 量化面板完成
 
 ### 背景

@@ -40,7 +40,7 @@ public:
     void addStrategy(std::shared_ptr<IStrategy> strategy);
 
     /// 播种历史（启动前用历史日线填充，趋势策略可立即计算均线）
-    void seedHistory(const StockCode& code, const std::vector<Bar>& bars);
+    void seedHistory(const StockCode& code, std::vector<Bar> bars);
 
     /// 行情驱动入口 — 收到实时报价时调用
     void onQuote(const StockCode& code, Price price, DateTime time);
@@ -77,7 +77,7 @@ private:
     std::optional<Order> pendingOrder_;   // 挂起的市价单
     StockCode currentCode_;               // 当前行情代码
     Price lastPrice_ = 0.0;               // 最近报价（按金额下单换算用）
-    std::map<std::string, std::vector<Bar>> history_;  // code -> 报价历史
+    std::map<std::string, BarSeries> history_;  // code -> 报价历史（BarSeries 增量构建）
 };
 
 } // namespace st

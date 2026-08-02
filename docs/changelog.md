@@ -1,5 +1,13 @@
 # 变更记录
 
+## P7 修复 (2026-08-03) — 优化崩溃 + 回测性能
+- 修复优化崩溃: BacktestEngine::getPortfolio 函数级 static → 实例成员（并行回测线程隔离）
+- BarSeries 重构: shared_ptr 存储 + append()，回测热循环 O(n²) 整段拷贝 → O(1) 追加
+- 优化面板 Debug 并行度调优（Debug CRT 堆锁 8 线程比单线程慢 → 限 2）
+- 网格搜索性能: 6 股 90 组合 38s → 6s（单线程），并行 123s → 14s
+- 回归测试: ConcurrentEnginesPortfolioSafe
+- 测试 135 → 136
+
 ## P7 (2026-08-03) — UI 量化面板
 - 引擎: 修复 Performance 交易统计（FIFO 配对 winRate/profitFactor/totalTrades/totalPnl）
 - 引擎: GridSearchOptimizer 网格搜索（参数组合 + 并行回测 + 5 目标函数排序）

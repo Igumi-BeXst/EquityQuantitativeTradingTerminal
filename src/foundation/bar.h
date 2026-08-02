@@ -3,6 +3,7 @@
 #include "foundation/types.h"
 #include "foundation/enums.h"
 #include "foundation/stock_code.h"
+#include <memory>
 #include <vector>
 
 namespace st {
@@ -32,13 +33,20 @@ struct Bar {
 };
 
 /// Time-ordered Bar sequence for technical analysis
+///
+/// 内部用 shared_ptr 持有数据：复制 BarSeries 只复制指针（O(1)），
+/// 配合 append() 可在行情/回测中增量构建而无需每根 bar 整段拷贝。
 class BarSeries {
 public:
-    BarSeries() = default;
-    explicit BarSeries(std::vector<Bar> bars);
+    BarSeries() : bars_(std::make_shared<std::vector<Bar>>()) {}
+    explicit BarSeries(std::vector<Bar> bars)
+        : bars_(std::make_shared<std::vector<Bar>>(std::move(bars))) {}
 
-    [[nodiscard]] size_t size() const { return bars_.size(); }
-    [[nodiscard]] bool empty() const { return bars_.empty(); }
+    /// 追加一根 bar（增量构建，避免整段拷贝）
+    void append(const Bar& bar) { bars_->push_back(bar); }
+
+    [[nodiscard]] size_t size() const { return bars_->size(); }
+    [[nodiscard]] bool empty() const { return bars_->empty(); }
 
     /// Access the last bar (most recent)
     [[nodiscard]] const Bar& current() const;
@@ -58,13 +66,13 @@ public:
     [[nodiscard]] std::vector<Volume> volumes() const;
 
     // Iteration
-    auto begin() { return bars_.begin(); }
-    auto end()   { return bars_.end(); }
-    [[nodiscard]] auto begin() const { return bars_.begin(); }
-    [[nodiscard]] auto end()   const { return bars_.end(); }
+    auto begin() { return bars_->begin(); }
+    auto end()   { return bars_->end(); }
+    [[nodiscard]] auto begin() const { return bars_->begin(); }
+    [[nodiscard]] auto end()   const { return bars_->end(); }
 
 private:
-    std::vector<Bar> bars_;
+    std::shared_ptr<std::vector<Bar>> bars_;
 };
 
 } // namespace st

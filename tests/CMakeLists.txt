@@ -35,13 +35,13 @@ if(BUILD_WITH_QT)
 
     add_executable(test_engine
         test_engine/test_main.cpp
-        test_engine/test_fee_calculator.cpp
-        test_engine/test_performance.cpp
         test_engine/test_backtest_engine.cpp
+        test_engine/test_performance.cpp
+        test_engine/test_fee_calculator.cpp
         test_engine/test_paper_trade.cpp
+        test_engine/test_market.cpp
         test_engine/test_factors.cpp
         test_engine/test_screener.cpp
-        test_engine/test_market.cpp
         test_engine/test_grid_search.cpp
         test_engine/test_analyzer.cpp
     )

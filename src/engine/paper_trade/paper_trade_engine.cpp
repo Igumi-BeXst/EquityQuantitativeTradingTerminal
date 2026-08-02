@@ -23,8 +23,8 @@ void PaperTradeEngine::addStrategy(std::shared_ptr<IStrategy> strategy) {
     }
 }
 
-void PaperTradeEngine::seedHistory(const StockCode& code, const std::vector<Bar>& bars) {
-    history_[code.fullCode()] = bars;
+void PaperTradeEngine::seedHistory(const StockCode& code, std::vector<Bar> bars) {
+    history_[code.fullCode()] = BarSeries(std::move(bars));
 }
 
 void PaperTradeEngine::start() {
@@ -88,9 +88,8 @@ void PaperTradeEngine::onQuote(const StockCode& code, Price price, DateTime time
     bar.time = time;
     bar.open = bar.high = bar.low = bar.close = price;
 
-    auto& hist = history_[code.fullCode()];
-    hist.push_back(bar);
-    BarSeries series(hist);
+    auto& series = history_[code.fullCode()];
+    series.append(bar);
 
     // 驱动策略 onBar，策略可能下单
     StrategyContext ctx;

@@ -164,9 +164,8 @@ BacktestResult BacktestEngine::run() {
     for (auto& s : strategies_) {
         IStrategy::TradingApi api;
         api.getPortfolio = [this]() -> const Portfolio& {
-            static Portfolio cached;
-            cached = account_->snapshot(DateTime{});
-            return cached;
+            cachedPortfolio_ = account_->snapshot(DateTime{});
+            return cachedPortfolio_;
         };
         api.getCurrentCode = [this]() -> const StockCode& {
             return currentCode_;
@@ -193,8 +192,6 @@ BacktestResult BacktestEngine::run() {
     // 加载数据并构建按日期分组的全局时间轴
     struct DailyBar { StockCode code; Bar bar; };
     std::map<DateTime, std::vector<DailyBar>> timeline;
-    // 每只股票过滤后的完整序列（供策略 history 使用）
-    std::map<StockCode, std::vector<Bar>> filteredBarsByCode;
 
     for (const auto& code : config_.symbols) {
         auto bars = cache_->getBars(code, config_.period);
@@ -202,7 +199,6 @@ BacktestResult BacktestEngine::run() {
         for (auto& bar : bars) {
             if (bar.time >= config_.startDate && bar.time <= config_.endDate) {
                 timeline[bar.time].push_back({code, bar});
-                filteredBarsByCode[code].push_back(bar);
             }
         }
     }
@@ -217,9 +213,8 @@ BacktestResult BacktestEngine::run() {
     const int total = static_cast<int>(timeline.size());
 
     // 每只股票到当前为止的累计历史（避免前视偏差）
-    std::map<StockCode, std::vector<Bar>> historyByCode;
-    // 当前 bar 在累计历史中的索引（当日 bar 加入后，策略可见）
-    std::map<StockCode, int> currentIndexByCode;
+    // BarSeries 内部 shared_ptr + append，O(1) 追加，避免每根 bar 整段拷贝
+    std::map<StockCode, BarSeries> seriesByCode;
 
     for (auto& [date, dayBars] : timeline) {
         // 1. 每个股票：通知策略 onBar（先看当前 bar）
@@ -227,13 +222,9 @@ BacktestResult BacktestEngine::run() {
             currentCode_ = db.code;
             currentTime_ = db.bar.time;
 
-            // 将当前 bar 加入该股票历史（含当前 bar，策略可 lookback 当前）
-            auto& hist = historyByCode[db.code];
-            hist.push_back(db.bar);
-            currentIndexByCode[db.code] = static_cast<int>(hist.size()) - 1;
-
-            // 构造 BarSeries（当前为止的历史）
-            BarSeries series(hist);
+            // 将当前 bar 追加进该股票历史（含当前 bar，策略可 lookback 当前）
+            auto& series = seriesByCode[db.code];
+            series.append(db.bar);
 
             StrategyContext ctx;
             ctx.currentCode = &currentCode_;

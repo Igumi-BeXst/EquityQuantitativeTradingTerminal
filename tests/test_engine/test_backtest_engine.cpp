@@ -2,6 +2,9 @@
 #include "engine/backtest/backtest_engine.h"
 #include "data/data_cache.h"
 #include "foundation/utils/datetime.h"
+#include <atomic>
+#include <cmath>
+#include <thread>
 
 using namespace st;
 
@@ -66,6 +69,24 @@ std::vector<Bar> makeRisingSeries(const StockCode& code, int n, double startPric
     return bars;
 }
 
+std::vector<Bar> makeSeriesFromCloses(const StockCode& code, const std::vector<double>& closes) {
+    std::vector<Bar> bars;
+    auto base = utils::parseDate("2024-01-02");
+    for (size_t i = 0; i < closes.size(); ++i) {
+        Bar bar;
+        bar.code = code;
+        bar.period = BarPeriod::Daily;
+        bar.time = utils::addTradingDays(base, static_cast<int>(i));
+        bar.open = closes[i];
+        bar.high = closes[i] * 1.01;
+        bar.low = closes[i] * 0.99;
+        bar.close = closes[i];
+        bar.volume = 10000;
+        bars.push_back(bar);
+    }
+    return bars;
+}
+
 } // namespace
 
 TEST(BacktestEngineTest, BuyAndHoldRisingMarket) {
@@ -115,6 +136,61 @@ TEST(BacktestEngineTest, NoDataReturnsError) {
     auto result = engine.run();
     EXPECT_FALSE(result.success);
     EXPECT_FALSE(result.error.empty());
+}
+
+// 策略: 每 3 根 bar 清仓一次 → 高频触发 getPortfolio（旧代码共享 static Portfolio，并发时数据竞争）
+class VolatileSellStrategy : public IStrategy {
+public:
+    std::string name() const override { return "VolatileSell"; }
+    void initialize() override {}
+    void onStart() override {}
+    void onStop() override {}
+    void onBar(const StrategyContext& ctx) override {
+        if (!bought_) {
+            buy(100);
+            bought_ = true;
+        }
+        if (ctx.history && ctx.history->size() % 3 == 0) {
+            sellAll();  // portfolio() → getPortfolio
+        }
+    }
+private:
+    bool bought_ = false;
+};
+
+TEST(BacktestEngineTest, ConcurrentEnginesPortfolioSafe) {
+    // 并发跑多个引擎，策略高频调 portfolio()/sellAll()
+    // 回归: 旧代码 getPortfolio 用函数级 static Portfolio（跨线程共享 → 数据竞争/堆损坏）；
+    //       现改为引擎实例成员（每引擎独立 → 安全）。
+    StockCode code(Market::SH, "600519");
+    std::vector<double> closes;
+    for (int i = 0; i < 150; ++i) closes.push_back(100.0 + 30.0 * std::sin(i / 4.0));
+
+    DataCache cache;  // 共享（线程安全）
+    cache.cacheBars(code, BarPeriod::Daily, makeSeriesFromCloses(code, closes));
+    const auto start = utils::parseDate("2024-01-02");
+    const auto end = utils::addTradingDays(start, static_cast<int>(closes.size()) - 1);
+
+    std::atomic<int> ok{0};
+    std::vector<std::thread> threads;
+    for (int t = 0; t < 4; ++t) {
+        threads.emplace_back([&]() {
+            BacktestConfig config;
+            config.symbols = {code};
+            config.startDate = start;
+            config.endDate = end;
+            config.initialCapital = 100000.0;
+            config.period = BarPeriod::Daily;
+            BacktestEngine engine;
+            engine.setConfig(config);
+            engine.setDataCache(&cache);
+            engine.addStrategy(std::make_shared<VolatileSellStrategy>());
+            auto result = engine.run();
+            if (result.success && !result.performance.equityCurve.empty()) ++ok;
+        });
+    }
+    for (auto& th : threads) th.join();
+    EXPECT_EQ(ok.load(), 4);
 }
 
 TEST(BacktestEngineTest, TradeStatsFilled) {
