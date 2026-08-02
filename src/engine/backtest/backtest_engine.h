@@ -93,6 +93,7 @@ private:
     int nextOrderId_ = 1;
     std::vector<Trade> trades_;
     StockCode currentCode_;   // 当前正在处理的股票（策略查询用）
+    DateTime currentTime_;    // 当前 bar 时间（下单时间戳）
 };
 
 } // namespace st

@@ -3,6 +3,7 @@
 #include "foundation/utils/datetime.h"
 #include <algorithm>
 #include <map>
+#include <exception>
 
 namespace st {
 
@@ -178,7 +179,8 @@ BacktestResult BacktestEngine::run() {
             order.type = OrderType::Market;
             order.volume = vol;
             order.strategyId = "strategy";
-            order.createTime = DateTime{};
+            order.createTime = currentTime_;
+            order.updateTime = currentTime_;
             if (vol <= 0 && amount > 0) {
                 // 按金额下单: 用最近价估算股数（撮合时精确计算）
                 order.volume = static_cast<Volume>(amount / 10.0);  // 暂存
@@ -191,6 +193,8 @@ BacktestResult BacktestEngine::run() {
     // 加载数据并构建按日期分组的全局时间轴
     struct DailyBar { StockCode code; Bar bar; };
     std::map<DateTime, std::vector<DailyBar>> timeline;
+    // 每只股票过滤后的完整序列（供策略 history 使用）
+    std::map<StockCode, std::vector<Bar>> filteredBarsByCode;
 
     for (const auto& code : config_.symbols) {
         auto bars = cache_->getBars(code, config_.period);
@@ -198,6 +202,7 @@ BacktestResult BacktestEngine::run() {
         for (auto& bar : bars) {
             if (bar.time >= config_.startDate && bar.time <= config_.endDate) {
                 timeline[bar.time].push_back({code, bar});
+                filteredBarsByCode[code].push_back(bar);
             }
         }
     }
@@ -211,18 +216,41 @@ BacktestResult BacktestEngine::run() {
     int processed = 0;
     const int total = static_cast<int>(timeline.size());
 
+    // 每只股票到当前为止的累计历史（避免前视偏差）
+    std::map<StockCode, std::vector<Bar>> historyByCode;
+    // 当前 bar 在累计历史中的索引（当日 bar 加入后，策略可见）
+    std::map<StockCode, int> currentIndexByCode;
+
     for (auto& [date, dayBars] : timeline) {
         // 1. 每个股票：通知策略 onBar（先看当前 bar）
         for (auto& db : dayBars) {
             currentCode_ = db.code;
+            currentTime_ = db.bar.time;
+
+            // 将当前 bar 加入该股票历史（含当前 bar，策略可 lookback 当前）
+            auto& hist = historyByCode[db.code];
+            hist.push_back(db.bar);
+            currentIndexByCode[db.code] = static_cast<int>(hist.size()) - 1;
+
+            // 构造 BarSeries（当前为止的历史）
+            BarSeries series(hist);
+
             StrategyContext ctx;
             ctx.currentCode = &currentCode_;
             ctx.currentBar = &db.bar;
+            ctx.history = &series;
             ctx.period = config_.period;
             auto snap = account_->snapshot(date);
             ctx.portfolio = &snap;
             for (auto& s : strategies_) {
-                s->onBar(ctx);
+                try {
+                    s->onBar(ctx);
+                } catch (const std::exception& e) {
+                    LogManager::instance()->log(LogLevel::Error,
+                        "策略 onBar 异常: {}", e.what());
+                    result_.error = std::string("策略异常: ") + e.what();
+                    return result_;
+                }
             }
         }
 
