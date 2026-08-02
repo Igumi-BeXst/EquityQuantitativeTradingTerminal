@@ -32,15 +32,18 @@ add_library(st_data STATIC
     data/data_repository.cpp
     data/data_cache.cpp
     data/akshare_provider.cpp
+    data/tencent_provider.cpp
     data/stock_search_index.cpp
     data/data_sync_scheduler.cpp
     data/ai_data_source.cpp
 )
-target_link_libraries(st_data PUBLIC st_foundation st_core Qt6::Sql httplib::httplib nlohmann_json::nlohmann_json)
+target_link_libraries(st_data PUBLIC st_foundation st_core Qt6::Sql Qt6::Network nlohmann_json::nlohmann_json)
 
 add_library(st_engine STATIC
     engine/strategy/istrategy.cpp
     engine/strategy/strategy_manager.cpp
+    engine/strategy/templates/turtle.cpp
+    engine/strategy/templates/ma_cross_strategy.cpp
     engine/backtest/backtest_engine.cpp
     engine/backtest/order_matcher.cpp
     engine/backtest/fee_calculator.cpp
@@ -76,6 +79,14 @@ target_link_libraries(st_ui PUBLIC st_engine Qt6::Widgets)
 
 add_executable(StockTerminal main.cpp)
 target_link_libraries(StockTerminal PRIVATE st_ui st_engine st_data st_core st_foundation)
+
+# 数据拉取测试工具（P4 验证用）
+add_executable(fetch_test tools_fetch_test.cpp)
+target_link_libraries(fetch_test PRIVATE st_data st_core st_foundation)
+
+# 端到端回测验证工具（P4 验证用）
+add_executable(backtest_demo tools_backtest_demo.cpp)
+target_link_libraries(backtest_demo PRIVATE st_engine st_data st_core st_foundation)
 
 else()
 # Without Qt: just build the Foundation CLI test runner

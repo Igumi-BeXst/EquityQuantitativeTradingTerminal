@@ -2,6 +2,10 @@
 #include "core/log_manager.h"
 #include "foundation/utils/datetime.h"
 #include <nlohmann/json.hpp>
+#include <QUrl>
+#include <QEventLoop>
+#include <QTimer>
+#include <QNetworkRequest>
 #include <cstdlib>
 #include <sstream>
 #include <iomanip>
@@ -12,24 +16,26 @@ namespace {
 constexpr int kTimeoutMs = 10000;
 }
 
-AKShareProvider::AKShareProvider() = default;
+AKShareProvider::AKShareProvider()
+    : http_(std::make_unique<QNetworkAccessManager>()) {}
 
 AKShareProvider::~AKShareProvider() {
     disconnect();
 }
 
 bool AKShareProvider::connect() {
-    http_ = std::make_shared<httplib::Client>(host_);
-    http_->set_connection_timeout(5, 0);
-    http_->set_read_timeout(kTimeoutMs, 0);
-    http_->set_follow_location(true);
+    if (!http_) {
+        http_ = std::make_unique<QNetworkAccessManager>();
+    }
     connected_ = true;
-    LogManager::instance()->log(LogLevel::Info, "AKShareProvider connected to {}", host_);
+    LogManager::instance()->log(LogLevel::Info, "AKShareProvider connected (Qt Network)");
     return true;
 }
 
 void AKShareProvider::disconnect() {
-    http_.reset();
+    if (http_) {
+        http_->clearAccessCache();
+    }
     connected_ = false;
 }
 
@@ -41,20 +47,39 @@ std::string AKShareProvider::fetch(const std::string& url) {
     if (!isConnected()) {
         connect();
     }
-    std::string path = url;
-    // Strip scheme+host if present
-    auto pos = path.find("//");
-    if (pos != std::string::npos) {
-        auto slash = path.find('/', pos + 2);
-        path = (slash == std::string::npos) ? "/" : path.substr(slash);
+    if (!http_) return {};
+
+    QNetworkRequest request{QUrl(QString::fromStdString(url))};
+    request.setHeader(QNetworkRequest::UserAgentHeader,
+                      "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+    request.setRawHeader("Referer", "https://quote.eastmoney.com/");
+    request.setRawHeader("Accept", "application/json, text/plain, */*");
+    request.setRawHeader("Accept-Language", "zh-CN,zh;q=0.9");
+    request.setTransferTimeout(kTimeoutMs);
+
+    QEventLoop loop;
+    QNetworkReply* reply = http_->get(request);
+
+    // 超时定时器
+    QTimer timer;
+    timer.setSingleShot(true);
+    QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    timer.start(kTimeoutMs);
+
+    // 完成或错误 → 退出事件循环
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+
+    QByteArray body;
+    if (reply->error() == QNetworkReply::NoError) {
+        body = reply->readAll();
+    } else {
+        LogManager::instance()->log(LogLevel::Warn, "HTTP fetch failed for {}: {}",
+                                    url, reply->errorString().toStdString());
     }
-    auto res = http_->Get(path);
-    if (res && res->status == 200) {
-        return res->body;
-    }
-    int status = res ? res->status : -1;
-    LogManager::instance()->log(LogLevel::Warn, "HTTP fetch failed for {}: status={}", url, status);
-    return {};
+
+    reply->deleteLater();
+    return body.toStdString();
 }
 
 // --- 股票列表 ---
@@ -83,12 +108,27 @@ std::vector<StockInfo> AKShareProvider::fetchStockList(Market market) {
         if (data.is_null()) return result;
         for (auto& item : data["diff"]) {
             StockInfo info;
-            std::string codeStr = item.value("f12", "");
-            std::string name = item.value("f14", "");
+            // f12 股票代码(数字可能是字符串或数字), f14 名称, f13 市场(1沪/0深)
+            std::string codeStr;
+            if (item.contains("f12") && item["f12"].is_string()) {
+                codeStr = item["f12"].get<std::string>();
+            } else if (item.contains("f12") && item["f12"].is_number()) {
+                codeStr = std::to_string(item["f12"].get<long long>());
+            }
+            std::string name;
+            if (item.contains("f14") && item["f14"].is_string()) {
+                name = item["f14"].get<std::string>();
+            } else if (item.contains("f14") && item["f14"].is_number()) {
+                name = std::to_string(item["f14"].get<long long>());
+            }
             if (codeStr.empty() || name.empty()) continue;
+            // 代码补零到6位
+            while (codeStr.size() < 6) codeStr = "0" + codeStr;
             info.code = StockCode(codeStr);
             info.name = name;
-            info.board = item.value("f13", "") == "1" ? "沪" : "深";
+            int marketCode = item.contains("f13") && item["f13"].is_number()
+                ? item["f13"].get<int>() : -1;
+            info.board = marketCode == 1 ? "沪" : "深";
             info.valid = true;
             result.push_back(std::move(info));
         }

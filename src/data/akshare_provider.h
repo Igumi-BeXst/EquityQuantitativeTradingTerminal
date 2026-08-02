@@ -2,15 +2,16 @@
 
 #include "data/idata_provider.h"
 #include "foundation/types.h"
-#include <httplib.h>
-#include <string>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
 #include <memory>
+#include <string>
 
 namespace st {
 
 /// AKShare 免费数据源
-/// 通过 HTTP 调用 AKShare 的 REST API (akshare.gtimg.cn / 东财等)
-/// 参考: https://github.com/akfamily/akshare
+/// 通过 HTTP 调用 AKShare 的 REST API (东方财富等)
+/// 使用 Qt Network 栈（自动处理 IPv4/IPv6 回退）
 class AKShareProvider : public IDataProvider {
 public:
     AKShareProvider();
@@ -31,7 +32,6 @@ public:
 
 private:
     /// 东财日线行情接口 (JSON)
-    /// https://push2his.eastmoney.com/api/qt/stock/kline/get
     std::vector<Bar> fetchDailyBars(const StockCode& code, DateTime start, DateTime end);
 
     /// 分时/分钟线接口
@@ -41,11 +41,11 @@ private:
     /// 东财股票列表接口
     std::vector<StockInfo> fetchStockList(Market market);
 
+    /// 同步 GET 请求（阻塞，内部用事件循环等待）
     std::string fetch(const std::string& url);
 
-    std::shared_ptr<httplib::Client> http_;
+    std::unique_ptr<QNetworkAccessManager> http_;
     bool connected_ = false;
-    std::string host_ = "push2his.eastmoney.com";
 };
 
 } // namespace st

@@ -5,7 +5,6 @@
   "dependencies": [
     "nlohmann-json",
     "spdlog",
-    "cpp-httplib",
     "gtest",
     "talib"
   ]

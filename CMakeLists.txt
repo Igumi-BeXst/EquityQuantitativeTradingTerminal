@@ -24,7 +24,6 @@ endif()
 # vcpkg-managed dependencies
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
-find_package(httplib CONFIG REQUIRED)
 find_package(GTest CONFIG REQUIRED)
 
 # TA-Lib technical analysis library
