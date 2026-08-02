@@ -2,6 +2,7 @@
 #include "data/tencent_provider.h"
 #include "core/thread_pool.h"
 #include "foundation/utils/datetime.h"
+#include "foundation/utils/indicators.h"
 #include <QPainter>
 #include <QPainterPath>
 #include <QMouseEvent>
@@ -20,7 +21,8 @@ const QColor kDownColor("#2e9e5b");
 constexpr double kRightAxisW = 64;
 constexpr double kBottomAxisH = 26;
 constexpr double kTitleH = 22;
-constexpr double kMainRatio = 0.78;
+constexpr double kMainRatio = 0.58;   // 主价格区占可绘图区
+constexpr double kVolRatio = 0.16;    // 量区
 }  // namespace
 
 TimelineChart::TimelineChart(TencentProvider* provider, QWidget* parent)
@@ -46,11 +48,12 @@ void TimelineChart::loadStock(const StockCode& code, const QString& name) {
     });
 }
 
-void TimelineChart::setData(IntradayData data) {
-    data_ = std::move(data);
+void TimelineChart::setData(IntradayData newData) {
+    data_ = std::move(newData);
     loading_ = false;
     mouseIndex_ = -1;
     computeAvgLine();
+    computeMacd();
     computeRanges();
     update();
 }
@@ -73,29 +76,49 @@ double TimelineChart::xFor(int minutes) const {
 }
 
 double TimelineChart::priceToY(double price) const {
-    const double h = (height() - kTitleH - kBottomAxisH) * kMainRatio;
-    if (priceHi_ - priceLo_ < 1e-12) return kTitleH;
-    return kTitleH + (priceHi_ - price) / (priceHi_ - priceLo_) * h;
+    const double h = mainRect_.height();
+    if (priceHi_ - priceLo_ < 1e-12) return mainRect_.top();
+    return mainRect_.top() + (priceHi_ - price) / (priceHi_ - priceLo_) * h;
+}
+
+double TimelineChart::volToY(double v) const {
+    return volRect_.bottom() - v / volHi_ * volRect_.height();
+}
+
+double TimelineChart::macdToY(double v) const {
+    double mid = macdRect_.center().y();
+    return mid - v / macdMaxAbs_ * (macdRect_.height() / 2.0);
 }
 
 void TimelineChart::computeAvgLine() {
     avgLine_.clear();
-    double cumVol = 0.0, cumAmt = 0.0;
-    double lastAvg = 0.0;
+    // 腾讯分时数据是累计值 → 均价 = 累计额 / 累计量（正确 VWAP）
     for (const auto& pt : data_.points) {
-        cumVol += static_cast<double>(pt.volume);
-        cumAmt += pt.amount;
-        if (cumVol > 0) {
-            lastAvg = cumAmt / cumVol;
-            avgLine_.push_back(lastAvg);
-        } else {
-            avgLine_.push_back(lastAvg);
-        }
+        if (pt.volume > 0) avgLine_.push_back(pt.amount / pt.volume);
+        else avgLine_.push_back(avgLine_.empty() ? 0.0 : avgLine_.back());
     }
+}
+
+void TimelineChart::computeMacd() {
+    macdDif_.clear();
+    macdDea_.clear();
+    macdHist_.clear();
+    if (data_.points.size() < 30) return;
+
+    std::vector<double> prices;
+    prices.reserve(data_.points.size());
+    for (const auto& pt : data_.points) prices.push_back(pt.price);
+
+    auto m = st::indicators::macd(prices);
+    macdDif_ = std::move(m.dif);
+    macdDea_ = std::move(m.dea);
+    macdHist_ = std::move(m.hist);
 }
 
 void TimelineChart::computeRanges() {
     if (data_.points.empty()) return;
+
+    // 主图价格范围
     double hi = data_.preClose, lo = data_.preClose;
     for (const auto& pt : data_.points) {
         hi = std::max(hi, pt.price);
@@ -105,11 +128,23 @@ void TimelineChart::computeRanges() {
     priceHi_ = hi + pad;
     priceLo_ = lo - pad;
 
+    // 量程: 每分钟增量（腾讯分时量为累计值）
     volHi_ = 0;
-    for (const auto& pt : data_.points) {
-        volHi_ = std::max(volHi_, static_cast<double>(pt.volume));
+    for (size_t i = 0; i < data_.points.size(); ++i) {
+        const double cum = static_cast<double>(data_.points[i].volume);
+        const double prev = i > 0 ? static_cast<double>(data_.points[i - 1].volume) : 0.0;
+        volHi_ = std::max(volHi_, cum - prev);
     }
     if (volHi_ <= 0) volHi_ = 1;
+
+    // MACD 量程
+    macdMaxAbs_ = 0;
+    for (size_t i = 0; i < macdDif_.size(); ++i) {
+        for (double v : {macdDif_[i], macdDea_[i], macdHist_[i]}) {
+            if (std::isfinite(v)) macdMaxAbs_ = std::max(macdMaxAbs_, std::abs(v));
+        }
+    }
+    if (macdMaxAbs_ <= 0) macdMaxAbs_ = 1;
 }
 
 // ============================================================
@@ -126,10 +161,21 @@ void TimelineChart::paintEvent(QPaintEvent*) {
         return;
     }
 
+    // 布局: 主图 / 量 / 分时MACD
+    const double plotW = width() - kRightAxisW;
+    const double plotH = height() - kTitleH - kBottomAxisH;
+    const QRectF plot(0, kTitleH, plotW, plotH);
+    mainRect_ = QRectF(plot.left(), plot.top(), plot.width(), plotH * kMainRatio);
+    volRect_ = QRectF(plot.left(), plot.top() + mainRect_.height() + 8,
+                      plot.width(), plotH * kVolRatio);
+    macdRect_ = QRectF(plot.left(), volRect_.bottom() + 8,
+                       plot.width(), plot.bottom() - volRect_.bottom() - 8);
+
     drawTitle(p);
     drawGridAndAxis(p);
     drawPriceLines(p);
     drawVolume(p);
+    drawMacd(p);
     drawCrosshair(p);
 }
 
@@ -160,8 +206,6 @@ void TimelineChart::drawGridAndAxis(QPainter& p) {
     p.setFont(f);
 
     const double w = width() - kRightAxisW;
-    const double mainH = (height() - kTitleH - kBottomAxisH) * kMainRatio;
-    const double volTop = kTitleH + mainH;
 
     // 竖分隔: 10:30 / 11:30(午休虚线) / 14:00
     for (int m : {60, 120, 180}) {
@@ -194,8 +238,11 @@ void TimelineChart::drawGridAndAxis(QPainter& p) {
                    QStringLiteral("昨收 %1").arg(data_.preClose, 0, 'f', 2));
     }
     // 量轴
-    p.drawText(QRectF(w + 2, volTop + 2, kRightAxisW - 4, 14),
+    p.drawText(QRectF(w + 2, volRect_.top() + 2, kRightAxisW - 4, 14),
                Qt::AlignLeft | Qt::AlignVCenter, QString::number(volHi_));
+    // MACD 轴
+    p.drawText(QRectF(w + 2, macdRect_.top() + 2, kRightAxisW - 4, 14),
+               Qt::AlignLeft | Qt::AlignVCenter, QString::number(macdMaxAbs_));
 }
 
 void TimelineChart::drawPriceLines(QPainter& p) {
@@ -226,28 +273,90 @@ void TimelineChart::drawPriceLines(QPainter& p) {
     p.setPen(QColor("#888888"));
     p.drawText(QRectF(w - 110, kTitleH + 2, 106, 14), Qt::AlignRight,
                tr("均价 %1").arg(avgLine_.empty() ? 0.0 : avgLine_.back(), 0, 'f', 2));
-    Q_UNUSED(p);
 }
 
 void TimelineChart::drawVolume(QPainter& p) {
     const double w = width() - kRightAxisW;
-    const double mainH = (height() - kTitleH - kBottomAxisH) * kMainRatio;
-    const double volTop = kTitleH + mainH;
-    const double volBottom = height() - kBottomAxisH;
-    const double volH = volBottom - volTop;
     const double bw = w / 240.0;
 
     QPainterPath upPath, downPath;
-    for (const auto& pt : data_.points) {
+    for (size_t i = 0; i < data_.points.size(); ++i) {
+        const auto& pt = data_.points[i];
         int m = minutesFromOpen(pt.time);
         if (m < 0 || m > 239) continue;
+        // 分时量 = 每分钟增量（腾讯原始为累计值）
+        const double cum = static_cast<double>(pt.volume);
+        const double prev = i > 0 ? static_cast<double>(data_.points[i - 1].volume) : 0.0;
+        const double barVol = cum - prev;
+        if (barVol <= 0) continue;
         double x = xFor(m);
-        double h = static_cast<double>(pt.volume) / volHi_ * volH;
+        double h = barVol / volHi_ * volRect_.height();
         auto& path = pt.price >= data_.preClose ? upPath : downPath;
-        path.addRect(QRectF(x - 0.35 * bw, volBottom - h, 0.7 * bw, h));
+        path.addRect(QRectF(x - 0.35 * bw, volRect_.bottom() - h, 0.7 * bw, h));
     }
     p.fillPath(upPath, kUpColor);
     p.fillPath(downPath, kDownColor);
+
+    // 图例
+    QFont f = p.font();
+    f.setPixelSize(11);
+    p.setFont(f);
+    p.setPen(QColor("#d4d4d4"));
+    p.drawText(QPointF(volRect_.left() + 6, volRect_.top() + 12), tr("分时量"));
+}
+
+void TimelineChart::drawMacd(QPainter& p) {
+    if (macdDif_.empty()) return;
+
+    // 0 轴
+    p.setPen(QPen(QColor("#555555"), 1, Qt::DashLine));
+    p.drawLine(QPointF(macdRect_.left(), macdRect_.center().y()),
+               QPointF(macdRect_.right(), macdRect_.center().y()));
+
+    // 柱
+    QPainterPath upHist, downHist;
+    const double bw = (width() - kRightAxisW) / 240.0;
+    for (size_t i = 0; i < macdHist_.size() && i < data_.points.size(); ++i) {
+        if (!std::isfinite(macdHist_[i])) continue;
+        const int m = minutesFromOpen(data_.points[i].time);
+        if (m < 0 || m > 239) continue;
+        const double midY = macdRect_.center().y();
+        const double y = macdToY(macdHist_[i]);
+        auto& path = macdHist_[i] >= 0 ? upHist : downHist;
+        path.addRect(QRectF(xFor(m) - 0.35 * bw, std::min(y, midY), 0.7 * bw,
+                            std::max(std::abs(y - midY), 1.0)));
+    }
+    p.fillPath(upHist, kUpColor);
+    p.fillPath(downHist, kDownColor);
+
+    // DIF/DEA 线
+    auto drawLine = [&](const std::vector<double>& series, const QColor& color) {
+        QPainterPath path;
+        bool started = false;
+        for (size_t i = 0; i < series.size() && i < data_.points.size(); ++i) {
+            if (!std::isfinite(series[i])) { started = false; continue; }
+            const int m = minutesFromOpen(data_.points[i].time);
+            if (m < 0 || m > 239) { started = false; continue; }
+            const double x = xFor(m);
+            if (!started) { path.moveTo(x, macdToY(series[i])); started = true; }
+            else { path.lineTo(x, macdToY(series[i])); }
+        }
+        p.setPen(QPen(color, 1));
+        p.drawPath(path);
+    };
+    drawLine(macdDif_, QColor("#ffffff"));
+    drawLine(macdDea_, QColor("#ffd54f"));
+
+    // 图例
+    QFont f = p.font();
+    f.setPixelSize(11);
+    p.setFont(f);
+    const int lastIdx = static_cast<int>(macdDif_.size()) - 1;
+    p.setPen(QColor("#d4d4d4"));
+    p.drawText(QPointF(macdRect_.left() + 6, macdRect_.top() + 12),
+               QStringLiteral("分时MACD  DIF %1  DEA %2")
+                   .arg(macdDif_[static_cast<size_t>(lastIdx)], 0, 'f', 2)
+                   .arg(macdDea_[static_cast<size_t>(lastIdx)], 0, 'f', 2));
 }
 
 void TimelineChart::drawCrosshair(QPainter& p) {
@@ -255,7 +364,6 @@ void TimelineChart::drawCrosshair(QPainter& p) {
     const auto& pt = data_.points[static_cast<size_t>(mouseIndex_)];
     double x = xFor(minutesFromOpen(pt.time));
 
-    const double mainH = (height() - kTitleH - kBottomAxisH) * kMainRatio;
     const double volBottom = height() - kBottomAxisH;
     p.setPen(QPen(QColor(200, 200, 200, 160), 1, Qt::DashLine));
     p.drawLine(QPointF(x, kTitleH), QPointF(x, volBottom));

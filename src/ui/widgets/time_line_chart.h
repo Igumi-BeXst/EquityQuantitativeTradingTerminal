@@ -32,15 +32,19 @@ private:
     void setData(IntradayData data);
     void computeRanges();
     void computeAvgLine();
+    void computeMacd();
 
     int minutesFromOpen(const DateTime& t) const;
     double xFor(int minutes) const;
     double priceToY(double price) const;
+    double volToY(double v) const;
+    double macdToY(double v) const;
 
     void drawTitle(QPainter& p);
     void drawGridAndAxis(QPainter& p);
     void drawPriceLines(QPainter& p);
     void drawVolume(QPainter& p);
+    void drawMacd(QPainter& p);
     void drawCrosshair(QPainter& p);
 
     TencentProvider* provider_ = nullptr;
@@ -51,10 +55,12 @@ private:
     int loadGen_ = 0;
 
     std::vector<double> avgLine_;
+    std::vector<double> macdDif_, macdDea_, macdHist_;
     int mouseIndex_ = -1;
     double mouseY_ = 0;
 
-    double priceHi_ = 0, priceLo_ = 0, volHi_ = 0;
+    QRectF mainRect_, volRect_, macdRect_;
+    double priceHi_ = 0, priceLo_ = 0, volHi_ = 0, macdMaxAbs_ = 0;
 };
 
 } // namespace st

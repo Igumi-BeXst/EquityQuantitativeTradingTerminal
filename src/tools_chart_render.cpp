@@ -33,11 +33,6 @@ int main(int argc, char* argv[]) {
     timeline.hide();
 
     QTimer::singleShot(3500, &app, [&] {
-        QPixmap pk = kline.grab();
-        pk.save("chart_kline.png");
-        pk.scaled(675, 390, Qt::KeepAspectRatio, Qt::SmoothTransformation)
-            .save("chart_kline_small.png");
-        // 像素分析: 统计接近红涨/绿跌色的像素（验证蜡烛/量柱/指标实际绘制）
         auto countColor = [](const QImage& img, const QColor& target, int tol) {
             int n = 0;
             for (int y = 0; y < img.height(); ++y) {
@@ -50,22 +45,41 @@ int main(int argc, char* argv[]) {
             }
             return n;
         };
-        QImage img = pk.toImage();
-        std::cout << "kline: 红色像素=" << countColor(img, QColor(0xe5, 0x46, 0x48), 30)
-                  << " 绿色像素=" << countColor(img, QColor(0x2e, 0x9e, 0x5b), 30)
-                  << " 黄色像素(MA)=" << countColor(img, QColor(0xff, 0xd5, 0x4f), 30)
+        auto count = [&](QWidget* w) { return w->grab().toImage(); };
+
+        // 1. 全开
+        QImage img = count(&kline);
+        std::cout << "[K线全开] 红=" << countColor(img, QColor(0xe5,0x46,0x48), 30)
+                  << " 绿=" << countColor(img, QColor(0x2e,0x9e,0x5b), 30)
+                  << " 黄(MA/MACD-DEA)=" << countColor(img, QColor(0xff,0xd5,0x4f), 30)
+                  << " 橙(BOLL)=" << countColor(img, QColor(0xff,0x8a,0x65), 40)
                   << std::endl;
 
-        QPixmap pt = timeline.grab();
-        pt.save("chart_timeline.png");
-        pt.scaled(675, 390, Qt::KeepAspectRatio, Qt::SmoothTransformation)
-            .save("chart_timeline_small.png");
-        QImage timg = pt.toImage();
-        std::cout << "timeline: 红色像素=" << countColor(timg, QColor(0xe5, 0x46, 0x48), 30)
-                  << " 绿色像素=" << countColor(timg, QColor(0x2e, 0x9e, 0x5b), 30)
-                  << " 橙色像素(均价)=" << countColor(timg, QColor(0xff, 0xa7, 0x26), 30)
-                  << " 蓝色像素(价格线)=" << countColor(timg, QColor(0x4f, 0xc3, 0xf7), 30)
+        // 2. 关 BOLL → 橙像素应大幅下降
+        kline.setIndicatorVisible(KLineChart::Indicator::Boll, false);
+        QImage imgNoBoll = count(&kline);
+        std::cout << "[关BOLL] 橙=" << countColor(imgNoBoll, QColor(0xff,0x8a,0x65), 40)
+                  << " (应明显小于全开)" << std::endl;
+        kline.setIndicatorVisible(KLineChart::Indicator::Boll, true);
+
+        // 3. 关 MA → 黄像素下降（MACD DEA 仍黄）
+        kline.setIndicatorVisible(KLineChart::Indicator::Ma, false);
+        QImage imgNoMa = count(&kline);
+        std::cout << "[关MA] 黄=" << countColor(imgNoMa, QColor(0xff,0xd5,0x4f), 30)
+                  << " (应明显小于全开)" << std::endl;
+        kline.setIndicatorVisible(KLineChart::Indicator::Ma, true);
+
+        kline.grab().save("chart_kline.png");
+
+        // 4. 分时: 均价橙线 + MACD DIF 白/DEA 黄
+        QImage timg = count(&timeline);
+        std::cout << "[分时] 红=" << countColor(timg, QColor(0xe5,0x46,0x48), 30)
+                  << " 绿=" << countColor(timg, QColor(0x2e,0x9e,0x5b), 30)
+                  << " 橙(均价)=" << countColor(timg, QColor(0xff,0xa7,0x26), 30)
+                  << " 蓝(价格线)=" << countColor(timg, QColor(0x4f,0xc3,0xf7), 30)
+                  << " 黄(MACD-DEA)=" << countColor(timg, QColor(0xff,0xd5,0x4f), 30)
                   << std::endl;
+        timeline.grab().save("chart_timeline.png");
         app.quit();
     });
     return app.exec();
