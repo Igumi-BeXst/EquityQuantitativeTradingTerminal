@@ -36,6 +36,9 @@ if(BUILD_WITH_QT)
         test_engine/test_performance.cpp
         test_engine/test_backtest_engine.cpp
         test_engine/test_paper_trade.cpp
+        test_engine/test_factors.cpp
+        test_engine/test_screener.cpp
+        test_engine/test_market.cpp
     )
     target_link_libraries(test_engine PRIVATE st_engine st_data GTest::gtest GTest::gtest_main)
     gtest_discover_tests(test_engine)

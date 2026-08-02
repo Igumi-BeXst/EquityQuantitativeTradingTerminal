@@ -6,6 +6,7 @@
     "nlohmann-json",
     "spdlog",
     "cpp-httplib",
-    "gtest"
+    "gtest",
+    "talib"
   ]
 }

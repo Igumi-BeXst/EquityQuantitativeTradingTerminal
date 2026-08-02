@@ -27,6 +27,9 @@ find_package(spdlog CONFIG REQUIRED)
 find_package(httplib CONFIG REQUIRED)
 find_package(GTest CONFIG REQUIRED)
 
+# TA-Lib technical analysis library
+find_package(talib CONFIG REQUIRED)
+
 # Qt (optional, from separate install)
 option(BUILD_WITH_QT "Build with Qt UI support" OFF)
 if(BUILD_WITH_QT)

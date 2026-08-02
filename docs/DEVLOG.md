@@ -1,5 +1,37 @@
 # 开发日志 (Development Log)
 
+## 2026-08-02 — P3 Engine 扩展引擎完成
+
+### 已完成
+- [x] **TA-Lib 接入** — vcpkg 安装 talib 0.7.1（一次通过）
+  - CMake 链接 `talib::talib`，头文件 `ta-lib/ta_libc.h`
+- [x] **StockScreener 选股引擎**
+  - IFactor 因子抽象接口（name/category/calculate/toScore）
+  - 核心因子集 11 个：ROC/RSI/MACD/波动率/ATR/最大回撤/均线排列/ADX/量比/换手/OBV
+  - ConditionFilter 条件筛选
+  - Ranker 加权排名（总分归一化）
+  - StockScreener 主类：加载日线 → 算因子 → 筛选 → 排名
+- [x] **MarketEngine 基础版**
+  - MarketScanner 涨幅榜/跌幅榜/换手率
+  - MarketBreadth 市场宽度（涨跌家数/ADL/新高新低）
+  - MarketEngine 聚合主类
+- [x] **Fundamental 预留**
+  - FinancialReport / CompanyProfile 数据结构
+  - IFundamentalProvider 抽象接口（独立于行情）
+
+### 测试
+- **Total: 87 tests, 0 failed**（+19 新测试）
+  - FactorTest: 6 tests（指标正确性/数据不足/分数映射）
+  - ScreenerTest: 6 tests（排名/筛选/选股流程）
+  - MarketScannerTest: 4 tests（涨跌幅/排序/TopN）
+  - MarketBreadthTest: 2 tests
+
+### 排查记录
+- **BarSeries::lookback bug**：`lookback(1)` 返回当前 bar 而非前一根。修复为 `bars_[size - n - 1]`（n=1 前一根）。
+
+### 下一步 → P4 验证闭环
+双均线+海龟策略，回测跑通 + 模拟交易验证
+
 ## 2026-08-02 — P2 Engine 核心引擎完成
 
 ### 已完成

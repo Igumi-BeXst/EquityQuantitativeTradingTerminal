@@ -47,9 +47,15 @@ add_library(st_engine STATIC
     engine/backtest/performance.cpp
     engine/paper_trade/paper_trade_engine.cpp
     engine/portfolio/portfolio_engine.cpp
+    engine/screener/stock_screener.cpp
+    engine/screener/factor_library.cpp
+    engine/screener/condition_filter.cpp
+    engine/screener/ranker.cpp
     engine/market/market_engine.cpp
+    engine/market/market_scanner.cpp
+    engine/market/market_breadth.cpp
 )
-target_link_libraries(st_engine PUBLIC st_data st_core st_foundation)
+target_link_libraries(st_engine PUBLIC st_data st_core st_foundation talib::talib)
 
 add_library(st_ui STATIC
     ui/main_window.cpp

@@ -18,10 +18,11 @@ const Bar& BarSeries::at(size_t index) const {
 }
 
 const Bar& BarSeries::lookback(int n) const {
-    if (n <= 0 || static_cast<size_t>(n) > bars_.size()) {
+    // n=1 → 前一根, n=2 → 前两根, ...
+    if (n <= 0 || static_cast<size_t>(n) >= bars_.size()) {
         throw std::out_of_range("BarSeries::lookback: lookback out of range");
     }
-    return bars_[bars_.size() - static_cast<size_t>(n)];
+    return bars_[bars_.size() - static_cast<size_t>(n) - 1];
 }
 
 std::vector<Price> BarSeries::closes() const {
