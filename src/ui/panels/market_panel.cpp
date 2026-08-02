@@ -1,4 +1,169 @@
 #include "ui/panels/market_panel.h"
+#include "ui/models/market_rank_model.h"
+#include "data/tencent_provider.h"
+#include "data/curated_stocks.h"
+#include "core/thread_pool.h"
+#include "foundation/enums.h"
+#include <QTimer>
+#include <QTableView>
+#include <QLabel>
+#include <QPushButton>
+#include <QTabWidget>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QGroupBox>
+#include <QGridLayout>
+#include <QHeaderView>
+#include <QMetaObject>
+#include <algorithm>
 
-// 静态库中 Q_OBJECT 类需显式包含 moc 触发生成
+namespace st {
+
+namespace {
+constexpr int kTopN = 30;
+constexpr int kRefreshMs = 10000;
+}  // namespace
+
+MarketPanel::MarketPanel(TencentProvider* provider, QWidget* parent)
+    : QWidget(parent), provider_(provider) {
+    // 池 + 名称表（精选股票）
+    for (const auto& c : kCuratedSH) {
+        StockCode sc(Market::SH, c.code);
+        pool_.push_back(sc);
+        nameByCode_[sc.displayCode()] = c.name;
+    }
+    for (const auto& c : kCuratedSZ) {
+        StockCode sc(Market::SZ, c.code);
+        pool_.push_back(sc);
+        nameByCode_[sc.displayCode()] = c.name;
+    }
+
+    auto* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(6, 6, 6, 6);
+    layout->setSpacing(6);
+
+    // 刷新按钮
+    auto* topRow = new QHBoxLayout();
+    refreshBtn_ = new QPushButton(tr("刷新"));
+    topRow->addWidget(refreshBtn_);
+    topRow->addStretch();
+    layout->addLayout(topRow);
+    connect(refreshBtn_, &QPushButton::clicked, this, &MarketPanel::refresh);
+
+    // Tab: 涨幅榜 / 跌幅榜 / 市场宽度
+    tabs_ = new QTabWidget(this);
+
+    gainersModel_ = new MarketRankModel(this);
+    gainersView_ = new QTableView();
+    gainersView_->setModel(gainersModel_);
+    gainersView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    gainersView_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    gainersView_->horizontalHeader()->setStretchLastSection(true);
+    gainersView_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    tabs_->addTab(gainersView_, tr("涨幅榜"));
+    connect(gainersView_, &QTableView::doubleClicked,
+            this, &MarketPanel::onGainersDoubleClicked);
+
+    losersModel_ = new MarketRankModel(this);
+    losersView_ = new QTableView();
+    losersView_->setModel(losersModel_);
+    losersView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    losersView_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    losersView_->horizontalHeader()->setStretchLastSection(true);
+    losersView_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    tabs_->addTab(losersView_, tr("跌幅榜"));
+    connect(losersView_, &QTableView::doubleClicked,
+            this, &MarketPanel::onLosersDoubleClicked);
+
+    // 市场宽度
+    auto* breadthBox = new QGroupBox(tr("市场宽度"));
+    auto* bg = new QGridLayout(breadthBox);
+    auto addLabel = [&](int r, int c, const QString& name, QLabel*& out) {
+        bg->addWidget(new QLabel(name), r, c * 2);
+        out = new QLabel("--");
+        bg->addWidget(out, r, c * 2 + 1);
+    };
+    addLabel(0, 0, tr("上涨"), adv_);
+    addLabel(0, 1, tr("下跌"), dec_);
+    addLabel(1, 0, tr("平盘"), flat_);
+    addLabel(1, 1, tr("涨跌比"), ratio_);
+    tabs_->addTab(breadthBox, tr("市场宽度"));
+
+    layout->addWidget(tabs_, 1);
+
+    // 定时刷新
+    timer_ = new QTimer(this);
+    timer_->setInterval(kRefreshMs);
+    connect(timer_, &QTimer::timeout, this, &MarketPanel::refresh);
+    timer_->start();
+    refresh();  // 立即刷一次
+}
+
+void MarketPanel::refresh() {
+    if (refreshing_ || !provider_) return;
+    refreshing_ = true;
+    const int gen = ++gen_;
+    std::vector<StockCode> pool = pool_;
+
+    ThreadPool::submitIO([this, gen, pool] {
+        auto quotes = provider_->batchQuote(pool);
+        QMetaObject::invokeMethod(this, [this, gen, quotes = std::move(quotes)]() mutable {
+            refreshing_ = false;
+            if (gen != gen_) return;  // 陈旧回写丢弃
+            onQuotesReady(quotes);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void MarketPanel::onQuotesReady(const std::vector<Quote>& quotes) {
+    std::vector<MarketRankItem> items;
+    items.reserve(quotes.size());
+    int advancing = 0, declining = 0, flat = 0;
+    for (const auto& q : quotes) {
+        MarketRankItem item;
+        item.code = q.code;
+        auto it = nameByCode_.find(q.code.displayCode());
+        item.name = it != nameByCode_.end() ? it->second : q.code.displayCode();
+        item.price = q.lastPrice;
+        item.changePct = q.change;
+        item.turnover = q.turnover;
+        items.push_back(std::move(item));
+        if (q.change > 0) ++advancing;
+        else if (q.change < 0) ++declining;
+        else ++flat;
+    }
+
+    std::sort(items.begin(), items.end(),
+              [](const MarketRankItem& a, const MarketRankItem& b) {
+                  return a.changePct > b.changePct;
+              });
+
+    // 涨幅榜 top30
+    std::vector<MarketRankItem> gainers(items.begin(), items.begin() + std::min(kTopN, (int)items.size()));
+    gainersModel_->setItems(gainers);
+    // 跌幅榜 top30（升序）
+    std::vector<MarketRankItem> losers;
+    int start = std::max(0, (int)items.size() - kTopN);
+    for (int i = (int)items.size() - 1; i >= start; --i) losers.push_back(items[i]);
+    losersModel_->setItems(losers);
+
+    // 市场宽度
+    adv_->setText(QString::number(advancing));
+    dec_->setText(QString::number(declining));
+    flat_->setText(QString::number(flat));
+    const double ratio = (advancing + declining) > 0
+        ? static_cast<double>(advancing) / (advancing + declining) : 0.0;
+    ratio_->setText(QString::number(ratio, 'f', 2));
+}
+
+void MarketPanel::onGainersDoubleClicked(const QModelIndex& index) {
+    if (index.isValid()) emit openChart(gainersModel_->itemAt(index.row()).code);
+}
+
+void MarketPanel::onLosersDoubleClicked(const QModelIndex& index) {
+    if (index.isValid()) emit openChart(losersModel_->itemAt(index.row()).code);
+}
+
+} // namespace st
+
 #include "moc_market_panel.cpp"
