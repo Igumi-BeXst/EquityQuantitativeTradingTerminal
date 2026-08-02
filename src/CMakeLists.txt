@@ -33,6 +33,7 @@ add_library(st_data STATIC
     data/data_cache.cpp
     data/akshare_provider.cpp
     data/tencent_provider.cpp
+    data/quote_poller.cpp
     data/stock_search_index.cpp
     data/data_sync_scheduler.cpp
     data/ai_data_source.cpp
@@ -61,6 +62,10 @@ add_library(st_engine STATIC
 target_link_libraries(st_engine PUBLIC st_data st_core st_foundation talib::talib)
 
 add_library(st_ui STATIC
+    ui/theme_manager.cpp
+    ui/shortcut_manager.cpp
+    ui/preferences_dialog.cpp
+    ui/resources.qrc
     ui/main_window.cpp
     ui/widgets/kline_chart.cpp
     ui/widgets/time_line_chart.cpp
@@ -87,6 +92,14 @@ target_link_libraries(fetch_test PRIVATE st_data st_core st_foundation)
 # 端到端回测验证工具（P4 验证用）
 add_executable(backtest_demo tools_backtest_demo.cpp)
 target_link_libraries(backtest_demo PRIVATE st_engine st_data st_core st_foundation)
+
+# 精选股票池校验工具（P5 验证用：对比静态名称与腾讯实时名称）
+add_executable(curated_check tools_curated_check.cpp)
+target_link_libraries(curated_check PRIVATE st_data st_core st_foundation)
+
+# QuotePoller 实时轮询验证工具（P5 验证用）
+add_executable(quote_test tools_quote_test.cpp)
+target_link_libraries(quote_test PRIVATE st_data st_core st_foundation)
 
 else()
 # Without Qt: just build the Foundation CLI test runner

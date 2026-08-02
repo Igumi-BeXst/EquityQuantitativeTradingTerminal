@@ -17,6 +17,7 @@ if(BUILD_WITH_QT)
         test_core/test_thread_pool.cpp
         test_core/test_credential_store.cpp
         test_core/test_app_paths.cpp
+        test_core/test_log_manager.cpp
     )
     target_link_libraries(test_core PRIVATE st_core GTest::gtest GTest::gtest_main)
     gtest_discover_tests(test_core)
@@ -26,6 +27,7 @@ if(BUILD_WITH_QT)
         test_data/test_repository.cpp
         test_data/test_cache.cpp
         test_data/test_search_index.cpp
+        test_data/test_tencent_provider.cpp
     )
     target_link_libraries(test_data PRIVATE st_data GTest::gtest GTest::gtest_main)
     gtest_discover_tests(test_data)
