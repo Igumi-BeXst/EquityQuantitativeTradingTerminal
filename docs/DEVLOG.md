@@ -1,5 +1,51 @@
 # 开发日志 (Development Log)
 
+## 2026-08-03 — P6 UI 图表核心完成
+
+### 背景
+P5 完成（103 tests）后搭建完整图表体系。实测锁定腾讯三个数据接口格式（日/周/月 fqkline、分钟 mkline、分时 minute/query），发现 getBars 周/月是坏的（返回日线）。
+
+### 已完成
+- [x] **Data 层**
+  - indicators 自研（foundation/utils，纯函数可单测）：sma/ema/macd/boll/rsi（Wilder）
+  - `parseMinuteTime` 解析 "yyyyMMddHHmm"
+  - K线通用化：`fetchKlineBars`/`parseFqKline`（日/周/月参数化 + qfq{day|week|month} 键），修复周/月返回日线 bug
+  - 分钟 K 线：`fetchMinuteBars`/`parseMinuteKline`（m5/m15/m30/m60，域 ifzq）
+  - 分时：`getIntraday`/`parseIntraday`（IntradayData{date,preClose,points}，量手→股）
+  - `Quote::turnover` 换手率（时间戳锚定 t+8）
+  - getBars 分发: 日/周/月/季/年 + 分钟周期；start==epoch 拉最近 640 根
+- [x] **KLineChart**（QPainter 自绘核心）
+  - 布局: 主图55% + 量15% + MACD15% + RSI15% + 时间轴
+  - 蜡烛红涨绿跌 + 量柱 + MA5/10/20/60 + BOLL + MACD(DIF/DEA/柱) + RSI(6/12/24) 副图
+  - 十字光标 + OHLC 浮框（时间/高低开收/涨跌幅/量/MA）、滚轮缩放（20-800 锚定光标）、左键拖拽平移
+  - 异步加载 loadGen_ 竞态守卫；周期切换（分时/日/周/月）
+- [x] **TimelineChart 分时图**：240 分钟 X 轴（09:30-11:30/13:00-15:00 午休虚线）、昨收线、价格线+均价线（cumAmt/cumVol）、量柱红涨绿跌
+- [x] **CentralChartWidget**：分时↔K线 QStackedWidget + 周期栏；MainWindow 中央区 welcome↔图表，搜索/指数/榜单双击→开图
+- [x] **BacktestPanel**：选股(精选129多选)/策略/参数/日期/资金 → IO池拉数→Worker池回测 → 绩效指标网格(12项红涨绿跌)+净值曲线+成交明细表
+- [x] **StrategyPanel**：策略模板库(双均线/海龟)+参数编辑 → 应用到回测
+- [x] **MarketPanel**：涨幅榜/跌幅榜/市场宽度（batchQuote 实时 129 只，QTimer 10s 刷新，双击开图）
+
+### 测试
+- **Total: 117 tests, 0 failed**（+14: indicators 9 + tencent 解析 5）
+  - test_foundation +9: SMA/EMA/MACD/RSI(全涨100全跌0/Wilder经典)/BOLL/parseMinuteTime
+  - test_data +5: parseFqKline 周/月键、parseMinuteKline 时间列序手→股、parseIntraday 量额换算+qt昨收、turnover
+
+### 实测验证
+- `kline_test`：日线640/周线640(跨12年)/月线299(跨25年)/5分钟320/60分钟320/分时267点，周月聚合正确
+- `chart_render`：离屏渲染 K线图+分时图为 PNG + 像素分析（红蜡烛/绿蜡烛/MA黄线/均价橙线/价格蓝线全部命中）
+- 应用运行 10s 无崩溃，市场面板实时刷新正常
+
+### 排查记录
+- **Bar 无 preClose**：涨跌幅改用前一根收盘计算
+- **ema 前导 NaN**（MACD dea=ema(dif)）：定位首个连续有限窗口作种子
+- **parseIntraday date 嵌套**：date 在 stock["data"]["date"] 非 stock["date"]
+- **QPointF 花括号窄化**：MSVC /permissive- 拒绝 int→qreal
+- **QToolButton::setFlat 移除**（Qt6）→ setAutoRaise
+- **周/月线修复验证**：周线跨12年、月线跨25年（非日线）
+
+### 下一步 → P7 UI 量化面板
+选股面板、模拟交易面板、参数优化面板、策略对比面板、压力测试面板
+
 ## 2026-08-03 — P5 UI 框架完成
 
 ### 背景
