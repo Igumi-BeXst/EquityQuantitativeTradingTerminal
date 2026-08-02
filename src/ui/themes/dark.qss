@@ -1,0 +1,99 @@
+/* StockTerminal dark theme */
+QMainWindow, QDialog {
+    background-color: #1e1e1e;
+}
+QMenuBar {
+    background-color: #2b2b2b;
+    color: #d4d4d4;
+}
+QMenuBar::item:selected {
+    background-color: #3c3c3c;
+}
+QMenu {
+    background-color: #2b2b2b;
+    color: #d4d4d4;
+    border: 1px solid #3c3c3c;
+}
+QMenu::item:selected {
+    background-color: #094771;
+    color: #ffffff;
+}
+QToolBar {
+    background-color: #2b2b2b;
+    border-bottom: 1px solid #3c3c3c;
+    spacing: 4px;
+    padding: 2px;
+}
+QStatusBar {
+    background-color: #2b2b2b;
+    color: #9d9d9d;
+    border-top: 1px solid #3c3c3c;
+}
+QDockWidget {
+    color: #d4d4d4;
+}
+QDockWidget::title {
+    background-color: #2b2b2b;
+    padding: 4px;
+    border-bottom: 1px solid #3c3c3c;
+}
+QPlainTextEdit, QLineEdit, QComboBox, QListWidget, QTableWidget {
+    background-color: #252526;
+    color: #d4d4d4;
+    border: 1px solid #3c3c3c;
+}
+QLineEdit:focus, QComboBox:focus {
+    border-color: #4a7dbb;
+}
+QComboBox::drop-down {
+    border: none;
+}
+QComboBox QAbstractItemView {
+    background-color: #2b2b2b;
+    color: #d4d4d4;
+    selection-background-color: #094771;
+    selection-color: #ffffff;
+}
+QListWidget::item:selected, QTableWidget::item:selected {
+    background-color: #094771;
+    color: #ffffff;
+}
+QPushButton {
+    background-color: #3c3c3c;
+    color: #d4d4d4;
+    border: 1px solid #555555;
+    padding: 4px 12px;
+    border-radius: 3px;
+}
+QPushButton:hover {
+    background-color: #4a4a4a;
+}
+QPushButton:pressed {
+    background-color: #333333;
+}
+QCheckBox {
+    color: #d4d4d4;
+    spacing: 5px;
+}
+QLabel {
+    color: #d4d4d4;
+    background: transparent;
+}
+QScrollBar:vertical {
+    background: #2b2b2b;
+    width: 12px;
+    margin: 0;
+}
+QScrollBar::handle:vertical {
+    background: #4a4a4a;
+    min-height: 30px;
+    border-radius: 6px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+QToolTip {
+    background-color: #2b2b2b;
+    color: #d4d4d4;
+    border: 1px solid #4a4a4a;
+}
