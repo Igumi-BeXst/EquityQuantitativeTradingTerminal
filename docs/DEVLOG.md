@@ -1,5 +1,33 @@
 # 开发日志 (Development Log)
 
+## 2026-08-02 — 安全设计：敏感凭证保护
+
+### 背景
+软件将开源公开 + 纯本地单机分享给他人使用，需保护数据源 token、券商凭证、AI key、数据库口令。
+
+### 已完成
+- [x] **CredentialStore** — Windows DPAPI 加密凭证存储
+  - CryptProtectData/CryptUnprotectData 加密整个 secret JSON → Base64 → 落盘
+  - 绑定当前用户，跨用户/磁盘窃取无法解密
+  - 非 Windows 预留明文占位（跨平台）
+- [x] **AppPaths** — 用户目录隔离
+  - %APPDATA%\StockTerminal\{config,data,secrets,logs}
+  - 程序目录保持只读，多用户凭证隔离
+- [x] **docs/security.md** — 威胁模型、零遥测声明、token 轮换实践
+- [x] ConfigManager 保持非敏感配置，敏感字段走 CredentialStore
+
+### 测试
+- **Total: 50 tests, 0 failed**（+11 新测试）
+  - CredentialStoreTest: 7 tests（含密文检查）
+  - AppPathsTest: 4 tests
+
+### 关键决策
+- **DPAPI 而非主密码**：零打扰、绑定用户、无需自存密钥；对木马场景靠 token 轮换补足
+- **Base64 存储**：DPAPI 输出二进制，JSON 要求 UTF-8，先 Base64 再存
+
+### 下一步 → P2 Engine 核心引擎
+Strategy 基类 + BacktestEngine + PaperTradeEngine + FeeCalculator + Performance
+
 ## 2026-08-02 — P1 Data 层完成
 
 ### 已完成

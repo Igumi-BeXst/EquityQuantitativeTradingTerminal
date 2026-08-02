@@ -15,6 +15,8 @@ if(BUILD_WITH_QT)
         test_core/test_main.cpp
         test_core/test_config_manager.cpp
         test_core/test_thread_pool.cpp
+        test_core/test_credential_store.cpp
+        test_core/test_app_paths.cpp
     )
     target_link_libraries(test_core PRIVATE st_core GTest::gtest GTest::gtest_main)
     gtest_discover_tests(test_core)

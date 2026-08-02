@@ -19,6 +19,7 @@ C++17/20 + Qt 6.5+ + vcpkg + CMake，分层服务架构。
 | 模块接口规范 | [docs/api-design.md](docs/api-design.md) |
 | 测试策略 | [docs/testing-guide.md](docs/testing-guide.md) |
 | Git 工作流 | [docs/git-workflow.md](docs/git-workflow.md) |
+| 安全设计 | [docs/security.md](docs/security.md) |
 | 开发日志 | [docs/DEVLOG.md](docs/DEVLOG.md) |
 | 变更记录 | [docs/changelog.md](docs/changelog.md) |
 | 问题排查 | [docs/troubleshooting.md](docs/troubleshooting.md) |

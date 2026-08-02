@@ -23,8 +23,10 @@ add_library(st_core STATIC
     core/config_manager.cpp
     core/log_manager.cpp
     core/notification_service.cpp
+    core/credential_store.cpp
+    core/app_paths.cpp
 )
-target_link_libraries(st_core PUBLIC st_foundation spdlog::spdlog Qt6::Core)
+target_link_libraries(st_core PUBLIC st_foundation spdlog::spdlog Qt6::Core crypt32)
 
 add_library(st_data STATIC
     data/data_repository.cpp
