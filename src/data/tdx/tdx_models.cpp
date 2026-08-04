@@ -252,6 +252,34 @@ uint32_t decodeCount(const std::vector<uint8_t>& payload) {
     return rdU16(payload.data());
 }
 
+std::vector<TdxTickRec> decodeTransaction(const std::vector<uint8_t>& payload) {
+    std::vector<TdxTickRec> out;
+    if (payload.size() < 2) return out;
+    const uint16_t count = rdU16(payload.data());
+    size_t pos = 2;
+    double lastPriceFen = 0.0;
+    for (uint16_t i = 0; i < count && pos + 2 <= payload.size(); ++i) {
+        const uint16_t minutes = rdU16(payload.data() + pos);  // 自 00:00 起的分钟数
+        pos += 2;
+        const int64_t priceDiff = readPriceVar(payload, pos);
+        const int64_t volShares = readPriceVar(payload, pos);
+        const int64_t num = readPriceVar(payload, pos);
+        const int64_t buyorsell = readPriceVar(payload, pos);
+        readPriceVar(payload, pos);  // 未知字段
+        lastPriceFen += static_cast<double>(priceDiff);
+
+        TdxTickRec r;
+        r.hour = minutes / 60;
+        r.minute = minutes % 60;
+        r.price = lastPriceFen / 100.0;
+        r.volume = static_cast<double>(volShares);  // 股
+        r.num = static_cast<int>(num);
+        r.buyorsell = static_cast<int>(buyorsell);
+        out.push_back(r);
+    }
+    return out;
+}
+
 std::vector<TdxStockRec> decodeCodeList(const std::vector<uint8_t>& payload, Market market) {
     std::vector<TdxStockRec> out;
     if (payload.size() < 2) return out;

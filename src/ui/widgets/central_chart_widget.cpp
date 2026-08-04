@@ -17,7 +17,7 @@ CentralChartWidget::CentralChartWidget(IDataProvider* provider, QWidget* parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
 
-    // 周期栏: 分时 | 日 | 周 | 月 | 5分 | 15分 | 30分 | 60分
+    // 周期栏: 分时 | 日 | 周 | 月
     auto* periodBar = new QHBoxLayout();
     periodBar->setContentsMargins(6, 4, 6, 4);
     periodBar->setSpacing(4);
@@ -25,14 +25,10 @@ CentralChartWidget::CentralChartWidget(IDataProvider* provider, QWidget* parent)
     group->setExclusive(true);
     struct P { const char* label; BarPeriod p; };
     const P periods[] = {
-        {"分时", BarPeriod::Minute1},   // 分时走 TimelineChart（getIntraday，当前降级）
+        {"分时", BarPeriod::Minute5},   // 分时走 TimelineChart
         {"日线", BarPeriod::Daily},
         {"周线", BarPeriod::Weekly},
         {"月线", BarPeriod::Monthly},
-        {"5分", BarPeriod::Minute5},
-        {"15分", BarPeriod::Minute15},
-        {"30分", BarPeriod::Minute30},
-        {"60分", BarPeriod::Minute60},
     };
     for (const auto& pr : periods) {
         auto* btn = new QToolButton(this);
@@ -72,12 +68,13 @@ void CentralChartWidget::loadStock(const StockCode& code, const QString& name) {
 }
 
 void CentralChartWidget::setPeriod(BarPeriod period) {
-    if (period == BarPeriod::Minute1) {
-        // 分时图 → TimelineChart（getIntraday，TDX 0x051D 降级显示"无数据"）
+    if (period == BarPeriod::Minute1 || period == BarPeriod::Minute5 ||
+        period == BarPeriod::Minute15 || period == BarPeriod::Minute30 ||
+        period == BarPeriod::Minute60) {
+        // 分时/分钟 → TimelineChart
         stack_->setCurrentWidget(timeline_);
         if (currentCode_.isValid()) timeline_->loadStock(currentCode_, currentName_);
     } else {
-        // 日/周/月 + 5/15/30/60 分 → KLineChart（分钟K线走 0x052D 分钟 category）
         stack_->setCurrentWidget(kline_);
         kline_->setPeriod(period);
         if (currentCode_.isValid()) kline_->loadStock(currentCode_, currentName_);

@@ -358,20 +358,53 @@ std::vector<Bar> TdxProvider::qfqAdjust(std::vector<Bar> bars,
 // 分时
 // ============================================================
 std::optional<IntradayData> TdxProvider::getIntraday(const StockCode& code) {
-    // TODO: TDX 当日分时(0x051D)响应字节格式与 injoyai/pytdx 参考实现有出入
-    //（数据起点/字段边界待校准），暂返回空避免错误数据。用 0x0FC5 分时成交
-    // 明细聚合或抓包 fixture 校准后可启用。
-    (void)code;
-    return std::nullopt;
-#if 0
+    // 0x0FC5 逐笔成交明细 → 分页拉全当日 → 按分钟聚合 → IntradayData。
+    // （0x051D 当日分时响应在此服务器为非标准变体，pytdx 同失败，弃用）
     const int mkt = tdx::tdxMarket(code.market());
     if (mkt < 0) return std::nullopt;
-    const auto req = tdx::buildMinuteReq(static_cast<uint8_t>(mkt), code.code());
-    const auto resp = executeCommand(tdx::Cmd::Minute, req, requestTimeoutMs_);
-    if (!resp.ok) return std::nullopt;
 
-    const auto recs = tdx::decodeMinute(resp.payload);
-    if (recs.empty()) return std::nullopt;
+    std::vector<tdx::TdxTickRec> ticks;
+    uint32_t start = 0;
+    constexpr uint16_t kPage = 1000;
+    while (start <= 20000) {  // 安全上限（≥20 页 ≈ 200万手）
+        const auto req = tdx::buildTransactionReq(static_cast<uint8_t>(mkt), code.code(),
+                                                  static_cast<uint16_t>(start), kPage);
+        const auto resp = executeCommand(tdx::Cmd::MinuteTrade, req, requestTimeoutMs_);
+        if (!resp.ok) break;
+        auto page = tdx::decodeTransaction(resp.payload);
+        if (page.empty()) break;
+        ticks.insert(ticks.end(), page.begin(), page.end());
+        if (page.size() < kPage) break;
+        start += kPage;
+    }
+    if (ticks.empty()) return std::nullopt;
+
+    // 按分钟聚合（09:30=0..11:30=119, 13:00=120..15:00=239）
+    struct MinuteAgg {
+        double open = 0.0, high = 0.0, low = 0.0, close = 0.0;
+        double vol = 0.0;    // 股
+        double amount = 0.0; // 元
+        int n = 0;
+    };
+    std::map<int, MinuteAgg> mins;
+    for (const auto& t : ticks) {
+        const int minsOfDay = t.hour * 60 + t.minute;
+        if (minsOfDay < 9 * 60 + 30) continue;                 // 集合竞价丢弃
+        if (minsOfDay >= 12 * 60 && minsOfDay < 13 * 60) continue;  // 午休
+        const int idx = (minsOfDay < 13 * 60)
+            ? std::min(minsOfDay - 570, 119)
+            : std::min(120 + minsOfDay - 780, 239);
+        const double shares = t.volume * 100.0;                // 手→股
+        auto& a = mins[idx];
+        if (a.n == 0) { a.open = t.price; a.low = t.price; }
+        a.high = std::max(a.high, t.price);
+        a.low = std::min(a.low, t.price);
+        a.close = t.price;
+        a.vol += shares;
+        a.amount += shares * t.price;
+        ++a.n;
+    }
+    if (mins.empty()) return std::nullopt;
 
     // 昨收（发一次报价）
     double preClose = 0.0;
@@ -382,20 +415,11 @@ std::optional<IntradayData> TdxProvider::getIntraday(const StockCode& code) {
     data.code = code;
     data.date = utils::now();
     data.preClose = preClose;
-    data.points.reserve(recs.size());
-    for (const auto& r : recs) {
+    double cumVol = 0.0, cumAmt = 0.0;
+    for (const auto& [idx, a] : mins) {
+        cumVol += a.vol;
+        cumAmt += a.amount;
         IntradayPoint pt;
-        // 标准分钟：09:30=0..11:30=120, 13:00=120..15:00=240（TDX 从 09:00 起算）
-        int stdMin = r.minute;
-        if (r.minute >= 30 && r.minute < 150) {
-            stdMin = r.minute - 30;            // 上午 09:30 起
-        } else if (r.minute >= 150) {
-            stdMin = 120 + (r.minute - 150);   // 下午 13:00 起
-        } else {
-            continue;  // 集合竞价段丢弃
-        }
-        if (stdMin < 0 || stdMin > 240) continue;
-        // 构建当日 09:30 + stdMin 分钟（std::tm 自动进位规范化）
         const std::time_t nowTt = std::chrono::system_clock::to_time_t(data.date);
         std::tm tmv{};
 #ifdef _WIN32
@@ -403,18 +427,17 @@ std::optional<IntradayData> TdxProvider::getIntraday(const StockCode& code) {
 #else
         localtime_r(&nowTt, &tmv);
 #endif
-        tmv.tm_hour = 9;
-        tmv.tm_min = 30 + stdMin;
+        if (idx < 120) { tmv.tm_hour = 9; tmv.tm_min = 30 + idx; }
+        else { tmv.tm_hour = 13; tmv.tm_min = idx - 120; }
         tmv.tm_sec = 0;
         const std::time_t ptTt = std::mktime(&tmv);
         pt.time = std::chrono::system_clock::from_time_t(ptTt);
-        pt.price = r.price;
-        pt.volume = static_cast<Volume>(r.volume);
-        pt.amount = r.price * r.volume;  // 估算累计额（TDX 分时不提供额）
-        data.points.push_back(pt);
+        pt.price = a.close;                          // 每分钟收盘
+        pt.volume = static_cast<Volume>(cumVol);     // 累计量（与腾讯语义一致）
+        pt.amount = cumAmt;                          // 累计额
+        data.points.push_back(std::move(pt));
     }
     return data;
-#endif
 }
 
 // ============================================================

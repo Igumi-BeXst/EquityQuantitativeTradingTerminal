@@ -143,6 +143,16 @@ std::vector<uint8_t> buildGbbqReq(uint8_t market, const std::string& code) {
     d.insert(d.end(), code.begin(), code.end());
     return d;
 }
+std::vector<uint8_t> buildTransactionReq(uint8_t market, const std::string& code,
+                                         uint16_t start, uint16_t count) {
+    // 逐笔成交请求体（pytdx）：market(uint16) + code(6) + start(2) + count(2)
+    std::vector<uint8_t> d;
+    putU16(d, market);
+    d.insert(d.end(), code.begin(), code.end());
+    putU16(d, start);
+    putU16(d, count);
+    return d;
+}
 
 // ---- 变长解码 ----
 int32_t decodeVarInt(const uint8_t*& p, const uint8_t* end) {

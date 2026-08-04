@@ -88,28 +88,6 @@ static void probeKline(tdx::TdxSocket& sock, const std::string& fixtureDir) {
     saveTo(fixtureDir + "/kline_600519_day.bin", pl);
 }
 
-// 分钟K线探测：验证 5/15/60 分钟 category 在服务器可用
-static void probeMinuteKline(tdx::TdxSocket& sock) {
-    const struct { uint8_t cat; const char* name; } cats[] = {
-        {tdx::Kline5Min, "5分"}, {tdx::Kline15Min, "15分"},
-        {tdx::Kline30Min, "30分"}, {tdx::Kline60Min, "60分"},
-    };
-    for (const auto& c : cats) {
-        std::vector<uint8_t> pl;
-        const auto req = tdx::buildKlineReq(1, "600519", c.cat, 0, 10);
-        std::printf("[分钟K %s] ", c.name);
-        if (!transact(sock, tdx::Cmd::Kline, req, pl)) continue;
-        auto bars = tdx::decodeKline(pl, c.cat);
-        std::printf("payload=%zu bars=%zu ", pl.size(), bars.size());
-        if (!bars.empty()) {
-            std::printf("最早[%s]收%.2f 最新[%s]收%.2f",
-                        st::utils::toDateTimeString(bars.front().time).c_str(), bars.front().close,
-                        st::utils::toDateTimeString(bars.back().time).c_str(), bars.back().close);
-        }
-        std::printf("\n");
-    }
-}
-
 // 指数K线探测：验证指数记录比个股多 4 字节（涨跌家数）
 static void probeIndexKline(tdx::TdxSocket& sock) {
     std::vector<uint8_t> pl;
@@ -147,6 +125,65 @@ static void probeBatchQuote(tdx::TdxSocket& sock) {
     }
 }
 
+// 分钟K线探测（5/15/30/60分 category 0/1/2/3）
+static void probeMinuteKline(tdx::TdxSocket& sock) {
+    for (int cat : {0, 1, 2, 3}) {
+        const auto req = tdx::buildKlineReq(1, "600519", static_cast<uint8_t>(cat), 0, 320);
+        std::vector<uint8_t> pl;
+        std::printf("[mkline cat=%d] ", cat);
+        if (!transact(sock, tdx::Cmd::Kline, req, pl)) continue;
+        std::printf("payload=%zu ", pl.size());
+        hexdump("", pl, 48);
+        const auto bars = tdx::decodeKline(pl, static_cast<uint8_t>(cat));
+        std::printf("  bars=%zu", bars.size());
+        if (!bars.empty()) {
+            std::printf(" first[%s] c=%.2f",
+                        st::utils::toDateTimeString(bars[0].time).c_str(), bars[0].close);
+        }
+        std::printf("\n");
+    }
+}
+
+// 逐笔成交探测（0x0FC5）：验证响应格式
+static void probeTransaction(tdx::TdxSocket& sock) {
+    const auto req = tdx::buildTransactionReq(1, "600519", 0, 1000);
+    std::vector<uint8_t> pl;
+    std::printf("[transaction] ");
+    if (!transact(sock, tdx::Cmd::MinuteTrade, req, pl)) return;
+    std::printf("payload=%zu ", pl.size());
+    hexdump("", pl, 48);
+    const auto ticks = tdx::decodeTransaction(pl);
+    std::printf("  ticks=%zu\n", ticks.size());
+    for (size_t i = 0; i < 3 && i < ticks.size(); ++i)
+        std::printf("    [%02d:%02d] p=%.2f vol=%.0f num=%d bs=%d\n",
+                    ticks[i].hour, ticks[i].minute, ticks[i].price,
+                    ticks[i].volume, ticks[i].num, ticks[i].buyorsell);
+    if (!ticks.empty()) {
+        const auto& last = ticks.back();
+        std::printf("    last[%02d:%02d] p=%.2f vol=%.0f\n",
+                    last.hour, last.minute, last.price, last.volume);
+        // 拉多页求和，与报价总量(37450手=3745000股)对比判定单位
+        double totalRaw = 0;
+        uint32_t start = 0;
+        int pages = 0;
+        while (start <= 10000 && pages < 20) {
+            const auto preq = tdx::buildTransactionReq(1, "600519",
+                                                       static_cast<uint16_t>(start), 1000);
+            std::vector<uint8_t> ppl;
+            if (!transact(sock, tdx::Cmd::MinuteTrade, preq, ppl)) break;
+            auto pticks = tdx::decodeTransaction(ppl);
+            if (pticks.empty()) break;
+            for (const auto& t : pticks) totalRaw += t.volume;
+            ++pages;
+            if (pticks.size() < 1000) break;
+            start += 1000;
+        }
+        std::printf("    全日记 %d 页, 原始量合计=%.0f (报价总量 37450手/3745000股)\n",
+                    pages, totalRaw);
+    }
+    saveTo("tests/fixtures/tdx/transaction_600519.bin", pl);
+}
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     const std::string host = "124.71.187.122";
@@ -158,9 +195,10 @@ int main(int argc, char** argv) {
     probeMinute(sock, fixtureDir);
     probeQuote(sock, fixtureDir);
     probeKline(sock, fixtureDir);
-    probeMinuteKline(sock);
     probeIndexKline(sock);
     probeBatchQuote(sock);
+    probeMinuteKline(sock);
+    probeTransaction(sock);
     sock.close();
     return 0;
 }

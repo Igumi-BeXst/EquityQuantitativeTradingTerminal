@@ -100,6 +100,18 @@ TEST(TdxProtocol, EncodeRequestHeader) {
     for (size_t i = 0; i < data.size(); ++i) EXPECT_EQ(f[12 + i], data[i]);
 }
 
+TEST(TdxProtocol, BuildTransactionReq) {
+    auto d = tdx::buildTransactionReq(1, "600519", 0, 1000);
+    ASSERT_EQ(d.size(), 12u);
+    EXPECT_EQ(d[0], 1);   // market(uint16 LE)
+    EXPECT_EQ(d[1], 0);
+    EXPECT_EQ(std::string(d.begin() + 2, d.begin() + 8), "600519");
+    EXPECT_EQ(d[8], 0);   // start
+    EXPECT_EQ(d[9], 0);
+    EXPECT_EQ(d[10], 0xE8);  // count=1000
+    EXPECT_EQ(d[11], 0x03);
+}
+
 TEST(TdxProtocol, BuildRequests) {
     EXPECT_EQ(tdx::buildConnectReq(), (std::vector<uint8_t>{0x01}));
     EXPECT_EQ(tdx::buildHeartReq(), (std::vector<uint8_t>{}));
@@ -428,6 +440,22 @@ TEST(TdxModels, DecodeKlineIndexFromFixture) {
     for (const auto& b : bars) {
         EXPECT_GT(b.close, 1000);   // 指数点位量级（非垃圾值）
         EXPECT_GT(b.high, b.low);
+    }
+}
+
+TEST(TdxModels, DecodeTransactionFromFixture) {
+    auto p = readFixture("transaction_600519.bin");
+    ASSERT_FALSE(p.empty()) << "fixture 缺失";
+    auto ticks = tdx::decodeTransaction(p);
+    ASSERT_EQ(ticks.size(), 1000u);
+    EXPECT_NEAR(ticks[0].price, 1332.35, 0.5);       // 页首笔
+    EXPECT_NEAR(ticks.back().price, 1328.36, 0.5);   // 收盘
+    EXPECT_GT(ticks[0].volume, 0);                    // 量为手
+    EXPECT_LE(ticks[0].hour * 60 + ticks[0].minute,
+              ticks.back().hour * 60 + ticks.back().minute);  // 页内按时间序
+    // 收盘前后应接近（差分累积连续）
+    for (size_t i = 1; i < ticks.size(); ++i) {
+        EXPECT_NEAR(ticks[i].price, ticks[i - 1].price, 20.0);
     }
 }
 

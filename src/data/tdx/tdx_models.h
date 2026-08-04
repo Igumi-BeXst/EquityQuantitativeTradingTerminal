@@ -56,6 +56,15 @@ struct TdxStockRec {
     std::string name;        // UTF-8
 };
 
+/// 逐笔成交记录（0x0FC5）
+struct TdxTickRec {
+    int hour = 0, minute = 0;
+    double price = 0.0;      // 元（差分累积）
+    double volume = 0.0;     // 股
+    int num = 0;             // 笔数
+    int buyorsell = 0;       // 0=买 1=卖 2=中性
+};
+
 /// 全部接收【已解压】payload
 /// isIndex: 指数 K线记录比个股多 4 字节（上涨/下跌家数），需跳过
 std::vector<TdxKlineRec> decodeKline(const std::vector<uint8_t>& payload,
@@ -64,6 +73,7 @@ std::vector<TdxQuoteRec> decodeQuote(const std::vector<uint8_t>& payload);
 std::vector<TdxMinuteRec> decodeMinute(const std::vector<uint8_t>& payload);
 std::vector<TdxGbbqRec> decodeGbbq(const std::vector<uint8_t>& payload);
 uint32_t decodeCount(const std::vector<uint8_t>& payload);
+std::vector<TdxTickRec> decodeTransaction(const std::vector<uint8_t>& payload);
 /// 股票列表解码。记录内不含市场字段（由请求隐含），market 由调用方传入。
 std::vector<TdxStockRec> decodeCodeList(const std::vector<uint8_t>& payload, Market market);
 

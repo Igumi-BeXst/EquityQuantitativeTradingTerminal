@@ -147,7 +147,7 @@ market(1) 0x00 code(6) category(1) 0x00 0x01 0x00 start(2) count(2) 0x00×10
 - **与 pytdx 同请求同响应对照**：pytdx `get_minute_time_data` 发完全相同的请求字节（`01 00 36 30 30 35 31 39 00 00 00 00`），收到**相同 1268B 响应**，官方解析器产出同样垃圾（0.01→2623.17）。pytdx docstring 的标准响应头是 `f0 00 00 00 a2 08...`（记录从 [4] 起），而**该服务器 [4] 是 market+code** —— 响应头嵌入 market/code，属非标准变体，标准解析器（pytdx/injoyai）全部失配
 - injoyai 自注释"todo 解析好像不对"；该服务器报价命令 pytdx `get_security_quotes` 也返回 []（我们的 decodeQuote 反而正确，说明本服务器协议为变体）
 
-**当前降级**：`getIntraday` 返回 nullopt，分时图显示"无数据"。备选方案：0x0FC5 分时成交明细聚合（需先验证该命令在此服务器可用）。fixture 与分析脚本保留在 `tests/fixtures/tdx/`（analyze*.py / brute*.py / pytdx_*.py）供后续排查。
+**当前方案（2026-08-05 已启用）**：改用 **0x0FC5 逐笔成交明细聚合**。`getIntraday` 分页拉全当日逐笔（1000 笔/页，全日记 ~5 页），按分钟聚合 OHLC + 量额，构建 240 分钟轴 IntradayData（price=每分钟收盘，volume/amount 为累计，与腾讯语义一致供均价线/量柱）。逐笔记录：`time(2B uint16 分钟) + price(varint 累积分) + vol(varint 手) + num + buyorsell + 1未知`。fixture 与分析脚本保留在 `tests/fixtures/tdx/`（analyze*.py / brute*.py / pytdx_*.py / transaction_600519.bin）供后续排查。
 
 ## 前复权（qfq）
 

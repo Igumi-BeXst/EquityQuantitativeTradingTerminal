@@ -54,6 +54,8 @@ std::vector<uint8_t> buildMinuteReq(uint8_t market, const std::string& code);
 std::vector<uint8_t> buildKlineReq(uint8_t market, const std::string& code,
                                    uint8_t category, uint16_t start, uint16_t count);
 std::vector<uint8_t> buildGbbqReq(uint8_t market, const std::string& code);
+std::vector<uint8_t> buildTransactionReq(uint8_t market, const std::string& code,
+                                         uint16_t start, uint16_t count);
 
 /// 市场编码：SH=1, SZ=0, BJ=2；其他 -1
 int tdxMarket(Market m);
