@@ -28,6 +28,14 @@ constexpr double kTitleH = 22;
 constexpr double kPaneGap = 8;  // 面板间隙（强化分隔）
 constexpr double kMargin = 8;   // 图表左右留空，避免紧贴边缘
 
+// 股 → 手显示：≥1亿用亿、≥1万用万、否则手数（不显示"手"后缀，对齐参照软件）
+QString formatVolume(double shares) {
+    const double hands = shares / 100.0;
+    if (hands >= 1e8) return QStringLiteral("%1亿").arg(hands / 1e8, 0, 'f', 2);
+    if (hands >= 1e4) return QStringLiteral("%1万").arg(hands / 1e4, 0, 'f', 2);
+    return QStringLiteral("%1").arg(hands, 0, 'f', 0);
+}
+
 QString periodLabel(BarPeriod p) {
     switch (p) {
         case BarPeriod::Daily:   return QStringLiteral("日线");
@@ -642,8 +650,7 @@ void KLineChart::drawAxes(QPainter& p) {
     };
     if (showVol_) {
         p.drawText(QRectF(volRect_.right() + 2, volRect_.top() + 2, kRightAxisW - 4, 14),
-                   Qt::AlignLeft | Qt::AlignVCenter,
-                   QStringLiteral("%1万").arg(volHi_ / 10000.0, 0, 'f', 1));
+                   Qt::AlignLeft | Qt::AlignVCenter, formatVolume(volHi_));
     }
     if (showBoll_) drawAxisLabel(bollRect_, bollHi_);
     if (showMacd_) drawAxisLabel(macdRect_, macdMaxAbs_);
@@ -701,23 +708,19 @@ void KLineChart::drawCrosshair(QPainter& p) {
     p.drawLine(QPointF(cx, mainRect_.top()), QPointF(cx, plotBottom));
     p.drawLine(QPointF(mainRect_.left(), mouseY_), QPointF(mainRect_.right(), mouseY_));
 
-    // 浮框
+    // 浮框（每项一行，不含 MA）
     const auto& b = bars_[static_cast<size_t>(mouseIndex_)];
     const double prevClose = mouseIndex_ >= 1
         ? bars_[static_cast<size_t>(mouseIndex_ - 1)].close : 0.0;
     const double change = prevClose > 0 ? (b.close - prevClose) / prevClose * 100.0 : 0.0;
-    QString txt = QStringLiteral("%1\n开:%2 高:%3\n低:%4 收:%5\n涨跌幅:%6% 量:%7万")
+    const double changeAbs = prevClose > 0 ? (b.close - prevClose) : 0.0;
+    QString txt = QStringLiteral("%1\n开:%2\n高:%3\n低:%4\n收:%5\n涨跌:%6\n涨跌幅:%7%\n量:%8")
         .arg(QString::fromStdString(utils::toDateString(b.time)))
         .arg(b.open, 0, 'f', 2).arg(b.high, 0, 'f', 2)
         .arg(b.low, 0, 'f', 2).arg(b.close, 0, 'f', 2)
+        .arg(changeAbs, 0, 'f', 2)
         .arg(change, 0, 'f', 2)
-        .arg(b.volume / 10000.0, 0, 'f', 1);
-    if (ind_.valid) {
-        txt += QStringLiteral("\nMA5:%1 MA10:%2 MA20:%3")
-                   .arg(ind_.ma5[static_cast<size_t>(mouseIndex_)], 0, 'f', 2)
-                   .arg(ind_.ma10[static_cast<size_t>(mouseIndex_)], 0, 'f', 2)
-                   .arg(ind_.ma20[static_cast<size_t>(mouseIndex_)], 0, 'f', 2);
-    }
+        .arg(formatVolume(b.volume));
 
     QFont f = p.font();
     f.setPixelSize(11);
@@ -725,9 +728,9 @@ void KLineChart::drawCrosshair(QPainter& p) {
     QFontMetrics fm(f);
     QRect box = fm.boundingRect(QRect(0, 0, 200, 200), Qt::AlignLeft | Qt::AlignTop, txt);
     box.adjust(-6, -4, 10, 4);
+    // 信息框固定在最上方（与分时图一致），水平仍跟随鼠标
     box.moveTo(std::min(cx + 8, static_cast<double>(width() - box.width() - 4)),
-               std::max(plotTop(), std::min(mouseY_ - box.height() / 2,
-                                            static_cast<double>(height() - box.height() - 4))));
+               mainRect_.top() + 4);
     p.fillRect(box, QColor(0, 0, 0, 170));
     p.setPen(QColor("#e8e8e8"));
     p.drawRect(box);

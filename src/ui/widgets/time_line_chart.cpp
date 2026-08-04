@@ -1,5 +1,6 @@
 #include "ui/widgets/time_line_chart.h"
 #include "data/idata_provider.h"
+#include "data/tdx/tdx_models.h"
 #include "core/thread_pool.h"
 #include "foundation/utils/datetime.h"
 #include "foundation/utils/indicators.h"
@@ -25,6 +26,15 @@ constexpr double kTitleH = 22;
 constexpr double kMainRatio = 0.58;   // 主价格区占可绘图区
 constexpr double kVolRatio = 0.16;    // 量区
 constexpr double kMargin = 8;         // 图表左右留空，避免紧贴边缘
+constexpr double kPaneHeaderH = 16;   // 指标面板顶部图例条带（标签与指标图分离）
+
+// 股 → 手显示：≥1亿用亿、≥1万用万、否则手数（不显示"手"后缀，对齐参照软件）
+QString formatVolume(double shares) {
+    const double hands = shares / 100.0;
+    if (hands >= 1e8) return QStringLiteral("%1亿").arg(hands / 1e8, 0, 'f', 2);
+    if (hands >= 1e4) return QStringLiteral("%1万").arg(hands / 1e4, 0, 'f', 2);
+    return QStringLiteral("%1").arg(hands, 0, 'f', 0);
+}
 }  // namespace
 
 TimelineChart::TimelineChart(IDataProvider* provider, QWidget* parent)
@@ -85,21 +95,28 @@ double TimelineChart::priceToY(double price) const {
 }
 
 double TimelineChart::volToY(double v) const {
-    return volRect_.bottom() - v / volHi_ * volRect_.height();
+    const double h = volRect_.height() - kPaneHeaderH;
+    return volRect_.bottom() - v / volHi_ * h;
 }
 
 double TimelineChart::macdToY(double v) const {
-    double mid = macdRect_.center().y();
-    return mid - v / macdMaxAbs_ * (macdRect_.height() / 2.0);
+    const double top = macdRect_.top() + kPaneHeaderH;
+    const double mid = (top + macdRect_.bottom()) / 2.0;
+    return mid - v / macdMaxAbs_ * ((macdRect_.bottom() - top) / 2.0);
 }
 
 void TimelineChart::computeAvgLine() {
     avgLine_.clear();
+    // 指数无均价线（均价=每股均价，与指数点位量纲不同）
+    if (tdx::isIndexCode(code_)) return;
     // 腾讯分时数据是累计值 → 均价 = 累计额 / 累计量（正确 VWAP）
     for (const auto& pt : data_.points) {
         if (pt.volume > 0) avgLine_.push_back(pt.amount / pt.volume);
         else avgLine_.push_back(avgLine_.empty() ? 0.0 : avgLine_.back());
     }
+    // 开盘首点：均价 = 开盘价（集合竞价是当日首笔，价格线与均价线同起点）
+    if (!avgLine_.empty() && !data_.points.empty())
+        avgLine_[0] = data_.points.front().price;
 }
 
 void TimelineChart::computeMacd() {
@@ -274,10 +291,9 @@ void TimelineChart::drawGridAndAxis(QPainter& p) {
         for (int i = 1; i <= kSeg; ++i) labelLevel(data_.preClose + symRange_ * i / kSeg, false);
     }
 
-    // 量轴（万单位）
+    // 量轴（手，自动缩放）
     p.drawText(QRectF(rightX + 2, volRect_.top() + 2, kRightAxisW - 4, 14),
-               Qt::AlignLeft | Qt::AlignVCenter,
-               QStringLiteral("%1万").arg(volHi_ / 10000.0, 0, 'f', 1));
+               Qt::AlignLeft | Qt::AlignVCenter, formatVolume(volHi_));
     // MACD 轴: 高低标注
     if (!macdDif_.empty()) {
         p.drawText(QRectF(rightX + 2, macdRect_.top() + 2, kRightAxisW - 4, 14),
@@ -313,10 +329,12 @@ void TimelineChart::drawPriceLines(QPainter& p) {
     p.setPen(avgPen);
     p.drawPath(avgPath);
 
-    // 均价线图例
-    p.setPen(QColor("#888888"));
-    p.drawText(QRectF(w - 110, kTitleH + 2, 106, 14), Qt::AlignRight,
-               tr("均价 %1").arg(avgLine_.empty() ? 0.0 : avgLine_.back(), 0, 'f', 2));
+    // 均价线图例（指数无均价线）
+    if (!avgLine_.empty()) {
+        p.setPen(QColor("#888888"));
+        p.drawText(QRectF(w - 110, kTitleH + 2, 106, 14), Qt::AlignRight,
+                   tr("均价 %1").arg(avgLine_.back(), 0, 'f', 2));
+    }
 }
 
 void TimelineChart::drawVolume(QPainter& p) {
@@ -333,28 +351,30 @@ void TimelineChart::drawVolume(QPainter& p) {
         const double barVol = cum - prev;
         if (barVol <= 0) continue;
         double x = xFor(m);
-        double h = barVol / volHi_ * volRect_.height();
+        double h = barVol / volHi_ * (volRect_.height() - kPaneHeaderH);
         auto& path = pt.price >= data_.preClose ? upPath : downPath;
         path.addRect(QRectF(x - 0.35 * bw, volRect_.bottom() - h, 0.7 * bw, h));
     }
     p.fillPath(upPath, kUpColor);
     p.fillPath(downPath, kDownColor);
 
-    // 图例
+    // 图例（顶部独立条带，与量柱分开）
     QFont f = p.font();
     f.setPixelSize(11);
     p.setFont(f);
     p.setPen(QColor("#d4d4d4"));
-    p.drawText(QPointF(volRect_.left() + 6, volRect_.top() + 12), tr("分时量(万)"));
+    p.drawText(QRectF(volRect_.left() + 6, volRect_.top() + 2, 200, kPaneHeaderH - 4),
+               Qt::AlignLeft | Qt::AlignVCenter, tr("分时量"));
 }
 
 void TimelineChart::drawMacd(QPainter& p) {
     if (macdDif_.empty()) return;
 
-    // 0 轴
+    // 0 轴（在图例条带下方）
+    const double midY = (macdRect_.top() + kPaneHeaderH + macdRect_.bottom()) / 2.0;
     p.setPen(QPen(QColor("#555555"), 1, Qt::DashLine));
-    p.drawLine(QPointF(macdRect_.left(), macdRect_.center().y()),
-               QPointF(macdRect_.right(), macdRect_.center().y()));
+    p.drawLine(QPointF(macdRect_.left(), midY),
+               QPointF(macdRect_.right(), midY));
 
     // 柱
     QPainterPath upHist, downHist;
@@ -363,7 +383,6 @@ void TimelineChart::drawMacd(QPainter& p) {
         if (!std::isfinite(macdHist_[i])) continue;
         const int m = minutesFromOpen(data_.points[i].time);
         if (m < 0 || m > 239) continue;
-        const double midY = macdRect_.center().y();
         const double y = macdToY(macdHist_[i]);
         auto& path = macdHist_[i] >= 0 ? upHist : downHist;
         path.addRect(QRectF(xFor(m) - 0.35 * bw, std::min(y, midY), 0.7 * bw,
@@ -390,13 +409,15 @@ void TimelineChart::drawMacd(QPainter& p) {
     drawLine(macdDif_, QColor("#ffffff"));
     drawLine(macdDea_, QColor("#ffd54f"));
 
-    // 图例
+    // 图例（顶部独立条带，与柱图分开）
     QFont f = p.font();
     f.setPixelSize(11);
     p.setFont(f);
     const int lastIdx = static_cast<int>(macdDif_.size()) - 1;
     p.setPen(QColor("#d4d4d4"));
-    p.drawText(QPointF(macdRect_.left() + 6, macdRect_.top() + 12),
+    p.drawText(QRectF(macdRect_.left() + 6, macdRect_.top() + 2,
+                      macdRect_.width() - 12, kPaneHeaderH - 4),
+               Qt::AlignLeft | Qt::AlignVCenter,
                QStringLiteral("分时MACD(12,26,9)  DIF %1  DEA %2")
                    .arg(macdDif_[static_cast<size_t>(lastIdx)], 0, 'f', 2)
                    .arg(macdDea_[static_cast<size_t>(lastIdx)], 0, 'f', 2));
@@ -414,19 +435,21 @@ void TimelineChart::drawCrosshair(QPainter& p) {
 
     const double change = data_.preClose > 0
         ? (pt.price - data_.preClose) / data_.preClose * 100.0 : 0.0;
+    const double changeAbs = data_.preClose > 0 ? (pt.price - data_.preClose) : 0.0;
     const double avg = mouseIndex_ < static_cast<int>(avgLine_.size())
         ? avgLine_[static_cast<size_t>(mouseIndex_)] : 0.0;
-    // 分时量 = 该分钟累计量的增量（与量柱一致），万为单位
+    // 分时量 = 该分钟累计量的增量（与量柱一致）
     const double cumVol = static_cast<double>(pt.volume);
     const double prevVol = mouseIndex_ > 0
         ? static_cast<double>(data_.points[static_cast<size_t>(mouseIndex_ - 1)].volume) : 0.0;
-    const double minuteVol = std::max(cumVol - prevVol, 0.0) / 10000.0;
-    QString txt = QStringLiteral("%1\n价格:%2\n均价:%3\n涨跌幅:%4% 分时量:%5万")
+    const double minuteShares = std::max(cumVol - prevVol, 0.0);  // 股
+    QString txt = QStringLiteral("%1\n价格:%2\n均价:%3\n涨跌:%4\n涨跌幅:%5%\n分时量:%6")
         .arg(QString::fromStdString(utils::toDateTimeString(pt.time)))
         .arg(pt.price, 0, 'f', 2)
         .arg(avg, 0, 'f', 2)
+        .arg(changeAbs, 0, 'f', 2)
         .arg(change, 0, 'f', 2)
-        .arg(minuteVol, 0, 'f', 2);
+        .arg(formatVolume(minuteShares));
 
     QFont f = p.font();
     f.setPixelSize(11);
