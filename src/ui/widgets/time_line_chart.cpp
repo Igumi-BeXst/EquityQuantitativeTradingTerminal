@@ -416,12 +416,17 @@ void TimelineChart::drawCrosshair(QPainter& p) {
         ? (pt.price - data_.preClose) / data_.preClose * 100.0 : 0.0;
     const double avg = mouseIndex_ < static_cast<int>(avgLine_.size())
         ? avgLine_[static_cast<size_t>(mouseIndex_)] : 0.0;
-    QString txt = QStringLiteral("%1\n价格:%2\n均价:%3\n涨跌幅:%4% 量:%5")
+    // 分时量 = 该分钟累计量的增量（与量柱一致），万为单位
+    const double cumVol = static_cast<double>(pt.volume);
+    const double prevVol = mouseIndex_ > 0
+        ? static_cast<double>(data_.points[static_cast<size_t>(mouseIndex_ - 1)].volume) : 0.0;
+    const double minuteVol = std::max(cumVol - prevVol, 0.0) / 10000.0;
+    QString txt = QStringLiteral("%1\n价格:%2\n均价:%3\n涨跌幅:%4% 分时量:%5万")
         .arg(QString::fromStdString(utils::toDateTimeString(pt.time)))
         .arg(pt.price, 0, 'f', 2)
         .arg(avg, 0, 'f', 2)
         .arg(change, 0, 'f', 2)
-        .arg(static_cast<qlonglong>(pt.volume));
+        .arg(minuteVol, 0, 'f', 2);
 
     QFont f = p.font();
     f.setPixelSize(11);
