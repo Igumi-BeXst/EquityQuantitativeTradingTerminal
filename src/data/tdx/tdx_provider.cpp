@@ -379,6 +379,7 @@ std::optional<IntradayData> TdxProvider::getIntraday(const StockCode& code) {
         start += kPage;
     }
     if (ticks.empty()) return std::nullopt;
+    const bool isIndex = tdx::isIndexCode(code);
 
     // 按分钟聚合（09:30=0..11:30=119, 13:00=120..15:00=239）
     struct MinuteAgg {
@@ -390,23 +391,38 @@ std::optional<IntradayData> TdxProvider::getIntraday(const StockCode& code) {
     std::map<int, MinuteAgg> mins;
     for (const auto& t : ticks) {
         const int minsOfDay = t.hour * 60 + t.minute;
-        if (minsOfDay < 9 * 60 + 30) continue;                 // 集合竞价丢弃
+        if (minsOfDay < 9 * 60 + 25) continue;                 // 09:25 集合竞价计入第 1 分钟（开盘价/均价线需要）
         if (minsOfDay >= 12 * 60 && minsOfDay < 13 * 60) continue;  // 午休
         if (minsOfDay > 15 * 60) continue;                      // 盘后异常记录丢弃（防末分钟量膨胀）
         const int idx = (minsOfDay < 13 * 60)
-            ? std::min(minsOfDay - 570, 119)
+            ? std::min(std::max(minsOfDay - 570, 0), 119)
             : std::min(120 + minsOfDay - 780, 239);
-        const double shares = t.volume * 100.0;                // 手→股
         auto& a = mins[idx];
         if (a.n == 0) { a.open = t.price; a.low = t.price; }
         a.high = std::max(a.high, t.price);
         a.low = std::min(a.low, t.price);
         a.close = t.price;
-        a.vol += shares;
-        a.amount += shares * t.price;
+        if (isIndex) {
+            // 指数 0x0FC5 无成交量字段：volume 字段实为「成交额/100（百元）」→ 按分钟累计成交额
+            a.amount += t.volume * 100.0;  // 元
+        } else {
+            const double shares = t.volume * 100.0;            // 手→股
+            a.vol += shares;
+            a.amount += shares * t.price;
+        }
         ++a.n;
     }
     if (mins.empty()) return std::nullopt;
+
+    // 日K最新一根：确定实际交易日（分时数据来自最近交易日，不能直接用 utils::now()）
+    const auto dayBars = fetchBarsRaw(code, BarPeriod::Daily, 0, 1);
+    const DateTime tradeDate = (!dayBars.empty()) ? dayBars[0].time : utils::now();
+
+    // 指数无成交量字段 → 用当日日均价（日K量额比）把每分成交额换算成成交量
+    if (isIndex && !dayBars.empty() && dayBars[0].volume > 0 && dayBars[0].amount > 0) {
+        const double volPerYuan = static_cast<double>(dayBars[0].volume) / dayBars[0].amount;
+        for (auto& kv : mins) kv.second.vol = kv.second.amount * volPerYuan;
+    }
 
     // 昨收（发一次报价）
     double preClose = 0.0;
@@ -415,7 +431,7 @@ std::optional<IntradayData> TdxProvider::getIntraday(const StockCode& code) {
 
     IntradayData data;
     data.code = code;
-    data.date = utils::now();
+    data.date = tradeDate;
     data.preClose = preClose;
     // 满 240 点数组（缺分钟价格 carry-forward、量不变），使量柱=单分钟量、均价/MACD 连续
     double cumVol = 0.0, cumAmt = 0.0;
@@ -426,7 +442,8 @@ std::optional<IntradayData> TdxProvider::getIntraday(const StockCode& code) {
             const auto& a = it->second;
             cumVol += a.vol;
             cumAmt += a.amount;
-            lastPrice = a.close;
+            // 第 1 分钟显示开盘价（含集合竞价），其余分钟显示该分钟收盘价
+            lastPrice = (idx == 0) ? a.open : a.close;
         }
         if (lastPrice <= 0) continue;  // 尚未开盘
         IntradayPoint pt;

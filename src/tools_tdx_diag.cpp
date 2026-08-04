@@ -100,8 +100,9 @@ static void probeIndexKline(tdx::TdxSocket& sock) {
     auto bars = tdx::decodeKline(pl, tdx::KlineDay, tdx::isIndexCode(idx));
     std::printf("  decodeKline(跳4B) bars=%zu:", bars.size());
     for (size_t i = 0; i < bars.size(); ++i)
-        std::printf(" [%s]开%.2f/收%.2f", st::utils::toDateString(bars[i].time).c_str(),
-                    bars[i].open, bars[i].close);
+        std::printf(" [%s]开%.2f/收%.2f 量%.0f 额%.0f",
+                    st::utils::toDateString(bars[i].time).c_str(),
+                    bars[i].open, bars[i].close, bars[i].volume, bars[i].amount);
     std::printf("\n");
 }
 

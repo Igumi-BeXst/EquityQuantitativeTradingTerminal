@@ -114,13 +114,16 @@ std::vector<TdxKlineRec> decodeKline(const std::vector<uint8_t>& payload,
         r.high = highLi * kLiToYuan;
         r.low = lowLi * kLiToYuan;
         r.close = closeLi * kLiToYuan;
-        // 分钟线 volume 需 ÷100（手→百手？），统一按 injoyai 语义：分钟线 ÷100 后再 ×100 = 原值
+        // 指数 volume 原始单位为「万股」，个股为「手」→ 统一换算成股：
+        //   个股 ×100（手→股），指数 ×10000（万股→股）
+        // 分钟线另有 ÷100 的 injoyai 标定（个股/指数同套用）
         const bool isMinute = (klineCategory == Kline5Min || klineCategory == Kline15Min ||
                                klineCategory == Kline30Min || klineCategory == Kline60Min ||
                                klineCategory == KlineMin1 || klineCategory == KlineMin12);
-        const double volHands = isMinute ? volRaw / 100.0 : volRaw;
-        r.volume = volHands * kHandToShare;  // 手 → 股
-        r.amount = amtRaw;                   // 元
+        const double volShares = (isMinute ? volRaw / 100.0 : volRaw)
+                                 * (isIndex ? 10000.0 : kHandToShare);
+        r.volume = volShares;              // 股
+        r.amount = amtRaw;                 // 元
         out.push_back(r);
     }
     return out;
@@ -278,7 +281,7 @@ std::vector<TdxTickRec> decodeTransaction(const std::vector<uint8_t>& payload) {
         const uint16_t minutes = rdU16(payload.data() + pos);  // 自 00:00 起的分钟数
         pos += 2;
         const int64_t priceDiff = readPriceVar(payload, pos);
-        const int64_t volShares = readPriceVar(payload, pos);
+        const int64_t volHands = readPriceVar(payload, pos);  // 成交量（手，实测 全日记合计≈报价手数）
         const int64_t num = readPriceVar(payload, pos);
         const int64_t buyorsell = readPriceVar(payload, pos);
         readPriceVar(payload, pos);  // 未知字段
@@ -288,7 +291,7 @@ std::vector<TdxTickRec> decodeTransaction(const std::vector<uint8_t>& payload) {
         r.hour = minutes / 60;
         r.minute = minutes % 60;
         r.price = lastPriceFen / 100.0;
-        r.volume = static_cast<double>(volShares);  // 股
+        r.volume = static_cast<double>(volHands);  // 手（getIntraday 再 ×100 转股）
         r.num = static_cast<int>(num);
         r.buyorsell = static_cast<int>(buyorsell);
         out.push_back(r);
