@@ -15,6 +15,10 @@
 - 修复: poll/heartbeat 线程固定 sleep → cv 可中断，disconnect 立即唤醒
 - 分时 0x051D: 判定服务器非标准变体（pytdx 同失败），保持降级；fixture + findings 记录
 - 测试 136 → 162
+- 修复: decodeQuote 只读前 11 字段 → 多代码批量报价记录错位（涨幅/跌幅榜+市场宽度错误）；按 pytdx 完整字段序列消费整条记录（含五档）
+- 修复: 指数 K线记录多 4 字节（涨跌家数）→ decodeKline 加 isIndex 跳过 + isIndexCode 判定（SH 000xxx/SZ 399xxx）
+- 修复: 搜索框 Qt::Popup 抢键盘焦点导致每字符卡住 → WA_ShowWithoutActivating
+- 测试 162 → 165
 - 已知降级: 分时 0x051D 格式待校准（getIntraday 返回 nullopt，Step 10）
 - 状态栏/About 数据源文案动态显示 providerName()
 - 测试 136 全绿（编译零警告）

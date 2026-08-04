@@ -218,7 +218,8 @@ std::vector<Bar> TdxProvider::fetchBarsRaw(const StockCode& code, BarPeriod peri
     const auto resp = executeCommand(tdx::Cmd::Kline, req, requestTimeoutMs_);
     if (!resp.ok) return {};
 
-    const auto recs = tdx::decodeKline(resp.payload, static_cast<uint8_t>(cat));
+    const auto recs = tdx::decodeKline(resp.payload, static_cast<uint8_t>(cat),
+                                       tdx::isIndexCode(code));
     std::vector<Bar> bars;
     bars.reserve(recs.size());
     for (const auto& r : recs) {

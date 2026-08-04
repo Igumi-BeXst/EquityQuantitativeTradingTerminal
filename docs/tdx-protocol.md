@@ -94,27 +94,32 @@ market(1) 0x00 code(6) category(1) 0x00 0x01 0x00 start(2) count(2) 0x00×10
 | + | 4B | 成交额（元） |
 
 价格单位厘（÷1000 → 元）。差分：`open = openOff + lastClose`；`close = lastClose + openOff + closeOff`；`high/low` 相对 open。
-注意：**指数 K线记录比个股多 4 字节**（涨跌家数），当前只请求个股不跳过。
+注意：**指数 K线记录比个股多 4 字节**（涨跌家数），`decodeKline(..., isIndex)` 跳过。指数判定：SH `000xxx`（上证指数/沪深300/科创50…）、SZ `399xxx`。
 
 ## 报价记录（decodeQuote）
 
-`payload[0:2]` 跳过，`[2:4]` = 条数，随后每条：
+`payload[0:2]` 跳过，`[2:4]` = 条数，随后每条（**必须消费完整记录才能对齐下一条**，含五档等尾部字段）：
 
-| 偏移 | 编码 | 字段 |
-|---|---|---|
-| 0 | 1B | 市场（0深 1沪 2北） |
-| 1-6 | 6B | 代码 |
-| 7 | 2B | 活跃标志 |
-| + | 变长 | price（分 → ÷100 元） |
-| + | 变长 | last 差分（昨收 = price+last） |
-| + | 变长 | open 差分 |
-| + | 变长 | high 差分 |
-| + | 变长 | low 差分 |
-| + | 变长 | reversed0（服务时间） |
-| + | 变长 | reversed1 |
-| + | 变长 | 成交量（手 → ×100 股） |
-| + | 变长 | cur_vol 现量 |
-| + | 4B | 成交额（decodeVolume，元） |
+| 编码 | 字段 |
+|---|---|
+| 1B + 6B + 2B | 市场 + 代码 + 活跃标志 |
+| 变长 | price（分 → ÷100 元） |
+| 变长 | last 差分（昨收 = price+last） |
+| 变长 | open 差分 |
+| 变长 | high 差分 |
+| 变长 | low 差分 |
+| 变长 | reversed_bytes0（服务时间） |
+| 变长 | reversed_bytes1（应为 -price） |
+| 变长 | 成交量（手 → ×100 股） |
+| 变长 | cur_vol 现量 |
+| 4B | 成交额（decodeVolume，元） |
+| 变长×4 | s_vol / b_vol / reversed2 / reversed3 |
+| 变长×20 | 五档：bid_k/ask_k/bid_vol_k/ask_vol_k (k=1..5) |
+| 2B | reversed_bytes4 (uint16) |
+| 变长×4 | reversed_bytes5-8 |
+| 2B + 2B | reversed_bytes9 (int16，涨速) + active2 (uint16) |
+
+**教训**：旧实现只读前 11 字段（到 amount）就跳下一条 → 多代码批量请求记录错位（6 只只解析对 1 只）。单只时前几个字段恰好正确所以未暴露。fixture `quote_6codes.bin` 回归锁定。
 
 ## 证券列表记录（decodeCodeList）
 

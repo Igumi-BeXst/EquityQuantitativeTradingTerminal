@@ -11,6 +11,13 @@
 - [x] **接口重构**：IDataProvider 加 batchQuote/getIntraday/refreshQuotes/providerName 纯虚；12 个 UI 类 `TencentProvider*`→`IDataProvider*`；main_window `makeDataProvider()`；provider_factory 读 config `data.provider`（默认 tdx）；AKShare 补桩；cn_encoding 抽取 GBK 工具；vcpkg 加 zlib
 - [x] **实连验证**（tools_tdx_live）：登录 ✓、日/周/月K线前复权 ✓（茅台 2026-08-04 收 1328.36 与报价一致）、报价 ✓（量 3745000/额 50 亿）、列表解析 ✓（每页 1000）
 
+### Step 9c 集成问题修复（用户实测反馈，本日）
+用户启动软件实测发现 4 个问题，全部定位根因并修复：
+1. **涨幅/跌幅榜 + 市场宽度错误**：根因 `decodeQuote` 只读前 11 个字段（到 amount）就跳下一条 → 多代码批量请求（MarketPanel 精选池 129 只分 3 块）记录错位，6 只只解析对 1 只。修复：按 pytdx 完整字段序列消费整条记录（s_vol/b_vol/rev2-3/**五档×20**/rev4(2B)/rev5-8/rev9+active2(4B)）。实连验证 6 只（茅台/平安/招行/平安银行/宁德/五粮液）价格全对。fixture `quote_6codes.bin` + `DecodeQuoteBatchFromFixture` 回归锁定
+2. **指数K线错乱**：根因 指数 K线记录比个股**多 4 字节（涨跌家数）**，decodeKline 不跳 → 第二根起错位（日期 1899 垃圾）。修复：`decodeKline(payload, cat, isIndex)` + `isIndexCode`（SH `000xxx` / SZ `399xxx`），fetchBarsRaw 传入。实连验证上证指数 5 根（2026-07-29~08-04 开~3823/收~3828 合理）。fixture `kline_000001_day.bin` + `DecodeKlineIndexFromFixture`/`IsIndexCode` 回归
+3. **搜索框每输入一个字符卡住（需切屏恢复）**：根因 `Qt::Popup` 弹层显示时**抢占键盘焦点** → 下个字符输入被弹层吞掉；切屏（弹层关闭）才恢复，每字符循环。修复：弹层加 `WA_ShowWithoutActivating`（显示不激活/抢焦点）。GUI 需人工复验
+- 全量构建零警告；ctest **165/165**（+3 fixture 回归）；tdx_live 回归正常
+
 ### Step 10 单测 + 收尾（本日）
 - **分时 0x051D 判定为服务器非标准变体，降级保留**：穷举 2/3/4 字段 × 偏移 × 累积/绝对全失败；pytdx `get_minute_time_data` 发相同请求收相同 1268B 响应，官方解析器同样产出垃圾（0.01→2623）——该服务器响应头嵌入 market+code（`[4]=01 [5:11]=600519`），标准解析器全部失配。quote 前导块已识别（price/last/open/high/low 差分全命中基准）。fixture `minute_600519.bin` + 分析脚本保留 `tests/fixtures/tdx/`，findings 写入 docs/tdx-protocol.md
 - **transportFactory_ 注入**：doConnect 改用工厂创建传输（默认 TdxSocket），FakeTdxTransport 全链路可测

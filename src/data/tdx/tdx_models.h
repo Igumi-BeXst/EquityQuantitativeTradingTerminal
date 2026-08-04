@@ -57,8 +57,9 @@ struct TdxStockRec {
 };
 
 /// 全部接收【已解压】payload
+/// isIndex: 指数 K线记录比个股多 4 字节（上涨/下跌家数），需跳过
 std::vector<TdxKlineRec> decodeKline(const std::vector<uint8_t>& payload,
-                                     uint8_t klineCategory);
+                                     uint8_t klineCategory, bool isIndex = false);
 std::vector<TdxQuoteRec> decodeQuote(const std::vector<uint8_t>& payload);
 std::vector<TdxMinuteRec> decodeMinute(const std::vector<uint8_t>& payload);
 std::vector<TdxGbbqRec> decodeGbbq(const std::vector<uint8_t>& payload);
@@ -68,6 +69,10 @@ std::vector<TdxStockRec> decodeCodeList(const std::vector<uint8_t>& payload, Mar
 
 /// 市场字节 → Market 枚举（0=SZ 1=SH 2=BJ；其他 Unknown）
 Market marketFromTdx(uint8_t m);
+
+/// 判断是否为指数代码（指数 K线记录多 4 字节涨跌家数）
+/// SH 指数 = 000xxx（上证指数/沪深300/科创50…）；SZ 指数 = 399xxx
+bool isIndexCode(const StockCode& code);
 
 } // namespace tdx
 } // namespace st

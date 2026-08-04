@@ -52,8 +52,16 @@ Market marketFromTdx(uint8_t m) {
     return marketFromByte(m);
 }
 
+bool isIndexCode(const StockCode& code) {
+    const std::string& c = code.code();
+    if (c.size() < 3) return false;
+    if (code.market() == Market::SH) return c[0] == '0' && c[1] == '0' && c[2] == '0';
+    if (code.market() == Market::SZ) return c[0] == '3' && c[1] == '9' && c[2] == '9';
+    return false;
+}
+
 std::vector<TdxKlineRec> decodeKline(const std::vector<uint8_t>& payload,
-                                     uint8_t klineCategory) {
+                                     uint8_t klineCategory, bool isIndex) {
     std::vector<TdxKlineRec> out;
     if (payload.size() < 2) return out;
     const uint16_t count = rdU16(payload.data());
@@ -75,8 +83,8 @@ std::vector<TdxKlineRec> decodeKline(const std::vector<uint8_t>& payload,
         pos += 4;
         const double amtRaw = decodeVolume(rdU32(payload.data() + pos));
         pos += 4;
-        // 注意：指数 K线记录比个股多 4 字节（上涨/下跌家数）。
-        // 当前 fetchBarsRaw 只请求个股，不跳过；指数暂未接入。
+        // 指数 K线记录比个股多 4 字节（上涨/下跌家数），跳过以对齐下一条
+        if (isIndex) pos += 4;
 
         const double openLi = openOff + lastLi;
         const double closeLi = lastLi + openOff + closeOff;
@@ -131,6 +139,28 @@ std::vector<TdxQuoteRec> decodeQuote(const std::vector<uint8_t>& payload) {
         if (pos + 4 > payload.size()) break;
         const double amountYuan = decodeVolume(rdU32(payload.data() + pos));
         pos += 4;
+
+        // 完整记录剩余字段（pytdx 字段序列），必须全部消费才能推进到下一记录：
+        // s_vol / b_vol / reversed2 / reversed3 / 五档 bid1-5·ask1-5·量 /
+        // reversed4(2B) / reversed5-8 / reversed9(2B)+active2(2B)
+        readPriceVar(payload, pos);  // s_vol
+        readPriceVar(payload, pos);  // b_vol
+        readPriceVar(payload, pos);  // reversed_bytes2
+        readPriceVar(payload, pos);  // reversed_bytes3
+        for (int k = 0; k < 5; ++k) {  // 五档（暂不消费，仅推进）
+            readPriceVar(payload, pos);  // bid_k
+            readPriceVar(payload, pos);  // ask_k
+            readPriceVar(payload, pos);  // bid_vol_k
+            readPriceVar(payload, pos);  // ask_vol_k
+        }
+        if (pos + 2 > payload.size()) break;
+        pos += 2;  // reversed_bytes4 (uint16)
+        readPriceVar(payload, pos);  // reversed_bytes5
+        readPriceVar(payload, pos);  // reversed_bytes6
+        readPriceVar(payload, pos);  // reversed_bytes7
+        readPriceVar(payload, pos);  // reversed_bytes8
+        if (pos + 4 > payload.size()) break;
+        pos += 4;  // reversed_bytes9 (int16) + active2 (uint16)
 
         r.price = static_cast<double>(priceFen) / 100.0;
         r.preClose = static_cast<double>(priceFen + lastDiff) / 100.0;

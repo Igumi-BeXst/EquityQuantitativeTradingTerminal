@@ -345,6 +345,16 @@ TEST(TdxModels, DecodeQuoteSynthetic) {
     putVar(p, 37450);   // vol 手
     putVar(p, 661);     // curVol
     putU32(p, 0);       // amount
+    // 完整记录尾部字段（decodeQuote 消费推进到下一记录）：s_vol/b_vol/rev2/rev3/
+    // 五档×20/rev4(2B)/rev5-8/rev9(2B)+active2(2B)
+    putVar(p, 0); putVar(p, 0);  // s_vol, b_vol
+    putVar(p, 0); putVar(p, 0);  // rev2, rev3
+    for (int k = 0; k < 5; ++k) {
+        putVar(p, 0); putVar(p, 0); putVar(p, 0); putVar(p, 0);  // 五档
+    }
+    putU16(p, 0);                                // rev4 (uint16)
+    putVar(p, 0); putVar(p, 0); putVar(p, 0); putVar(p, 0);  // rev5-8
+    putU16(p, 0); putU16(p, 0);                  // rev9 (int16) + active2
 
     auto recs = tdx::decodeQuote(p);
     ASSERT_EQ(recs.size(), 1u);
@@ -381,4 +391,52 @@ TEST(TdxModels, DecodeQuoteFromFixture) {
     EXPECT_NEAR(recs[0].price, 1328.36, 0.5);
     EXPECT_NEAR(recs[0].preClose, 1358.98, 0.5);
     EXPECT_EQ(recs[0].code.code(), "600519");
+}
+
+TEST(TdxModels, DecodeQuoteBatchFromFixture) {
+    // 6 只批量报价：完整记录消费（含五档等尾部字段）才能对齐后续记录
+    auto p = readFixture("quote_6codes.bin");
+    ASSERT_FALSE(p.empty()) << "fixture 缺失";
+    auto recs = tdx::decodeQuote(p);
+    ASSERT_EQ(recs.size(), 6u);
+    EXPECT_EQ(recs[0].code.code(), "600519");
+    EXPECT_NEAR(recs[0].price, 1328.36, 0.5);
+    EXPECT_NEAR(recs[0].preClose, 1358.98, 0.5);
+    EXPECT_EQ(recs[1].code.code(), "601318");
+    EXPECT_NEAR(recs[1].price, 53.93, 0.5);
+    EXPECT_EQ(recs[2].code.code(), "600036");
+    EXPECT_NEAR(recs[2].price, 39.28, 0.5);
+    EXPECT_EQ(recs[3].code.market(), Market::SZ);
+    EXPECT_EQ(recs[3].code.code(), "000001");
+    EXPECT_NEAR(recs[3].price, 11.44, 0.5);
+    EXPECT_EQ(recs[4].code.code(), "300750");
+    EXPECT_NEAR(recs[4].price, 395.10, 0.5);
+    EXPECT_EQ(recs[5].code.code(), "000858");
+    EXPECT_NEAR(recs[5].price, 76.88, 0.5);
+}
+
+TEST(TdxModels, DecodeKlineIndexFromFixture) {
+    // 上证指数 K线：记录多 4 字节涨跌家数，需跳过
+    auto p = readFixture("kline_000001_day.bin");
+    ASSERT_FALSE(p.empty()) << "fixture 缺失";
+    const StockCode idx(Market::SH, "000001");
+    auto bars = tdx::decodeKline(p, tdx::KlineDay, tdx::isIndexCode(idx));
+    ASSERT_EQ(bars.size(), 5u);
+    EXPECT_EQ(st::utils::toDateString(bars.front().time), "2026-07-29");
+    EXPECT_EQ(st::utils::toDateString(bars.back().time), "2026-08-04");
+    EXPECT_NEAR(bars.back().open, 3816.37, 1.0);
+    for (const auto& b : bars) {
+        EXPECT_GT(b.close, 1000);   // 指数点位量级（非垃圾值）
+        EXPECT_GT(b.high, b.low);
+    }
+}
+
+TEST(TdxModels, IsIndexCode) {
+    EXPECT_TRUE(tdx::isIndexCode(StockCode(Market::SH, "000001")));   // 上证指数
+    EXPECT_TRUE(tdx::isIndexCode(StockCode(Market::SH, "000300")));   // 沪深300
+    EXPECT_TRUE(tdx::isIndexCode(StockCode(Market::SZ, "399001")));   // 深证成指
+    EXPECT_TRUE(tdx::isIndexCode(StockCode(Market::SZ, "399006")));   // 创业板指
+    EXPECT_FALSE(tdx::isIndexCode(StockCode(Market::SH, "600519")));
+    EXPECT_FALSE(tdx::isIndexCode(StockCode(Market::SZ, "000001")));  // 平安银行
+    EXPECT_FALSE(tdx::isIndexCode(StockCode(Market::SZ, "300750")));
 }

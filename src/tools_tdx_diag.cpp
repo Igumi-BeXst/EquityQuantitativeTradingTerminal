@@ -3,6 +3,7 @@
 #include "data/tdx/tdx_models.h"
 #include "data/tdx/tdx_protocol.h"
 #include "data/tdx/tdx_socket.h"
+#include "foundation/utils/datetime.h"
 #include <QCoreApplication>
 #include <cstdio>
 #include <fstream>
@@ -87,6 +88,42 @@ static void probeKline(tdx::TdxSocket& sock, const std::string& fixtureDir) {
     saveTo(fixtureDir + "/kline_600519_day.bin", pl);
 }
 
+// 指数K线探测：验证指数记录比个股多 4 字节（涨跌家数）
+static void probeIndexKline(tdx::TdxSocket& sock) {
+    std::vector<uint8_t> pl;
+    const auto req = tdx::buildKlineReq(1, "000001", 9, 0, 5);  // 上证指数
+    std::printf("[index kline 000001] ");
+    if (!transact(sock, tdx::Cmd::Kline, req, pl)) return;
+    hexdump("  ", pl, 200);
+    saveTo("tests/fixtures/tdx/kline_000001_day.bin", pl);
+    const StockCode idx(Market::SH, "000001");
+    auto bars = tdx::decodeKline(pl, tdx::KlineDay, tdx::isIndexCode(idx));
+    std::printf("  decodeKline(跳4B) bars=%zu:", bars.size());
+    for (size_t i = 0; i < bars.size(); ++i)
+        std::printf(" [%s]开%.2f/收%.2f", st::utils::toDateString(bars[i].time).c_str(),
+                    bars[i].open, bars[i].close);
+    std::printf("\n");
+}
+
+// 精选池批量报价探测：验证 change 是否合理
+static void probeBatchQuote(tdx::TdxSocket& sock) {
+    const std::vector<std::pair<uint8_t, std::string>> codes = {
+        {1, "600519"}, {1, "601318"}, {1, "600036"},
+        {0, "000001"}, {0, "300750"}, {0, "000858"}};
+    const auto req = tdx::buildQuoteReq(codes);
+    std::vector<uint8_t> pl;
+    std::printf("[batchQuote %zu只] ", codes.size());
+    if (!transact(sock, tdx::Cmd::Quote, req, pl)) return;
+    std::printf("payload=%zu\n", pl.size());
+    hexdump("  ", pl, 489);
+    saveTo("tests/fixtures/tdx/quote_6codes.bin", pl);
+    for (const auto& r : tdx::decodeQuote(pl)) {
+        const double chg = r.preClose > 0 ? (r.price - r.preClose) / r.preClose * 100.0 : 0.0;
+        std::printf("  %s 现价%.2f 昨收%.2f 涨跌%.2f%% 量%.0f\n",
+                    r.code.fullCode().c_str(), r.price, r.preClose, chg, r.volume);
+    }
+}
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     const std::string host = "124.71.187.122";
@@ -98,6 +135,8 @@ int main(int argc, char** argv) {
     probeMinute(sock, fixtureDir);
     probeQuote(sock, fixtureDir);
     probeKline(sock, fixtureDir);
+    probeIndexKline(sock);
+    probeBatchQuote(sock);
     sock.close();
     return 0;
 }

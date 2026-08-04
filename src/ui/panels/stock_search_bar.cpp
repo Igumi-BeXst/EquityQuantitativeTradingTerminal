@@ -31,6 +31,7 @@ StockSearchBar::StockSearchBar(IDataProvider* provider, QWidget* parent)
     // 下拉弹层（Qt::Popup 不抢键盘焦点）
     popup_ = new QListWidget(this);
     popup_->setWindowFlags(Qt::Popup | Qt::FramelessWindowHint);
+    popup_->setAttribute(Qt::WA_ShowWithoutActivating);  // 显示时不激活/抢键盘焦点
     popup_->setFocusPolicy(Qt::NoFocus);
     popup_->setSelectionMode(QAbstractItemView::SingleSelection);
     popup_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
