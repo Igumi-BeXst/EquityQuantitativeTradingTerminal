@@ -144,6 +144,10 @@ target_link_libraries(tdx_live PRIVATE st_data st_core st_foundation Qt6::Core)
 add_executable(tdx_diag tools_tdx_diag.cpp)
 target_link_libraries(tdx_diag PRIVATE st_data st_core st_foundation Qt6::Core)
 
+# TDX 市场异常探测工具（全A股批量报价异常检查）
+add_executable(tdx_market_probe tools_tdx_market_probe.cpp)
+target_link_libraries(tdx_market_probe PRIVATE st_data st_core st_foundation Qt6::Core)
+
 else()
 # Without Qt: just build the Foundation CLI test runner
 add_executable(StockTerminal main.cpp)

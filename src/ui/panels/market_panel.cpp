@@ -168,6 +168,8 @@ void MarketPanel::onQuotesReady(const std::vector<Quote>& quotes) {
     items.reserve(quotes.size());
     int advancing = 0, declining = 0, flat = 0;
     for (const auto& q : quotes) {
+        // 排除停牌/无行情（TDX 对停牌股返回 price=0 → change 会误算成 -100%）
+        if (q.lastPrice <= 0 || q.preClose <= 0) continue;
         MarketRankItem item;
         item.code = q.code;
         auto it = nameByCode_.find(q.code.displayCode());

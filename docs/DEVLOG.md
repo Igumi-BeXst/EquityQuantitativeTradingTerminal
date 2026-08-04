@@ -24,6 +24,12 @@
 4. **服务器报价批上限 = 80 只**（实测 200 只请求返回 80）→ quoteChunk_ 60→80
 - 全量构建零警告；ctest **165/165**；tdx_live 回归正常
 
+### Step 9c 第三轮修复（用户复测，跌幅榜 -100% 股）
+- **症状**：跌幅榜出现一批 -100% 股票
+- **根因**（`tools_tdx_market_probe` 全 A 股池 5209 只实测）：TDX 对**停牌股返回 price=0.00**（6 只：SZ000838/002214/300246/300311/300333/300862），`change=(0-preClose)/preClose` 误算成 -100%
+- **修复**：MarketPanel 排名与市场宽度**排除 `lastPrice<=0 || preClose<=0`**（停牌/无行情不参与排序与涨跌家数统计）
+- 新增 `tools_tdx_market_probe` 市场异常探测工具；ctest 165/165
+
 ### Step 10 单测 + 收尾（本日）
 - **分时 0x051D 判定为服务器非标准变体，降级保留**：穷举 2/3/4 字段 × 偏移 × 累积/绝对全失败；pytdx `get_minute_time_data` 发相同请求收相同 1268B 响应，官方解析器同样产出垃圾（0.01→2623）——该服务器响应头嵌入 market+code（`[4]=01 [5:11]=600519`），标准解析器全部失配。quote 前导块已识别（price/last/open/high/low 差分全命中基准）。fixture `minute_600519.bin` + 分析脚本保留 `tests/fixtures/tdx/`，findings 写入 docs/tdx-protocol.md
 - **transportFactory_ 注入**：doConnect 改用工厂创建传输（默认 TdxSocket），FakeTdxTransport 全链路可测

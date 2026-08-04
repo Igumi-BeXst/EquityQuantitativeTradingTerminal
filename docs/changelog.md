@@ -20,6 +20,7 @@
 - 修复: 搜索框 Qt::Popup 抢键盘焦点导致每字符卡住 → WA_ShowWithoutActivating + popup 按键转发给 edit
 - 市场: 涨幅/跌幅榜池 精选 129 → 全 A 股（~5000 只，过滤可交易前缀），刷新 30s，报价批上限 80
 - 市场: 换手率 TDX 报价不含 → 显示 "—" 而非 0.00%
+- 修复: 停牌股 TDX 返回 price=0 → 涨跌幅误算 -100%；市场面板排除 price<=0/preClose<=0
 - 测试 162 → 165
 - 已知降级: 分时 0x051D 格式待校准（getIntraday 返回 nullopt，Step 10）
 - 状态栏/About 数据源文案动态显示 providerName()
