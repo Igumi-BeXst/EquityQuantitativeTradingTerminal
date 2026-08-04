@@ -12,24 +12,6 @@ namespace st {
 
 class QuotePoller;
 
-/// 分时数据点（A 股日内逐分钟）
-struct IntradayPoint {
-    DateTime time;        // 当日 HH:MM
-    Price    price  = 0.0;
-    Volume   volume = 0;  // 股
-    Amount   amount = 0.0;// 元
-};
-
-/// 分时数据（来自腾讯 minute/query 接口）
-struct IntradayData {
-    StockCode code;
-    DateTime  date;          // 交易日
-    Price     preClose = 0.0;// 昨收（取自响应 qt 块，缺失为 0）
-    std::vector<IntradayPoint> points;
-
-    [[nodiscard]] bool empty() const { return points.empty(); }
-};
-
 /// 腾讯行情数据源
 ///
 /// 使用腾讯公开行情接口（web.ifzq.gtimg.cn / qt.gtimg.cn），国内直连稳定。

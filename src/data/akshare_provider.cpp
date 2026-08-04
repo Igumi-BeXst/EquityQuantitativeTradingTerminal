@@ -226,4 +226,12 @@ std::vector<Bar> AKShareProvider::getBars(const StockCode& code, BarPeriod perio
 void AKShareProvider::subscribeQuote(const StockCode&) {}
 void AKShareProvider::unsubscribeQuote(const StockCode&) {}
 
+std::vector<Quote> AKShareProvider::batchQuote(const std::vector<StockCode>&) {
+    return {};
+}
+std::optional<IntradayData> AKShareProvider::getIntraday(const StockCode&) {
+    return std::nullopt;
+}
+void AKShareProvider::refreshQuotes() {}
+
 } // namespace st

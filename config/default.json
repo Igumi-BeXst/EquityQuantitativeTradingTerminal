@@ -5,10 +5,25 @@
     "theme": "dark"
   },
   "data": {
-    "provider": "akshare",
+    "provider": "tdx",
     "dbPath": "data/stock_data.db",
     "syncInterval": 300,
-    "cacheSize": 5000
+    "cacheSize": 5000,
+    "tdx": {
+      "servers": [
+        "124.71.187.122:7709",
+        "180.153.18.170:7709",
+        "60.12.136.250:7709",
+        "218.75.126.9:7709",
+        "115.238.90.165:7709",
+        "119.147.212.81:7709",
+        "101.227.73.20:7709",
+        "221.231.141.60:7709"
+      ],
+      "timeoutMs": 10000,
+      "quoteChunk": 60,
+      "pollIntervalMs": 5000
+    }
   },
   "trading": {
     "defaultMarket": "SH",

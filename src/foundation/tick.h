@@ -4,6 +4,7 @@
 #include "foundation/enums.h"
 #include "foundation/stock_code.h"
 #include <array>
+#include <vector>
 
 namespace st {
 
@@ -56,6 +57,24 @@ struct Quote {
     Price      bidPrice1     = 0.0;   // 买一价
     Volume     askVol1       = 0;     // 卖一量
     Price      askPrice1     = 0.0;   // 卖一价
+};
+
+/// 日内分时数据点（time 当日 HH:MM；volume/amount 为累计值）
+struct IntradayPoint {
+    DateTime time;
+    Price    price  = 0.0;
+    Volume   volume = 0;     // 累计成交量（股）
+    Amount   amount = 0.0;   // 累计成交额（元）
+};
+
+/// 当日分时数据（分时图）
+struct IntradayData {
+    StockCode code;
+    DateTime  date;
+    Price     preClose = 0.0;
+    std::vector<IntradayPoint> points;
+
+    [[nodiscard]] bool empty() const { return points.empty(); }
 };
 
 } // namespace st

@@ -67,12 +67,12 @@ MarketIndexStrip::MarketIndexStrip(TencentProvider* provider, QWidget* parent)
             this, &MarketIndexStrip::onQuoteEvent);
 }
 
-void MarketIndexStrip::onQuoteEvent(const QString& event, const QVariantMap& data) {
+void MarketIndexStrip::onQuoteEvent(const QString& event, const QVariantMap& mapData) {
     if (event != events::QuoteReceived) return;
 
-    const QString fullCode = data.value(QStringLiteral("code")).toString();
-    const double lastPrice = data.value(QStringLiteral("lastPrice")).toDouble();
-    const double change    = data.value(QStringLiteral("change")).toDouble();
+    const QString fullCode = mapData.value(QStringLiteral("code")).toString();
+    const double lastPrice = mapData.value(QStringLiteral("lastPrice")).toDouble();
+    const double change    = mapData.value(QStringLiteral("change")).toDouble();
 
     for (auto& item : items_) {
         if (QString::fromStdString(item.code.fullCode()) != fullCode) continue;

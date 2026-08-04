@@ -30,6 +30,10 @@ public:
     void subscribeQuote(const StockCode& code) override;
     void unsubscribeQuote(const StockCode& code) override;
 
+    std::vector<Quote> batchQuote(const std::vector<StockCode>& codes) override;
+    std::optional<IntradayData> getIntraday(const StockCode& code) override;
+    void refreshQuotes() override;
+
 private:
     /// 东财日线行情接口 (JSON)
     std::vector<Bar> fetchDailyBars(const StockCode& code, DateTime start, DateTime end);

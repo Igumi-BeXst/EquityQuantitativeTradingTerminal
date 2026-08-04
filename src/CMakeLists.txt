@@ -1,3 +1,5 @@
+find_package(ZLIB REQUIRED)
+
 # ============================================
 # Foundation — always builds, zero external deps except nlohmann-json
 # ============================================
@@ -38,8 +40,17 @@ add_library(st_data STATIC
     data/stock_search_index.cpp
     data/data_sync_scheduler.cpp
     data/ai_data_source.cpp
+    data/cn_encoding.cpp
+    data/tdx/tdx_socket.cpp
+    data/tdx/tdx_protocol.cpp
+    data/tdx/tdx_models.cpp
+    data/tdx/tdx_provider.cpp
+    data/provider_factory.cpp
 )
-target_link_libraries(st_data PUBLIC st_foundation st_core Qt6::Sql Qt6::Network nlohmann_json::nlohmann_json)
+target_link_libraries(st_data PUBLIC st_foundation st_core Qt6::Sql Qt6::Network nlohmann_json::nlohmann_json ZLIB::ZLIB)
+if(WIN32)
+    target_link_libraries(st_data PUBLIC ws2_32)
+endif()
 
 add_library(st_engine STATIC
     engine/strategy/istrategy.cpp
@@ -124,6 +135,14 @@ target_link_libraries(kline_test PRIVATE st_data st_core st_foundation)
 # 图表离屏渲染验证工具（P6 验证用）
 add_executable(chart_render tools_chart_render.cpp)
 target_link_libraries(chart_render PRIVATE st_ui st_engine st_data st_core st_foundation)
+
+# TDX 实连验证工具（P9 验证用）
+add_executable(tdx_live tools_tdx_live.cpp)
+target_link_libraries(tdx_live PRIVATE st_data st_core st_foundation Qt6::Core)
+
+# TDX 底层诊断工具（P9 开发期）
+add_executable(tdx_diag tools_tdx_diag.cpp)
+target_link_libraries(tdx_diag PRIVATE st_data st_core st_foundation Qt6::Core)
 
 else()
 # Without Qt: just build the Foundation CLI test runner
