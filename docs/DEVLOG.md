@@ -24,6 +24,12 @@
 4. **服务器报价批上限 = 80 只**（实测 200 只请求返回 80）→ quoteChunk_ 60→80
 - 全量构建零警告；ctest **165/165**；tdx_live 回归正常
 
+### 分时K线（分钟K线）接入（用户问"为什么没有分时K线图"）
+- **现状**：分时图（TimelineChart）走 `getIntraday`（0x051D）→ 该服务器非标准变体已降级。而 **KLineChart 的分钟K线能力未启用**——`setPeriod` 把所有分钟周期路由到 TimelineChart，0x052D 分钟 category 从未被 UI 使用
+- **验证**：tdx_diag 新增 `probeMinuteKline`——5/15/30/60 分 category 全部可用（时间有效、价格匹配茅台收盘 1328.36）；tdx_live 补 5分/60分 getBars=320 根
+- **修复**（central_chart_widget.cpp）：周期栏 `分时|日|周|月` → `分时|日|周|月|5分|15分|30分|60分`；`setPeriod` 拆两路——`Minute1`（分时哨兵）→ TimelineChart（降级"无数据"），`Minute5/15/30/60` → KLineChart 分钟K线
+- 全量构建零警告；ctest 165/165
+
 ### Step 9c 第三轮修复（用户复测，跌幅榜 -100% 股）
 - **症状**：跌幅榜出现一批 -100% 股票
 - **根因**（`tools_tdx_market_probe` 全 A 股池 5209 只实测）：TDX 对**停牌股返回 price=0.00**（6 只：SZ000838/002214/300246/300311/300333/300862），`change=(0-preClose)/preClose` 误算成 -100%

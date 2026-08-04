@@ -54,6 +54,16 @@ int main(int argc, char** argv) {
     std::cout << "[月K] bars=" << mbars.size() << std::endl;
     if (!mbars.empty()) { std::cout << "  最新: "; printBar(mbars.back()); }
 
+    // 3.5 分钟K线（5分/60分）
+    auto m5 = provider.getBars(code, BarPeriod::Minute5, DateTime{}, utils::now());
+    std::cout << "[5分K] bars=" << m5.size() << std::endl;
+    if (!m5.empty()) {
+        std::cout << "  最新: "; printBar(m5.back());
+    }
+    auto m60 = provider.getBars(code, BarPeriod::Minute60, DateTime{}, utils::now());
+    std::cout << "[60分K] bars=" << m60.size() << std::endl;
+    if (!m60.empty()) { std::cout << "  最新: "; printBar(m60.back()); }
+
     // 4. 分时
     auto intraday = provider.getIntraday(code);
     std::cout << "[分时] " << (intraday ? std::to_string(intraday->points.size()) : "FAIL")

@@ -88,6 +88,28 @@ static void probeKline(tdx::TdxSocket& sock, const std::string& fixtureDir) {
     saveTo(fixtureDir + "/kline_600519_day.bin", pl);
 }
 
+// 分钟K线探测：验证 5/15/60 分钟 category 在服务器可用
+static void probeMinuteKline(tdx::TdxSocket& sock) {
+    const struct { uint8_t cat; const char* name; } cats[] = {
+        {tdx::Kline5Min, "5分"}, {tdx::Kline15Min, "15分"},
+        {tdx::Kline30Min, "30分"}, {tdx::Kline60Min, "60分"},
+    };
+    for (const auto& c : cats) {
+        std::vector<uint8_t> pl;
+        const auto req = tdx::buildKlineReq(1, "600519", c.cat, 0, 10);
+        std::printf("[分钟K %s] ", c.name);
+        if (!transact(sock, tdx::Cmd::Kline, req, pl)) continue;
+        auto bars = tdx::decodeKline(pl, c.cat);
+        std::printf("payload=%zu bars=%zu ", pl.size(), bars.size());
+        if (!bars.empty()) {
+            std::printf("最早[%s]收%.2f 最新[%s]收%.2f",
+                        st::utils::toDateTimeString(bars.front().time).c_str(), bars.front().close,
+                        st::utils::toDateTimeString(bars.back().time).c_str(), bars.back().close);
+        }
+        std::printf("\n");
+    }
+}
+
 // 指数K线探测：验证指数记录比个股多 4 字节（涨跌家数）
 static void probeIndexKline(tdx::TdxSocket& sock) {
     std::vector<uint8_t> pl;
@@ -136,6 +158,7 @@ int main(int argc, char** argv) {
     probeMinute(sock, fixtureDir);
     probeQuote(sock, fixtureDir);
     probeKline(sock, fixtureDir);
+    probeMinuteKline(sock);
     probeIndexKline(sock);
     probeBatchQuote(sock);
     sock.close();
