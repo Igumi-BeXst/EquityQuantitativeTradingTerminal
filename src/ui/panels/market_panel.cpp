@@ -2,6 +2,7 @@
 #include "ui/models/market_rank_model.h"
 #include "data/idata_provider.h"
 #include "data/curated_stocks.h"
+#include "data/tdx/tdx_models.h"
 #include "core/thread_pool.h"
 #include "foundation/enums.h"
 #include <QTimer>
@@ -22,23 +23,6 @@ namespace st {
 namespace {
 constexpr int kTopN = 30;
 constexpr int kRefreshMs = 30000;  // 全 A 股池（~5000 只）批量拉取较重，30s 刷新
-
-/// 可交易 A 股判定（过滤指数/基金/债券/B股）：SH 600/601/603/605/688，SZ 000/001/002/003/300/301
-bool isTradableAShare(const StockCode& code) {
-    const std::string& c = code.code();
-    if (c.size() < 3) return false;
-    if (code.market() == Market::SH) {
-        return c.compare(0, 3, "600") == 0 || c.compare(0, 3, "601") == 0 ||
-               c.compare(0, 3, "603") == 0 || c.compare(0, 3, "605") == 0 ||
-               c.compare(0, 3, "688") == 0;
-    }
-    if (code.market() == Market::SZ) {
-        return c.compare(0, 3, "000") == 0 || c.compare(0, 3, "001") == 0 ||
-               c.compare(0, 3, "002") == 0 || c.compare(0, 3, "003") == 0 ||
-               c.compare(0, 3, "300") == 0 || c.compare(0, 3, "301") == 0;
-    }
-    return false;
-}
 }  // namespace
 
 MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
@@ -125,14 +109,14 @@ MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
             PoolData d;
             auto sh = provider->getStockList(Market::SH);
             for (const auto& s : sh) {
-                if (isTradableAShare(s.code)) {
+                if (tdx::isTradableAShare(s.code)) {
                     d.pool.push_back(s.code);
                     d.names[s.code.displayCode()] = s.name;
                 }
             }
             auto sz = provider->getStockList(Market::SZ);
             for (const auto& s : sz) {
-                if (isTradableAShare(s.code)) {
+                if (tdx::isTradableAShare(s.code)) {
                     d.pool.push_back(s.code);
                     d.names[s.code.displayCode()] = s.name;
                 }

@@ -26,6 +26,7 @@ constexpr double kRightAxisW = 64;
 constexpr double kBottomAxisH = 26;
 constexpr double kTitleH = 22;
 constexpr double kPaneGap = 8;  // 面板间隙（强化分隔）
+constexpr double kMargin = 8;   // 图表左右留空，避免紧贴边缘
 
 QString periodLabel(BarPeriod p) {
     switch (p) {
@@ -167,10 +168,11 @@ void KLineChart::recomputeIndicators() {
 // 布局与坐标
 // ============================================================
 void KLineChart::buildLayout() {
-    const double top = plotTop();
-    const double plotW = width() - kRightAxisW;
+    // 主图从标题条之下开始（plotTop 为控制条高度），左右留 margin
+    const double top = plotTop() + kTitleH;
+    const double plotW = width() - kRightAxisW - 2 * kMargin;
     const double plotH = height() - top - kBottomAxisH;
-    const QRectF plot(0, top, plotW, plotH);
+    const QRectF plot(kMargin, top, plotW, plotH);
 
     // 可见面板（顺序: VOL/BOLL/MACD/RSI），用指针引用成员矩形
     struct PaneInfo { Indicator ind; QRectF* member; };
@@ -260,10 +262,13 @@ void KLineChart::computeVisibleRange() {
     }
     if (volHi_ <= 0) volHi_ = 1;
 
-    // BOLL 面板量程
+    // BOLL 面板量程（含蜡烛 OHLC + 布林带，使蜡烛在面板内完整显示）
     bollHi_ = -1e18, bollLo_ = 1e18;
     if (ind_.valid && showBoll_) {
         for (int i = start; i < end; ++i) {
+            const auto& b = bars_[static_cast<size_t>(i)];
+            bollHi_ = std::max(bollHi_, b.high);
+            bollLo_ = std::min(bollLo_, b.low);
             for (double v : {ind_.bollUpper[static_cast<size_t>(i)],
                              ind_.bollLower[static_cast<size_t>(i)],
                              ind_.bollMid[static_cast<size_t>(i)]}) {
@@ -434,6 +439,33 @@ void KLineChart::drawBoll(QPainter& p) {
     drawLine(ind_.bollUpper, QColor("#ff8a65"), Qt::DashLine);
     drawLine(ind_.bollLower, QColor("#ff8a65"), Qt::DashLine);
 
+    // 面板内叠加 K 线蜡烛（对照布林带）
+    QPainterPath upWick, downWick, upBody, downBody;
+    for (int i = start; i < end; ++i) {
+        const auto& b = bars_[static_cast<size_t>(i)];
+        const bool rising = b.close >= b.open;
+        const double cx = barCenterX(i);
+        const double hiY = bollToY(b.high);
+        const double loY = bollToY(b.low);
+        const double openY = bollToY(b.open);
+        const double closeY = bollToY(b.close);
+        auto& wick = rising ? upWick : downWick;
+        auto& body = rising ? upBody : downBody;
+        wick.moveTo(cx, hiY);
+        wick.lineTo(cx, loY);
+        const double top = std::min(openY, closeY);
+        const double bh = std::max(std::abs(closeY - openY), 1.0);
+        body.addRect(QRectF(cx - 0.35 * bodyWidth(), top, 0.7 * bodyWidth(), bh));
+    }
+    p.setPen(QPen(kUpColor, 1));
+    p.setBrush(Qt::NoBrush);
+    p.drawPath(upWick);
+    p.setPen(QPen(kDownColor, 1));
+    p.setBrush(Qt::NoBrush);
+    p.drawPath(downWick);
+    p.fillPath(upBody, kUpColor);
+    p.fillPath(downBody, kDownColor);
+
     // 图例
     const int idx = (mouseIndex_ >= 0) ? mouseIndex_ : static_cast<int>(bars_.size()) - 1;
     const double mid = ind_.bollMid[static_cast<size_t>(idx)];
@@ -588,11 +620,11 @@ void KLineChart::drawAxes(QPainter& p) {
     f.setPixelSize(10);
     p.setFont(f);
 
-    // 主图价格轴
+    // 主图价格轴（顶部=最高价，底部=最低价）
     const int ticks = 5;
     for (int i = 0; i <= ticks; ++i) {
-        double price = priceLo_ + (priceHi_ - priceLo_) * i / ticks;
-        double y = mainRect_.top() + mainRect_.height() * i / ticks;
+        const double price = priceHi_ - (priceHi_ - priceLo_) * i / ticks;
+        const double y = mainRect_.top() + mainRect_.height() * i / ticks;
         p.setPen(QPen(QColor(255, 255, 255, 18), 1));
         p.drawLine(QPointF(mainRect_.left(), y), QPointF(mainRect_.right(), y));
         p.setPen(QColor("#888888"));
@@ -652,7 +684,7 @@ void KLineChart::drawTitle(QPainter& p) {
         text += QStringLiteral("  %1%").arg(change, 0, 'f', 2);
     }
     if (loading_) text += tr("  (加载中…)");
-    p.drawText(QRectF(4, plotTop() + 2, width() - 8, kTitleH - 2),
+    p.drawText(QRectF(kMargin, plotTop() + 2, width() - kMargin - 8, kTitleH - 2),
                Qt::AlignLeft | Qt::AlignVCenter, text);
 }
 

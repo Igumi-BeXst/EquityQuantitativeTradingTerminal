@@ -23,6 +23,7 @@ constexpr double kBottomAxisH = 26;
 constexpr double kTitleH = 22;
 constexpr double kMainRatio = 0.58;   // 主价格区占可绘图区
 constexpr double kVolRatio = 0.16;    // 量区
+constexpr double kMargin = 8;         // 图表左右留空，避免紧贴边缘
 }  // namespace
 
 TimelineChart::TimelineChart(IDataProvider* provider, QWidget* parent)
@@ -72,7 +73,8 @@ int TimelineChart::minutesFromOpen(const DateTime& t) const {
 }
 
 double TimelineChart::xFor(int minutes) const {
-    return minutes / 240.0 * (width() - kRightAxisW);
+    const double plotW = width() - kRightAxisW - 2 * kMargin;
+    return kMargin + minutes / 240.0 * plotW;
 }
 
 double TimelineChart::priceToY(double price) const {
@@ -218,9 +220,9 @@ void TimelineChart::drawGridAndAxis(QPainter& p) {
     // X 轴标签
     p.setPen(QColor("#888888"));
     const double axisY = height() - 20;
-    const QPointF labels[] = {{0.0, axisY}, {xFor(60), axisY},
+    const QPointF labels[] = {{kMargin, axisY}, {xFor(60), axisY},
                               {xFor(120) - 20, axisY}, {xFor(180), axisY},
-                              {w - 40, axisY}};
+                              {w - kMargin - 40, axisY}};
     const char* texts[] = {"09:30", "10:30", "11:30/13:00", "14:00", "15:00"};
     for (int i = 0; i < 5; ++i) {
         p.drawText(QRectF(labels[i].x(), labels[i].y(), 60, 16), Qt::AlignLeft | Qt::AlignVCenter,
@@ -231,7 +233,7 @@ void TimelineChart::drawGridAndAxis(QPainter& p) {
     if (data_.preClose > 0) {
         double y = priceToY(data_.preClose);
         p.setPen(QPen(QColor("#aaaaaa"), 1, Qt::DashLine));
-        p.drawLine(QPointF(0, y), QPointF(w, y));
+        p.drawLine(QPointF(kMargin, y), QPointF(w - kMargin, y));
         p.setPen(QColor("#aaaaaa"));
         p.drawText(QRectF(w + 2, y - 8, kRightAxisW - 4, 14),
                    Qt::AlignLeft | Qt::AlignVCenter,

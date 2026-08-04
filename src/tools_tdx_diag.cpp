@@ -180,6 +180,22 @@ static void probeTransaction(tdx::TdxSocket& sock) {
         }
         std::printf("    全日记 %d 页, 原始量合计=%.0f (报价总量 37450手/3745000股)\n",
                     pages, totalRaw);
+        // 打印各页首末时间，校准时间基准（末笔应 ~14:59/15:00）
+        uint32_t s2 = 0;
+        while (s2 <= 10000) {
+            const auto preq2 = tdx::buildTransactionReq(1, "600519",
+                                                        static_cast<uint16_t>(s2), 1000);
+            std::vector<uint8_t> ppl2;
+            if (!transact(sock, tdx::Cmd::MinuteTrade, preq2, ppl2)) break;
+            auto pticks2 = tdx::decodeTransaction(ppl2);
+            if (pticks2.empty()) break;
+            std::printf("    页 start=%u: [%02d:%02d ~ %02d:%02d] 末价%.2f\n",
+                        s2, pticks2.front().hour, pticks2.front().minute,
+                        pticks2.back().hour, pticks2.back().minute,
+                        pticks2.back().price);
+            if (pticks2.size() < 1000) break;
+            s2 += 1000;
+        }
     }
     saveTo("tests/fixtures/tdx/transaction_600519.bin", pl);
 }

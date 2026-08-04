@@ -1,5 +1,6 @@
 #include "ui/panels/stock_search_bar.h"
 #include "data/idata_provider.h"
+#include "data/tdx/tdx_models.h"
 #include "core/thread_pool.h"
 #include "foundation/enums.h"
 #include <QLineEdit>
@@ -56,8 +57,15 @@ StockSearchBar::StockSearchBar(IDataProvider* provider, QWidget* parent)
             auto sz = provider->getStockList(Market::SZ);
             std::vector<StockInfo> all;
             all.reserve(sh.size() + sz.size());
-            for (auto& s : sh) all.push_back(std::move(s));
-            for (auto& s : sz) all.push_back(std::move(s));
+            // 过滤为可交易 A 股 + 常见指数（丢弃回购 999999/799999、债券、基金等）
+            for (auto& s : sh) {
+                if (tdx::isTradableAShare(s.code) || tdx::isIndexCode(s.code))
+                    all.push_back(std::move(s));
+            }
+            for (auto& s : sz) {
+                if (tdx::isTradableAShare(s.code) || tdx::isIndexCode(s.code))
+                    all.push_back(std::move(s));
+            }
             QMetaObject::invokeMethod(this,
                 [this, all = std::move(all)]() mutable { onLoadingFinished(all); },
                 Qt::QueuedConnection);

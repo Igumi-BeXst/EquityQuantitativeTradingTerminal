@@ -48,6 +48,22 @@ Market marketFromByte(uint8_t m) {
     }
 }
 
+bool isTradableAShare(const StockCode& code) {
+    const std::string& c = code.code();
+    if (c.size() < 3) return false;
+    if (code.market() == Market::SH) {
+        return c.compare(0, 3, "600") == 0 || c.compare(0, 3, "601") == 0 ||
+               c.compare(0, 3, "603") == 0 || c.compare(0, 3, "605") == 0 ||
+               c.compare(0, 3, "688") == 0;
+    }
+    if (code.market() == Market::SZ) {
+        return c.compare(0, 3, "000") == 0 || c.compare(0, 3, "001") == 0 ||
+               c.compare(0, 3, "002") == 0 || c.compare(0, 3, "003") == 0 ||
+               c.compare(0, 3, "300") == 0 || c.compare(0, 3, "301") == 0;
+    }
+    return false;
+}
+
 Market marketFromTdx(uint8_t m) {
     return marketFromByte(m);
 }

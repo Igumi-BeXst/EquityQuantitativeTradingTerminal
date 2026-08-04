@@ -84,5 +84,9 @@ Market marketFromTdx(uint8_t m);
 /// SH 指数 = 000xxx（上证指数/沪深300/科创50…）；SZ 指数 = 399xxx
 bool isIndexCode(const StockCode& code);
 
+/// 是否为可交易 A 股（排除回购/债券/基金/指数等非交易品种）
+/// SH 600/601/603/605/688；SZ 000/001/002/003/300/301
+bool isTradableAShare(const StockCode& code);
+
 } // namespace tdx
 } // namespace st

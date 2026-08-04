@@ -391,6 +391,7 @@ std::optional<IntradayData> TdxProvider::getIntraday(const StockCode& code) {
         const int minsOfDay = t.hour * 60 + t.minute;
         if (minsOfDay < 9 * 60 + 30) continue;                 // 集合竞价丢弃
         if (minsOfDay >= 12 * 60 && minsOfDay < 13 * 60) continue;  // 午休
+        if (minsOfDay > 15 * 60) continue;                      // 盘后异常记录丢弃（防末分钟量膨胀）
         const int idx = (minsOfDay < 13 * 60)
             ? std::min(minsOfDay - 570, 119)
             : std::min(120 + minsOfDay - 780, 239);
@@ -415,10 +416,18 @@ std::optional<IntradayData> TdxProvider::getIntraday(const StockCode& code) {
     data.code = code;
     data.date = utils::now();
     data.preClose = preClose;
+    // 满 240 点数组（缺分钟价格 carry-forward、量不变），使量柱=单分钟量、均价/MACD 连续
     double cumVol = 0.0, cumAmt = 0.0;
-    for (const auto& [idx, a] : mins) {
-        cumVol += a.vol;
-        cumAmt += a.amount;
+    double lastPrice = 0.0;
+    for (int idx = 0; idx <= 239; ++idx) {
+        const auto it = mins.find(idx);
+        if (it != mins.end()) {
+            const auto& a = it->second;
+            cumVol += a.vol;
+            cumAmt += a.amount;
+            lastPrice = a.close;
+        }
+        if (lastPrice <= 0) continue;  // 尚未开盘
         IntradayPoint pt;
         const std::time_t nowTt = std::chrono::system_clock::to_time_t(data.date);
         std::tm tmv{};
@@ -432,9 +441,9 @@ std::optional<IntradayData> TdxProvider::getIntraday(const StockCode& code) {
         tmv.tm_sec = 0;
         const std::time_t ptTt = std::mktime(&tmv);
         pt.time = std::chrono::system_clock::from_time_t(ptTt);
-        pt.price = a.close;                          // 每分钟收盘
-        pt.volume = static_cast<Volume>(cumVol);     // 累计量（与腾讯语义一致）
-        pt.amount = cumAmt;                          // 累计额
+        pt.price = lastPrice;                    // 缺分钟 carry-forward
+        pt.volume = static_cast<Volume>(cumVol); // 累计量（与腾讯语义一致）
+        pt.amount = cumAmt;                      // 累计额
         data.points.push_back(std::move(pt));
     }
     return data;
