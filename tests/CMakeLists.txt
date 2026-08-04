@@ -29,7 +29,11 @@ if(BUILD_WITH_QT)
         test_data/test_cache.cpp
         test_data/test_search_index.cpp
         test_data/test_tencent_provider.cpp
+        test_data/test_tdx_protocol.cpp
+        test_data/test_tdx_provider.cpp
     )
+    target_compile_definitions(test_data PRIVATE
+        ST_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
     target_link_libraries(test_data PRIVATE st_data GTest::gtest GTest::gtest_main)
     gtest_discover_tests(test_data)
 

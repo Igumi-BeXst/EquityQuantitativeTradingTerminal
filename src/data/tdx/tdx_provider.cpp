@@ -34,6 +34,7 @@ bool isMinutePeriod(BarPeriod p) {
 
 TdxProvider::TdxProvider()
     : transport_(std::make_unique<tdx::TdxSocket>()),
+      transportFactory_([] { return std::make_unique<tdx::TdxSocket>(); }),
       servers_(kDefaultServers) {}
 
 TdxProvider::~TdxProvider() {
@@ -50,6 +51,11 @@ void TdxProvider::setPollIntervalMs(int ms) { pollIntervalMs_ = std::max(100, ms
 void TdxProvider::setTransport(std::unique_ptr<tdx::TdxTransport> transport) {
     std::lock_guard<std::mutex> lk(mutex_);
     transport_ = std::move(transport);
+}
+
+void TdxProvider::setTransportFactory(std::function<std::unique_ptr<tdx::TdxTransport>()> factory) {
+    std::lock_guard<std::mutex> lk(mutex_);
+    transportFactory_ = std::move(factory);
 }
 
 bool TdxProvider::connect() {
@@ -72,7 +78,11 @@ bool TdxProvider::connect() {
 }
 
 void TdxProvider::disconnect() {
-    stopThreads_ = true;
+    {
+        std::lock_guard<std::mutex> lk(threadMutex_);
+        stopThreads_ = true;
+    }
+    threadCv_.notify_all();
     {
         std::lock_guard<std::mutex> lk(mutex_);
         if (transport_) transport_->close();
@@ -113,7 +123,8 @@ void TdxProvider::doConnect() {
         const int port = (colon != std::string::npos)
             ? std::atoi(addr.substr(colon + 1).c_str()) : 7709;
 
-        auto transport = std::make_unique<tdx::TdxSocket>();
+        auto transport = transportFactory_();
+        if (!transport) continue;
         if (!transport->open(host, port, 3000)) continue;
 
         // 登录握手 0x000D
@@ -181,9 +192,15 @@ TdxProvider::Resp TdxProvider::executeCommand(tdx::Cmd cmd,
 }
 
 void TdxProvider::heartbeatLoop() {
-    while (!stopThreads_.load()) {
-        std::this_thread::sleep_for(std::chrono::seconds(30));
-        if (stopThreads_.load()) break;
+    while (true) {
+        {
+            std::unique_lock<std::mutex> lk(threadMutex_);
+            if (stopThreads_.load()) break;
+            if (threadCv_.wait_for(lk, std::chrono::seconds(30),
+                                   [this] { return stopThreads_.load(); })) {
+                break;  // 被唤醒 = 停止
+            }
+        }
         executeCommand(tdx::Cmd::Heart, tdx::buildHeartReq(), 5000);
     }
 }
@@ -457,11 +474,13 @@ std::vector<StockInfo> TdxProvider::loadStockList(Market market) {
                                           requestTimeoutMs_);
     const uint32_t total = countResp.ok ? tdx::decodeCount(countResp.payload) : 0;
 
-    uint16_t start = 0;
-    // 加载完整列表（Count 返回真实总数）；安全上限防异常值
+    uint32_t start = 0;
+    // 加载完整列表（Count 返回真实总数）；安全上限防异常值。
+    // start 以 uint16 编码进请求，必须 ≤65535 防回绕（否则 while 永不终止）。
     const uint32_t maxStocks = (total > 0 && total < 100000) ? total : 100000;
-    while (start < maxStocks) {
-        const auto req = tdx::buildCodeReq(static_cast<uint8_t>(mkt), start);
+    while (start < maxStocks && start <= 65535u) {
+        const auto req = tdx::buildCodeReq(static_cast<uint8_t>(mkt),
+                                           static_cast<uint16_t>(start));
         const auto resp = executeCommand(tdx::Cmd::Code, req, requestTimeoutMs_);
         if (!resp.ok) break;
         const auto recs = tdx::decodeCodeList(resp.payload, market);
@@ -545,9 +564,15 @@ void TdxProvider::doPollOnce() {
 }
 
 void TdxProvider::pollLoop() {
-    while (!stopThreads_.load()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(pollIntervalMs_));
-        if (stopThreads_.load()) break;
+    while (true) {
+        {
+            std::unique_lock<std::mutex> lk(threadMutex_);
+            if (stopThreads_.load()) break;
+            if (threadCv_.wait_for(lk, std::chrono::milliseconds(pollIntervalMs_),
+                                   [this] { return stopThreads_.load(); })) {
+                break;  // 被唤醒 = 停止
+            }
+        }
         doPollOnce();
     }
 }

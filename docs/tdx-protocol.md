@@ -132,10 +132,17 @@ market(1) 0x00 code(6) category(1) 0x00 0x01 0x00 start(2) count(2) 0x00×10
 
 **重要：记录内不含市场字段**——市场由请求隐含，调用方传入。曾误读记录首字节（代码首字符）为市场导致全部过滤为 0。
 
-## 分时（0x051D）— 未校准
+## 分时（0x051D）— 服务器非标准变体，未校准（降级）
 
-响应 `payload[0:2]` = 条数，实测数据起点 `[13]`（非参考实现 `[6]`），差分累积前 2 条对（1328→1350），后续错位。injoyai 自注释"todo 解析好像不对"；pytdx `pos+=4` 假设不同。
-**当前降级**：`getIntraday` 返回 nullopt，分时图显示"无数据"。备选方案：0x0FC5 分时成交明细聚合。
+**实测结论（2026-08-04，fixture `tests/fixtures/tdx/minute_600519.bin` 1268B）**：
+- 响应结构：`count(2)=240 + [2:4]2B + market(1B@[4])=01 + code(6B@[5]) + [11:13]2B + 数据[13:]`
+- 数据 [13:] 按 3 变长字段 `[price,?,vol]` 恰好读满 **250 条**、精确消耗 1255B 无余量
+- 前 3 条（9 个变长字段）是 **quote 前导块**：price=132836(close) / lastDiff=3062(preClose) / openDiff=2170(open) / highDiff=2258(high) / lowDiff=0(low) / rev0 / rev1 / vol=37450(手) / curVol —— 与 decodeQuote 字段序列完全一致，全部命中真实基准
+- **真实分时记录布局未破解**：穷举 2/3/4 字段 × 偏移 {4,6,8,13,14} × 累积/绝对 × 正反序 + 240 条滑动窗口，无任何布局同时满足 first=close(1328.36)/last=open(1350.06)/min=low/max=high
+- **与 pytdx 同请求同响应对照**：pytdx `get_minute_time_data` 发完全相同的请求字节（`01 00 36 30 30 35 31 39 00 00 00 00`），收到**相同 1268B 响应**，官方解析器产出同样垃圾（0.01→2623.17）。pytdx docstring 的标准响应头是 `f0 00 00 00 a2 08...`（记录从 [4] 起），而**该服务器 [4] 是 market+code** —— 响应头嵌入 market/code，属非标准变体，标准解析器（pytdx/injoyai）全部失配
+- injoyai 自注释"todo 解析好像不对"；该服务器报价命令 pytdx `get_security_quotes` 也返回 []（我们的 decodeQuote 反而正确，说明本服务器协议为变体）
+
+**当前降级**：`getIntraday` 返回 nullopt，分时图显示"无数据"。备选方案：0x0FC5 分时成交明细聚合（需先验证该命令在此服务器可用）。fixture 与分析脚本保留在 `tests/fixtures/tdx/`（analyze*.py / brute*.py / pytdx_*.py）供后续排查。
 
 ## 前复权（qfq）
 

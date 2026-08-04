@@ -1,10 +1,11 @@
 // TDX 底层诊断 — 手动 open + 登录 + 打印原始帧
-// 专注：count/code 命令市场字节 0/1 的响应差异，定位股票列表市场映射
+// 用途：count/code 市场字节对比、分时 0x051D 校准抓包落盘 fixture
 #include "data/tdx/tdx_models.h"
 #include "data/tdx/tdx_protocol.h"
 #include "data/tdx/tdx_socket.h"
 #include <QCoreApplication>
 #include <cstdio>
+#include <fstream>
 #include <vector>
 
 using namespace st;
@@ -15,7 +16,12 @@ static void hexdump(const char* tag, const std::vector<uint8_t>& v, size_t limit
     std::printf("\n");
 }
 
-// 打开连接 + 登录（每次实验用独立连接，避免坏请求断开后续）
+static void saveTo(const std::string& path, const std::vector<uint8_t>& v) {
+    std::ofstream f(path, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(v.data()), static_cast<std::streamsize>(v.size()));
+    std::printf("saved %zu bytes -> %s\n", v.size(), path.c_str());
+}
+
 static bool openLogged(tdx::TdxSocket& sock, const char* host, int port) {
     std::printf("open %s:%d ...\n", host, port);
     if (!sock.open(host, port, 5000)) { std::printf("open FAILED\n"); return false; }
@@ -29,7 +35,6 @@ static bool openLogged(tdx::TdxSocket& sock, const char* host, int port) {
     return resp.ok;
 }
 
-// 发送请求收响应（失败返回 false）
 static bool transact(tdx::TdxSocket& sock, tdx::Cmd cmd, const std::vector<uint8_t>& body,
                      std::vector<uint8_t>& outPayload, int timeoutMs = 5000) {
     auto req = tdx::encodeRequest(cmd, body, 2);
@@ -42,47 +47,57 @@ static bool transact(tdx::TdxSocket& sock, tdx::Cmd cmd, const std::vector<uint8
     return true;
 }
 
-static void probeCount(tdx::TdxSocket& sock, int mkt) {
+static void probeMinute(tdx::TdxSocket& sock, const std::string& fixtureDir) {
     std::vector<uint8_t> pl;
-    const std::vector<uint8_t> body{static_cast<uint8_t>(mkt), 0x00, 0x75, 0xC7, 0x33, 0x01};
-    std::printf("[count mkt=%d] ", mkt);
-    if (transact(sock, tdx::Cmd::Count, body, pl)) {
-        std::printf("count=%u", tdx::decodeCount(pl));
-        hexdump("", pl, 16);
+    const std::vector<uint8_t> body = tdx::buildMinuteReq(1, "600519");
+    std::printf("[minute] ");
+    if (!transact(sock, tdx::Cmd::Minute, body, pl)) return;
+    std::printf("payload=%zu\n", pl.size());
+    hexdump("  header", pl, 16);
+    hexdump("  data ", pl, 200);
+    saveTo(fixtureDir + "/minute_600519.bin", pl);
+    // 用当前 decodeMinute 解码看现状
+    auto recs = tdx::decodeMinute(pl);
+    std::printf("  decodeMinute recs=%zu first5:", recs.size());
+    for (size_t i = 0; i < 5 && i < recs.size(); ++i)
+        std::printf(" [%d]%.2f", recs[i].minute, recs[i].price);
+    std::printf(" last: [%d]%.2f\n", recs.back().minute, recs.back().price);
+}
+
+static void probeQuote(tdx::TdxSocket& sock, const std::string& fixtureDir) {
+    std::vector<uint8_t> pl;
+    const auto req = tdx::buildQuoteReq({{1, "600519"}});
+    std::printf("[quote] ");
+    if (!transact(sock, tdx::Cmd::Quote, req, pl)) return;
+    hexdump("  ", pl, 96);
+    saveTo(fixtureDir + "/quote_600519.bin", pl);
+    for (const auto& r : tdx::decodeQuote(pl)) {
+        std::printf("  %s price=%.2f preClose=%.2f open=%.2f high=%.2f low=%.2f vol=%.0f amount=%.0f\n",
+                    r.code.fullCode().c_str(), r.price, r.preClose, r.open, r.high, r.low,
+                    r.volume, r.amount);
     }
 }
 
-static void probeCode(tdx::TdxSocket& sock, int mkt) {
+static void probeKline(tdx::TdxSocket& sock, const std::string& fixtureDir) {
     std::vector<uint8_t> pl;
-    const std::vector<uint8_t> body{static_cast<uint8_t>(mkt), 0x00, 0x00, 0x00};
-    std::printf("[code mkt=%d] ", mkt);
-    if (!transact(sock, tdx::Cmd::Code, body, pl)) return;
-    std::printf("payload=%zu\n", pl.size());
-    hexdump("  ", pl, 116);
-    if (pl.size() >= 60) {
-        auto recs = tdx::decodeCodeList(pl, tdx::marketFromTdx(static_cast<uint8_t>(mkt)));
-        std::printf("  decodeCodeList recs=%zu", recs.size());
-        for (size_t i = 0; i < 3 && i < recs.size(); ++i) {
-            std::printf(" [%d]%s=%s", static_cast<int>(recs[i].code.market()),
-                        recs[i].code.code().c_str(), recs[i].name.c_str());
-        }
-        std::printf("\n");
-    }
+    const auto req = tdx::buildKlineReq(1, "600519", 9, 0, 5);
+    std::printf("[kline] ");
+    if (!transact(sock, tdx::Cmd::Kline, req, pl)) return;
+    hexdump("  ", pl, 96);
+    saveTo(fixtureDir + "/kline_600519_day.bin", pl);
 }
 
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     const std::string host = "124.71.187.122";
     const int port = 7709;
+    const std::string fixtureDir = "tests/fixtures/tdx";
 
-    {
-        tdx::TdxSocket sock;
-        if (!openLogged(sock, host.c_str(), port)) return 1;
-        probeCount(sock, 1);
-        probeCount(sock, 0);
-        probeCode(sock, 1);   // SH（期望沪市代码 600xxx）
-        probeCode(sock, 0);   // SZ（期望深市代码 000xxx/300xxx）
-        sock.close();
-    }
+    tdx::TdxSocket sock;
+    if (!openLogged(sock, host.c_str(), port)) return 1;
+    probeMinute(sock, fixtureDir);
+    probeQuote(sock, fixtureDir);
+    probeKline(sock, fixtureDir);
+    sock.close();
     return 0;
 }

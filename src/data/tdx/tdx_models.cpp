@@ -233,7 +233,9 @@ std::vector<TdxStockRec> decodeCodeList(const std::vector<uint8_t>& payload, Mar
         // [16:20] skip | [20] decimal | [21:25] lastprice | [25:29] skip
         // 记录内【不含】市场字段（由请求隐含），市场由调用方传入
         const std::string code(payload.begin() + pos, payload.begin() + pos + 6);
-        const std::string gbkName(payload.begin() + pos + 8, payload.begin() + pos + 16);
+        std::string gbkName(payload.begin() + pos + 8, payload.begin() + pos + 16);
+        // 名称字段固定 8 字节，短名以 null 填充 → 修剪尾部 null 再转码
+        while (!gbkName.empty() && gbkName.back() == '\0') gbkName.pop_back();
         pos += 29;
 
         TdxStockRec r;

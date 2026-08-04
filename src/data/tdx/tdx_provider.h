@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -46,6 +47,8 @@ public:
     void setQuoteChunkSize(size_t n);
     void setPollIntervalMs(int ms);
     void setTransport(std::unique_ptr<tdx::TdxTransport> transport);
+    /// 传输工厂注入（doConnect 用它创建连接，默认 TdxSocket；测试注入 Fake）
+    void setTransportFactory(std::function<std::unique_ptr<tdx::TdxTransport>()> factory);
 
 private:
     struct Resp {
@@ -75,6 +78,8 @@ private:
     enum class State { Disconnected, Connecting, Connected, Failed };
     State state_ = State::Disconnected;
     std::unique_ptr<tdx::TdxTransport> transport_;
+    /// 连接创建工厂（doConnect 使用，默认 TdxSocket；测试注入 Fake）
+    std::function<std::unique_ptr<tdx::TdxTransport>()> transportFactory_;
     std::vector<std::string> servers_;
     size_t serverIdx_ = 0;
     std::chrono::steady_clock::time_point lastConnectAttempt_;
@@ -90,6 +95,9 @@ private:
 
     std::thread pollThread_, heartbeatThread_;
     std::atomic<bool> stopThreads_ = false;
+    // 线程可中断等待（disconnect 立即唤醒，避免 join 阻塞整个轮询周期）
+    std::mutex threadMutex_;
+    std::condition_variable threadCv_;
 
     int requestTimeoutMs_ = 10000;
     size_t quoteChunk_ = 60;

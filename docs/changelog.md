@@ -9,6 +9,12 @@
 - 实连验证: 登录/K线前复权/报价/列表均正确（茅台收 1328.36 与报价一致）
 - 修复: getStockList=0（decodeCodeList 误读记录首字节为市场 → 改由调用方传入；列表上限按真实 Count）
 - 新增: docs/tdx-protocol.md 协议笔记
+- 单测: test_tdx_protocol + test_tdx_provider 26 用例（FakeTdxTransport 注入/复权/分块/分页/failover/重连）
+- 修复: loadStockList uint16 start 溢出回绕无限循环（改 uint32 + 防回绕）
+- 修复: decodeCodeList 名称 null 填充未修剪
+- 修复: poll/heartbeat 线程固定 sleep → cv 可中断，disconnect 立即唤醒
+- 分时 0x051D: 判定服务器非标准变体（pytdx 同失败），保持降级；fixture + findings 记录
+- 测试 136 → 162
 - 已知降级: 分时 0x051D 格式待校准（getIntraday 返回 nullopt，Step 10）
 - 状态栏/About 数据源文案动态显示 providerName()
 - 测试 136 全绿（编译零警告）

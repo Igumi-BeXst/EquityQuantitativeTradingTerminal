@@ -11,6 +11,16 @@
 - [x] **接口重构**：IDataProvider 加 batchQuote/getIntraday/refreshQuotes/providerName 纯虚；12 个 UI 类 `TencentProvider*`→`IDataProvider*`；main_window `makeDataProvider()`；provider_factory 读 config `data.provider`（默认 tdx）；AKShare 补桩；cn_encoding 抽取 GBK 工具；vcpkg 加 zlib
 - [x] **实连验证**（tools_tdx_live）：登录 ✓、日/周/月K线前复权 ✓（茅台 2026-08-04 收 1328.36 与报价一致）、报价 ✓（量 3745000/额 50 亿）、列表解析 ✓（每页 1000）
 
+### Step 10 单测 + 收尾（本日）
+- **分时 0x051D 判定为服务器非标准变体，降级保留**：穷举 2/3/4 字段 × 偏移 × 累积/绝对全失败；pytdx `get_minute_time_data` 发相同请求收相同 1268B 响应，官方解析器同样产出垃圾（0.01→2623）——该服务器响应头嵌入 market+code（`[4]=01 [5:11]=600519`），标准解析器全部失配。quote 前导块已识别（price/last/open/high/low 差分全命中基准）。fixture `minute_600519.bin` + 分析脚本保留 `tests/fixtures/tdx/`，findings 写入 docs/tdx-protocol.md
+- **transportFactory_ 注入**：doConnect 改用工厂创建传输（默认 TdxSocket），FakeTdxTransport 全链路可测
+- **线程可中断**：pollLoop/heartbeatLoop 固定 sleep → 条件变量 wait_for，disconnect 立即唤醒（修复生产 5s/30s 关闭延迟 + 测试挂死）
+- **真 bug 修复**：
+  1. `loadStockList` `uint16_t start` + `maxStocks=100000`（> uint16 上限）→ `start<maxStocks` 恒真 + `start+=1000` 溢出回绕 → **无限循环**。改 uint32 + `start<=65535` 防回绕
+  2. `decodeCodeList` 名称字段固定 8B，短名含 null 填充 → 未修剪导致名称尾部空字符。加尾部 null 修剪
+- **单测**：`test_tdx_protocol.cpp`（编码/请求构造/响应压缩与未压缩/变长往返/时间日与分钟/量/Count/CodeList 市场传入+GBK+normalize/K线合成差分/报价合成 + fixture 驱动）与 `test_tdx_provider.cpp`（FakeTdxTransport：getBars 快乐路径/断线重连/batchQuote 分块 61→2 次/getStockList 分页 2500→3 页/qfqAdjust 10送10 前复权 ÷2/connect failover/订阅退订去重+poll 请求体观察）共 **26 用例**
+- 全量构建零警告；ctest **162/162**（136 + 26）；tdx_live 回归正常（分时降级属预期）
+
 ### Step 9a 集成排查：getStockList 列表 bug（本日修复）
 - **症状**：`tools_tdx_live` 显示 SH 列表 = 0 只 → 搜索栏/索引依赖 getStockList 会全空
 - **根因**：`decodeCodeList` 把记录**首字节**（代码首字符，如 '9'=0x39）当作市场 → `marketFromByte(57)=Unknown` → 全部被 `isValid()` 过滤。实测记录内**不含市场字段**（市场由请求隐含），布局 `[0:6]代码 | [6:8]=0x0064 | [8:16]名称GBK(8B) | [16:29]其他`
