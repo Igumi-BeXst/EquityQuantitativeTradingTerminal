@@ -107,6 +107,7 @@ static void probeIndexKline(tdx::TdxSocket& sock) {
 
 // 精选池批量报价探测：验证 change 是否合理
 static void probeBatchQuote(tdx::TdxSocket& sock) {
+    // 注：服务器单次报价批上限实测 80 只（200 只请求返回 80）→ quoteChunk_=80
     const std::vector<std::pair<uint8_t, std::string>> codes = {
         {1, "600519"}, {1, "601318"}, {1, "600036"},
         {0, "000001"}, {0, "300750"}, {0, "000858"}};

@@ -21,7 +21,24 @@ namespace st {
 
 namespace {
 constexpr int kTopN = 30;
-constexpr int kRefreshMs = 10000;
+constexpr int kRefreshMs = 30000;  // 全 A 股池（~5000 只）批量拉取较重，30s 刷新
+
+/// 可交易 A 股判定（过滤指数/基金/债券/B股）：SH 600/601/603/605/688，SZ 000/001/002/003/300/301
+bool isTradableAShare(const StockCode& code) {
+    const std::string& c = code.code();
+    if (c.size() < 3) return false;
+    if (code.market() == Market::SH) {
+        return c.compare(0, 3, "600") == 0 || c.compare(0, 3, "601") == 0 ||
+               c.compare(0, 3, "603") == 0 || c.compare(0, 3, "605") == 0 ||
+               c.compare(0, 3, "688") == 0;
+    }
+    if (code.market() == Market::SZ) {
+        return c.compare(0, 3, "000") == 0 || c.compare(0, 3, "001") == 0 ||
+               c.compare(0, 3, "002") == 0 || c.compare(0, 3, "003") == 0 ||
+               c.compare(0, 3, "300") == 0 || c.compare(0, 3, "301") == 0;
+    }
+    return false;
+}
 }  // namespace
 
 MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
@@ -96,7 +113,38 @@ MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
     timer_->setInterval(kRefreshMs);
     connect(timer_, &QTimer::timeout, this, &MarketPanel::refresh);
     timer_->start();
-    refresh();  // 立即刷一次
+    refresh();  // 立即刷一次（先精选池）
+
+    // 异步加载全 A 股池（TDX 全列表过滤可交易股，覆盖完整市场），完成后立即刷新
+    if (provider_) {
+        ThreadPool::submitIO([this, provider = provider_] {
+            struct PoolData {
+                std::vector<StockCode> pool;
+                std::unordered_map<std::string, std::string> names;
+            };
+            PoolData d;
+            auto sh = provider->getStockList(Market::SH);
+            for (const auto& s : sh) {
+                if (isTradableAShare(s.code)) {
+                    d.pool.push_back(s.code);
+                    d.names[s.code.displayCode()] = s.name;
+                }
+            }
+            auto sz = provider->getStockList(Market::SZ);
+            for (const auto& s : sz) {
+                if (isTradableAShare(s.code)) {
+                    d.pool.push_back(s.code);
+                    d.names[s.code.displayCode()] = s.name;
+                }
+            }
+            QMetaObject::invokeMethod(this, [this, d = std::move(d)]() mutable {
+                if (d.pool.empty()) return;
+                pool_ = std::move(d.pool);
+                nameByCode_ = std::move(d.names);
+                refresh();  // 用全市场池立即刷一次
+            }, Qt::QueuedConnection);
+        });
+    }
 }
 
 void MarketPanel::refresh() {

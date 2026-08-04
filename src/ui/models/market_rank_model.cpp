@@ -40,7 +40,9 @@ QVariant MarketRankModel::data(const QModelIndex& index, int role) const {
         case 1: return QString::fromStdString(item.name);
         case 2: return QString::number(item.price, 'f', 2);
         case 3: return QString("%1%").arg(item.changePct, 0, 'f', 2);
-        case 4: return QString("%1%").arg(item.turnover, 0, 'f', 2);
+        // TDX 报价不含换手率 → 显示 "—" 而非误导的 0.00%
+        case 4: return item.turnover > 0
+            ? QString("%1%").arg(item.turnover, 0, 'f', 2) : QStringLiteral("—");
         default: return {};
     }
 }

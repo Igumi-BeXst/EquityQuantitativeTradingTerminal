@@ -41,6 +41,7 @@ StockSearchBar::StockSearchBar(IDataProvider* provider, QWidget* parent)
     debounce_->setSingleShot(true);
 
     edit_->installEventFilter(this);
+    popup_->installEventFilter(this);  // popup 收到按键（Qt::Popup 抢键盘）→ 转发可打印字符
     connect(edit_, &QLineEdit::textChanged, this, &StockSearchBar::onTextChanged);
     connect(debounce_, &QTimer::timeout, this, &StockSearchBar::performSearch);
     connect(popup_, &QListWidget::itemClicked, this, [this] {
@@ -84,6 +85,22 @@ bool StockSearchBar::eventFilter(QObject* watched, QEvent* event) {
         } else if (key->key() == Qt::Key_Down || key->key() == Qt::Key_Return) {
             performSearch();
             return true;
+        }
+    } else if (watched == popup_ && event->type() == QEvent::KeyPress) {
+        // Qt::Popup 抢键盘后按键到达 popup：导航键本地处理，可打印字符转发给编辑
+        auto* key = static_cast<QKeyEvent*>(event);
+        switch (key->key()) {
+            case Qt::Key_Down:    moveNext(true);   return true;
+            case Qt::Key_Up:      moveNext(false);  return true;
+            case Qt::Key_Return:
+            case Qt::Key_Enter:   onPopupActivated(); return true;
+            case Qt::Key_Escape:  hidePopup();      return true;
+            default:
+                if (!key->text().isEmpty()) {
+                    QCoreApplication::sendEvent(edit_, key);  // 继续输入
+                    return true;
+                }
+                break;
         }
     }
     return QWidget::eventFilter(watched, event);

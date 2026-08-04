@@ -100,7 +100,7 @@ private:
     std::condition_variable threadCv_;
 
     int requestTimeoutMs_ = 10000;
-    size_t quoteChunk_ = 60;
+    size_t quoteChunk_ = 80;  // 服务器单次报价批上限（实测 200 只请求返回 80）
     int pollIntervalMs_ = 5000;
     static constexpr uint16_t kMaxBarsPerRequest = 800;
 };
