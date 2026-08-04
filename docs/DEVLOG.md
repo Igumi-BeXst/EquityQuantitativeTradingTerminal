@@ -11,6 +11,13 @@
 - [x] **接口重构**：IDataProvider 加 batchQuote/getIntraday/refreshQuotes/providerName 纯虚；12 个 UI 类 `TencentProvider*`→`IDataProvider*`；main_window `makeDataProvider()`；provider_factory 读 config `data.provider`（默认 tdx）；AKShare 补桩；cn_encoding 抽取 GBK 工具；vcpkg 加 zlib
 - [x] **实连验证**（tools_tdx_live）：登录 ✓、日/周/月K线前复权 ✓（茅台 2026-08-04 收 1328.36 与报价一致）、报价 ✓（量 3745000/额 50 亿）、列表解析 ✓（每页 1000）
 
+### Step 9a 集成排查：getStockList 列表 bug（本日修复）
+- **症状**：`tools_tdx_live` 显示 SH 列表 = 0 只 → 搜索栏/索引依赖 getStockList 会全空
+- **根因**：`decodeCodeList` 把记录**首字节**（代码首字符，如 '9'=0x39）当作市场 → `marketFromByte(57)=Unknown` → 全部被 `isValid()` 过滤。实测记录内**不含市场字段**（市场由请求隐含），布局 `[0:6]代码 | [6:8]=0x0064 | [8:16]名称GBK(8B) | [16:29]其他`
+- **修复**：`decodeCodeList(payload, Market)` 增加市场参数由调用方传入；`loadStockList` 传请求市场；列表上限 20000 硬截断改为按 Count 真实总数（安全上限 100000）
+- **验证**：tdx_diag 实连对比 count mkt=1→27642 / mkt=0→23906；code mkt=1→"999999 上证指数"、mkt=0→"395001 主板A股"；tdx_live SH 列表 **27642 只 + 找到茅台: 贵州茅台**
+- 新增 `docs/tdx-protocol.md` 协议笔记（帧格式/命令/变长/量解码/K线/报价/列表布局/复权/服务器列表，全部实连抓包校准）
+
 ### Step 8 构建验证（本日收尾）
 - 脚本替换后首次编译，修复 2 处遗漏：
   1. `main_window.cpp` `std::makeDataProvider()` — 脚本保留 `std::` 前缀，改为 `makeDataProvider()`（namespace st 自由函数）

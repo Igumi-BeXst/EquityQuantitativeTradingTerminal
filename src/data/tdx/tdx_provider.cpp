@@ -458,12 +458,13 @@ std::vector<StockInfo> TdxProvider::loadStockList(Market market) {
     const uint32_t total = countResp.ok ? tdx::decodeCount(countResp.payload) : 0;
 
     uint16_t start = 0;
-    const uint32_t maxStocks = (total > 0 && total < 20000) ? total : 20000;
+    // 加载完整列表（Count 返回真实总数）；安全上限防异常值
+    const uint32_t maxStocks = (total > 0 && total < 100000) ? total : 100000;
     while (start < maxStocks) {
         const auto req = tdx::buildCodeReq(static_cast<uint8_t>(mkt), start);
         const auto resp = executeCommand(tdx::Cmd::Code, req, requestTimeoutMs_);
         if (!resp.ok) break;
-        const auto recs = tdx::decodeCodeList(resp.payload);
+        const auto recs = tdx::decodeCodeList(resp.payload, market);
         if (recs.empty()) break;
         for (const auto& r : recs) {
             if (!r.code.isValid()) continue;

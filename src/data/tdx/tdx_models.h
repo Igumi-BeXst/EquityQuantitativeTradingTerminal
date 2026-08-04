@@ -63,7 +63,8 @@ std::vector<TdxQuoteRec> decodeQuote(const std::vector<uint8_t>& payload);
 std::vector<TdxMinuteRec> decodeMinute(const std::vector<uint8_t>& payload);
 std::vector<TdxGbbqRec> decodeGbbq(const std::vector<uint8_t>& payload);
 uint32_t decodeCount(const std::vector<uint8_t>& payload);
-std::vector<TdxStockRec> decodeCodeList(const std::vector<uint8_t>& payload);
+/// 股票列表解码。记录内不含市场字段（由请求隐含），market 由调用方传入。
+std::vector<TdxStockRec> decodeCodeList(const std::vector<uint8_t>& payload, Market market);
 
 /// 市场字节 → Market 枚举（0=SZ 1=SH 2=BJ；其他 Unknown）
 Market marketFromTdx(uint8_t m);

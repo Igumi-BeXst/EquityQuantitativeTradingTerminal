@@ -7,6 +7,8 @@
 - 接口: IDataProvider 加 batchQuote/getIntraday/refreshQuotes/providerName 纯虚
 - 重构: 12 个 UI 类 TencentProvider*→IDataProvider*；main_window 用 makeDataProvider()（config data.provider 默认 tdx）；AKShare 补桩
 - 实连验证: 登录/K线前复权/报价/列表均正确（茅台收 1328.36 与报价一致）
+- 修复: getStockList=0（decodeCodeList 误读记录首字节为市场 → 改由调用方传入；列表上限按真实 Count）
+- 新增: docs/tdx-protocol.md 协议笔记
 - 已知降级: 分时 0x051D 格式待校准（getIntraday 返回 nullopt，Step 10）
 - 状态栏/About 数据源文案动态显示 providerName()
 - 测试 136 全绿（编译零警告）

@@ -222,21 +222,22 @@ uint32_t decodeCount(const std::vector<uint8_t>& payload) {
     return rdU16(payload.data());
 }
 
-std::vector<TdxStockRec> decodeCodeList(const std::vector<uint8_t>& payload) {
+std::vector<TdxStockRec> decodeCodeList(const std::vector<uint8_t>& payload, Market market) {
     std::vector<TdxStockRec> out;
     if (payload.size() < 2) return out;
     const uint16_t count = rdU16(payload.data());
     size_t pos = 2;
 
     for (uint16_t i = 0; i < count && pos + 29 <= payload.size(); ++i) {
-        const uint8_t mkt = payload[pos];
+        // 记录布局（实测）：[0:6] 代码ASCII | [6:8]=0x0064 常量 | [8:16] 名称GBK(8B) |
+        // [16:20] skip | [20] decimal | [21:25] lastprice | [25:29] skip
+        // 记录内【不含】市场字段（由请求隐含），市场由调用方传入
         const std::string code(payload.begin() + pos, payload.begin() + pos + 6);
-        // [6:8] multiple, [8:16] name(GBK), [16:20] skip, [20] decimal, [21:25] lastprice, [25:29] skip
         const std::string gbkName(payload.begin() + pos + 8, payload.begin() + pos + 16);
         pos += 29;
 
         TdxStockRec r;
-        r.code = StockCode(marketFromByte(mkt), code);
+        r.code = StockCode(market, code);
         r.name = normalizeName(gbkToUtf8(gbkName));
         out.push_back(r);
     }
