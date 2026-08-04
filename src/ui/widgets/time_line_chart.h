@@ -61,6 +61,7 @@ private:
 
     QRectF mainRect_, volRect_, macdRect_;
     double priceHi_ = 0, priceLo_ = 0, volHi_ = 0, macdMaxAbs_ = 0;
+    double symRange_ = 0;  // 涨跌对称区间（昨收 ± symRange_），保证涨/跌分段一致
 };
 
 } // namespace st

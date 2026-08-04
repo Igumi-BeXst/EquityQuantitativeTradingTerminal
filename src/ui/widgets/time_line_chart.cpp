@@ -19,6 +19,7 @@ const QColor kUpColor("#e54648");
 const QColor kDownColor("#2e9e5b");
 
 constexpr double kRightAxisW = 64;
+constexpr double kLeftAxisW = 56;   // 左价格轴
 constexpr double kBottomAxisH = 26;
 constexpr double kTitleH = 22;
 constexpr double kMainRatio = 0.58;   // 主价格区占可绘图区
@@ -73,8 +74,8 @@ int TimelineChart::minutesFromOpen(const DateTime& t) const {
 }
 
 double TimelineChart::xFor(int minutes) const {
-    const double plotW = width() - kRightAxisW - 2 * kMargin;
-    return kMargin + minutes / 240.0 * plotW;
+    const double plotW = mainRect_.width() - 2 * kMargin;
+    return mainRect_.left() + kMargin + minutes / 240.0 * plotW;
 }
 
 double TimelineChart::priceToY(double price) const {
@@ -125,15 +126,17 @@ void TimelineChart::computeMacd() {
 void TimelineChart::computeRanges() {
     if (data_.points.empty()) return;
 
-    // 主图价格范围
+    // 主图价格范围: 涨跌对称，取最大单侧波动，保证涨/跌分段区间一致
     double hi = data_.preClose, lo = data_.preClose;
     for (const auto& pt : data_.points) {
         hi = std::max(hi, pt.price);
         lo = std::min(lo, pt.price);
     }
-    const double pad = (hi - lo) * 0.05 + 0.01;
-    priceHi_ = hi + pad;
-    priceLo_ = lo - pad;
+    symRange_ = std::max(hi - data_.preClose, data_.preClose - lo);
+    if (symRange_ < 1e-9) symRange_ = data_.preClose * 0.01;  // 无波动默认 ±1%
+    const double pad = symRange_ * 0.05 + 0.01;
+    priceHi_ = data_.preClose + symRange_ + pad;
+    priceLo_ = data_.preClose - symRange_ - pad;
 
     // 量程: 每分钟增量（腾讯分时量为累计值）
     volHi_ = 0;
@@ -169,14 +172,23 @@ void TimelineChart::paintEvent(QPaintEvent*) {
     }
 
     // 布局: 主图 / 量 / 分时MACD
-    const double plotW = width() - kRightAxisW;
+    const double plotW = width() - kRightAxisW - kLeftAxisW;
     const double plotH = height() - kTitleH - kBottomAxisH;
-    const QRectF plot(0, kTitleH, plotW, plotH);
+    const QRectF plot(kLeftAxisW, kTitleH, plotW, plotH);
     mainRect_ = QRectF(plot.left(), plot.top(), plot.width(), plotH * kMainRatio);
     volRect_ = QRectF(plot.left(), plot.top() + mainRect_.height() + 8,
                       plot.width(), plotH * kVolRatio);
     macdRect_ = QRectF(plot.left(), volRect_.bottom() + 8,
                        plot.width(), plot.bottom() - volRect_.bottom() - 8);
+
+    // 面板背景交替着色 + 分隔线（同日线图样式：主图保持底色，指标面板异色 + 顶部分隔线）
+    const QRectF panels[] = {mainRect_, volRect_, macdRect_};
+    for (int i = 1; i < 3; ++i) {
+        p.fillRect(panels[i], (i % 2 == 0) ? QColor(26, 26, 29) : QColor(22, 22, 24));
+        p.setPen(QPen(QColor(255, 255, 255, 30), 1));
+        p.drawLine(QPointF(panels[i].left(), panels[i].top()),
+                   QPointF(panels[i].right(), panels[i].top()));
+    }
 
     drawTitle(p);
     drawGridAndAxis(p);
@@ -212,81 +224,73 @@ void TimelineChart::drawGridAndAxis(QPainter& p) {
     f.setPixelSize(10);
     p.setFont(f);
 
-    const double w = width() - kRightAxisW;
+    const double rightX = mainRect_.right();
 
     // 竖分隔: 10:30 / 11:30(午休虚线) / 14:00
     for (int m : {60, 120, 180}) {
         double x = xFor(m);
         p.setPen(QPen(QColor(255, 255, 255, m == 120 ? 50 : 25), 1,
                       m == 120 ? Qt::DashLine : Qt::SolidLine));
-        p.drawLine(QPointF(x, kTitleH), QPointF(x, height() - kBottomAxisH));
+        p.drawLine(QPointF(x, mainRect_.top()), QPointF(x, macdRect_.bottom()));
     }
 
     // X 轴标签
     p.setPen(QColor("#888888"));
     const double axisY = height() - 20;
-    const QPointF labels[] = {{kMargin, axisY}, {xFor(60), axisY},
+    const QPointF labels[] = {{xFor(0), axisY}, {xFor(60), axisY},
                               {xFor(120) - 20, axisY}, {xFor(180), axisY},
-                              {w - kMargin - 40, axisY}};
+                              {rightX - kMargin - 40, axisY}};
     const char* texts[] = {"09:30", "10:30", "11:30/13:00", "14:00", "15:00"};
     for (int i = 0; i < 5; ++i) {
         p.drawText(QRectF(labels[i].x(), labels[i].y(), 60, 16), Qt::AlignLeft | Qt::AlignVCenter,
                    QString::fromUtf8(texts[i]));
     }
 
-    // 主图价格轴标注: 现价 + 涨跌幅（右上），最高/最低（右下）
-    if (!data_.points.empty()) {
-        const auto& last = data_.points.back();
-        const double change = data_.preClose > 0
-            ? (last.price - data_.preClose) / data_.preClose * 100.0 : 0.0;
-        p.setPen(change >= 0 ? kUpColor : kDownColor);
-        p.drawText(QRectF(w + 2, mainRect_.top() + 2, kRightAxisW - 4, 14),
-                   Qt::AlignLeft | Qt::AlignVCenter,
-                   QStringLiteral("%1").arg(last.price, 0, 'f', 2));
-        p.drawText(QRectF(w + 2, mainRect_.top() + 16, kRightAxisW - 4, 14),
-                   Qt::AlignLeft | Qt::AlignVCenter,
-                   QStringLiteral("%1%").arg(change, 0, 'f', 2));
-        double hi = data_.preClose, lo = data_.preClose;
-        for (const auto& pt : data_.points) {
-            hi = std::max(hi, pt.price);
-            lo = std::min(lo, pt.price);
-        }
-        p.setPen(QColor("#888888"));
-        p.drawText(QRectF(w + 2, mainRect_.bottom() - 32, kRightAxisW - 4, 14),
-                   Qt::AlignLeft | Qt::AlignVCenter,
-                   QStringLiteral("高 %1").arg(hi, 0, 'f', 2));
-        p.drawText(QRectF(w + 2, mainRect_.bottom() - 16, kRightAxisW - 4, 14),
-                   Qt::AlignLeft | Qt::AlignVCenter,
-                   QStringLiteral("低 %1").arg(lo, 0, 'f', 2));
+    // 主图: 涨/跌各 6 段，两侧对称等分（symRange_），左=价格标签，右=涨跌幅标签
+    if (!data_.points.empty() && data_.preClose > 0 && symRange_ > 1e-9) {
+        constexpr int kSeg = 6;
+
+        auto labelLevel = [&](double price, bool isCenter) {
+            const double y = priceToY(price);
+            // 昨收线用虚线强调，其余为细分隔线
+            p.setPen(isCenter ? QPen(QColor("#aaaaaa"), 1, Qt::DashLine)
+                              : QPen(QColor(255, 255, 255, 28), 1));
+            p.drawLine(QPointF(mainRect_.left(), y), QPointF(rightX, y));
+            // 左: 价格标签
+            p.setPen(isCenter ? QColor("#aaaaaa") : QColor("#888888"));
+            p.drawText(QRectF(2, y - 7, kLeftAxisW - 4, 14),
+                       Qt::AlignRight | Qt::AlignVCenter,
+                       QString::number(price, 'f', 2));
+            // 右: 涨跌幅标签
+            const double pct = (price - data_.preClose) / data_.preClose * 100.0;
+            p.setPen(isCenter ? QColor("#aaaaaa") : (pct >= 0 ? kUpColor : kDownColor));
+            p.drawText(QRectF(rightX + 2, y - 7, kRightAxisW - 4, 14),
+                       Qt::AlignLeft | Qt::AlignVCenter,
+                       QStringLiteral("%1%").arg(pct, 0, 'f', 2));
+        };
+
+        for (int i = kSeg; i >= 1; --i) labelLevel(data_.preClose - symRange_ * i / kSeg, false);
+        labelLevel(data_.preClose, true);
+        for (int i = 1; i <= kSeg; ++i) labelLevel(data_.preClose + symRange_ * i / kSeg, false);
     }
 
-    // 昨收线
-    if (data_.preClose > 0) {
-        double y = priceToY(data_.preClose);
-        p.setPen(QPen(QColor("#aaaaaa"), 1, Qt::DashLine));
-        p.drawLine(QPointF(kMargin, y), QPointF(w - kMargin, y));
-        p.setPen(QColor("#aaaaaa"));
-        p.drawText(QRectF(w + 2, y - 8, kRightAxisW - 4, 14),
-                   Qt::AlignLeft | Qt::AlignVCenter,
-                   QStringLiteral("昨收 %1").arg(data_.preClose, 0, 'f', 2));
-    }
     // 量轴（万单位）
-    p.drawText(QRectF(w + 2, volRect_.top() + 2, kRightAxisW - 4, 14),
+    p.drawText(QRectF(rightX + 2, volRect_.top() + 2, kRightAxisW - 4, 14),
                Qt::AlignLeft | Qt::AlignVCenter,
                QStringLiteral("%1万").arg(volHi_ / 10000.0, 0, 'f', 1));
     // MACD 轴: 高低标注
     if (!macdDif_.empty()) {
-        p.drawText(QRectF(w + 2, macdRect_.top() + 2, kRightAxisW - 4, 14),
+        p.drawText(QRectF(rightX + 2, macdRect_.top() + 2, kRightAxisW - 4, 14),
                    Qt::AlignLeft | Qt::AlignVCenter,
                    QStringLiteral("+%1").arg(macdMaxAbs_, 0, 'f', 2));
-        p.drawText(QRectF(w + 2, macdRect_.bottom() - 16, kRightAxisW - 4, 14),
+        p.drawText(QRectF(rightX + 2, macdRect_.bottom() - 16, kRightAxisW - 4, 14),
                    Qt::AlignLeft | Qt::AlignVCenter,
                    QStringLiteral("-%1").arg(macdMaxAbs_, 0, 'f', 2));
     }
 }
 
 void TimelineChart::drawPriceLines(QPainter& p) {
-    const double w = width() - kRightAxisW;
+    const double w = mainRect_.right();
     // 价格线
     QPainterPath pricePath, avgPath;
     for (size_t i = 0; i < data_.points.size(); ++i) {
@@ -316,8 +320,7 @@ void TimelineChart::drawPriceLines(QPainter& p) {
 }
 
 void TimelineChart::drawVolume(QPainter& p) {
-    const double w = width() - kRightAxisW;
-    const double bw = w / 240.0;
+    const double bw = (mainRect_.width() - 2 * kMargin) / 240.0;
 
     QPainterPath upPath, downPath;
     for (size_t i = 0; i < data_.points.size(); ++i) {
@@ -355,7 +358,7 @@ void TimelineChart::drawMacd(QPainter& p) {
 
     // 柱
     QPainterPath upHist, downHist;
-    const double bw = (width() - kRightAxisW) / 240.0;
+    const double bw = (mainRect_.width() - 2 * kMargin) / 240.0;
     for (size_t i = 0; i < macdHist_.size() && i < data_.points.size(); ++i) {
         if (!std::isfinite(macdHist_[i])) continue;
         const int m = minutesFromOpen(data_.points[i].time);
@@ -404,10 +407,10 @@ void TimelineChart::drawCrosshair(QPainter& p) {
     const auto& pt = data_.points[static_cast<size_t>(mouseIndex_)];
     double x = xFor(minutesFromOpen(pt.time));
 
-    const double volBottom = height() - kBottomAxisH;
+    const double volBottom = macdRect_.bottom();
     p.setPen(QPen(QColor(200, 200, 200, 160), 1, Qt::DashLine));
-    p.drawLine(QPointF(x, kTitleH), QPointF(x, volBottom));
-    p.drawLine(QPointF(0, mouseY_), QPointF(width() - kRightAxisW, mouseY_));
+    p.drawLine(QPointF(x, mainRect_.top()), QPointF(x, volBottom));
+    p.drawLine(QPointF(mainRect_.left(), mouseY_), QPointF(mainRect_.right(), mouseY_));
 
     const double change = data_.preClose > 0
         ? (pt.price - data_.preClose) / data_.preClose * 100.0 : 0.0;
