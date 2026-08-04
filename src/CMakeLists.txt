@@ -10,6 +10,7 @@ add_library(st_foundation STATIC
     foundation/utils/string_utils.cpp
     foundation/utils/json_utils.cpp
     foundation/utils/indicators.cpp
+    foundation/utils/pinyin.cpp
 )
 target_include_directories(st_foundation PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(st_foundation PUBLIC nlohmann_json::nlohmann_json)

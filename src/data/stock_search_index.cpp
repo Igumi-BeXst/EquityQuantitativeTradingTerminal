@@ -60,10 +60,19 @@ std::vector<StockInfo> StockSearchIndex::search(const std::string& query, int ma
         }
     }
 
-    // 3. 拼音首字母匹配
+    // 3. 拼音首字母匹配（如 "gzmt"）
     for (size_t i = 0; i < infos_.size(); ++i) {
         const auto& info = infos_[i];
         if (contains(toLower(info.pinyinInitials), q)) {
+            result.push_back(info);
+            if (++seenCount >= static_cast<size_t>(maxResults)) return result;
+        }
+    }
+
+    // 4. 拼音全拼匹配（如 "guzhoumaotai"）
+    for (size_t i = 0; i < infos_.size(); ++i) {
+        const auto& info = infos_[i];
+        if (contains(toLower(info.pinyin), q)) {
             result.push_back(info);
             if (++seenCount >= static_cast<size_t>(maxResults)) return result;
         }

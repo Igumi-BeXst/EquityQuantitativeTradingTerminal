@@ -5,6 +5,7 @@
 #include "core/log_manager.h"
 #include "core/event_bus.h"
 #include "foundation/utils/datetime.h"
+#include "foundation/utils/pinyin.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -523,7 +524,8 @@ std::vector<StockInfo> TdxProvider::loadStockList(Market market) {
             StockInfo info;
             info.code = r.code;
             info.name = r.name;
-            info.pinyinInitials = r.name.empty() ? "" : "";
+            info.pinyinInitials = utils::pinyinInitials(r.name);
+            info.pinyin = utils::pinyinFull(r.name);
             info.exchange = (r.code.market() == Market::SH) ? "SH" : "SZ";
             info.valid = true;
             infos.push_back(std::move(info));

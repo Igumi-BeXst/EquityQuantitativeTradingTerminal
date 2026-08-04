@@ -3,10 +3,12 @@
 #include "data/tdx/tdx_models.h"
 #include "core/thread_pool.h"
 #include "foundation/enums.h"
+#include <QApplication>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QTimer>
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <QHBoxLayout>
 #include <QMetaObject>
 #include <algorithm>
@@ -29,9 +31,9 @@ StockSearchBar::StockSearchBar(IDataProvider* provider, QWidget* parent)
     edit_->setClearButtonEnabled(true);
     layout->addWidget(edit_);
 
-    // 下拉弹层（Qt::Popup 不抢键盘焦点）
+    // 下拉弹层（Qt::ToolTip 不抓取鼠标/键盘，避免弹层可见时其他控件无法交互）
     popup_ = new QListWidget(this);
-    popup_->setWindowFlags(Qt::Popup | Qt::FramelessWindowHint);
+    popup_->setWindowFlags(Qt::ToolTip | Qt::FramelessWindowHint);
     popup_->setAttribute(Qt::WA_ShowWithoutActivating);  // 显示时不激活/抢键盘焦点
     popup_->setFocusPolicy(Qt::NoFocus);
     popup_->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -42,7 +44,8 @@ StockSearchBar::StockSearchBar(IDataProvider* provider, QWidget* parent)
     debounce_->setSingleShot(true);
 
     edit_->installEventFilter(this);
-    popup_->installEventFilter(this);  // popup 收到按键（Qt::Popup 抢键盘）→ 转发可打印字符
+    popup_->installEventFilter(this);  // 兜底：popup 若收到按键（导航/可打印字符）
+    qApp->installEventFilter(this);    // 全局：点击弹层/编辑框之外时关闭弹层（不拦截事件）
     connect(edit_, &QLineEdit::textChanged, this, &StockSearchBar::onTextChanged);
     connect(debounce_, &QTimer::timeout, this, &StockSearchBar::performSearch);
     connect(popup_, &QListWidget::itemClicked, this, [this] {
@@ -79,6 +82,15 @@ void StockSearchBar::focusEdit() {
 }
 
 bool StockSearchBar::eventFilter(QObject* watched, QEvent* event) {
+    // 全局: 点击编辑框/弹层之外 → 关闭弹层（不消费事件，点击继续传给目标控件）
+    if (popup_->isVisible() && watched != edit_ && watched != popup_
+        && event->type() == QEvent::MouseButtonPress) {
+        auto* me = static_cast<QMouseEvent*>(event);
+        const QPoint g = me->globalPosition().toPoint();
+        const bool insideEdit = edit_->rect().contains(edit_->mapFromGlobal(g));
+        const bool insidePopup = popup_->geometry().contains(g);
+        if (!insideEdit && !insidePopup) hidePopup();
+    }
     if (watched == edit_ && event->type() == QEvent::KeyPress) {
         auto* key = static_cast<QKeyEvent*>(event);
         if (popup_->isVisible()) {
