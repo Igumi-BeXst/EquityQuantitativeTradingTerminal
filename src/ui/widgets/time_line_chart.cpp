@@ -107,14 +107,19 @@ void TimelineChart::computeMacd() {
     macdHist_.clear();
     if (data_.points.size() < 30) return;
 
+    // 用 preClose 扩展 ~40 个点作 EMA 预热，使 MACD 从最左侧即有有效值
+    // （macd(12,26,9) 需 ~35 个预热点，否则左侧 ~33 分钟为 NaN）
+    const double seed = data_.preClose > 0 ? data_.preClose : data_.points.front().price;
+    constexpr int kWarmUp = 40;
     std::vector<double> prices;
-    prices.reserve(data_.points.size());
+    prices.reserve(data_.points.size() + kWarmUp);
+    for (int i = 0; i < kWarmUp; ++i) prices.push_back(seed);
     for (const auto& pt : data_.points) prices.push_back(pt.price);
 
     auto m = st::indicators::macd(prices);
-    macdDif_ = std::move(m.dif);
-    macdDea_ = std::move(m.dea);
-    macdHist_ = std::move(m.hist);
+    macdDif_.assign(m.dif.begin() + kWarmUp, m.dif.end());
+    macdDea_.assign(m.dea.begin() + kWarmUp, m.dea.end());
+    macdHist_.assign(m.hist.begin() + kWarmUp, m.hist.end());
 }
 
 void TimelineChart::computeRanges() {
@@ -229,6 +234,32 @@ void TimelineChart::drawGridAndAxis(QPainter& p) {
                    QString::fromUtf8(texts[i]));
     }
 
+    // 主图价格轴标注: 现价 + 涨跌幅（右上），最高/最低（右下）
+    if (!data_.points.empty()) {
+        const auto& last = data_.points.back();
+        const double change = data_.preClose > 0
+            ? (last.price - data_.preClose) / data_.preClose * 100.0 : 0.0;
+        p.setPen(change >= 0 ? kUpColor : kDownColor);
+        p.drawText(QRectF(w + 2, mainRect_.top() + 2, kRightAxisW - 4, 14),
+                   Qt::AlignLeft | Qt::AlignVCenter,
+                   QStringLiteral("%1").arg(last.price, 0, 'f', 2));
+        p.drawText(QRectF(w + 2, mainRect_.top() + 16, kRightAxisW - 4, 14),
+                   Qt::AlignLeft | Qt::AlignVCenter,
+                   QStringLiteral("%1%").arg(change, 0, 'f', 2));
+        double hi = data_.preClose, lo = data_.preClose;
+        for (const auto& pt : data_.points) {
+            hi = std::max(hi, pt.price);
+            lo = std::min(lo, pt.price);
+        }
+        p.setPen(QColor("#888888"));
+        p.drawText(QRectF(w + 2, mainRect_.bottom() - 32, kRightAxisW - 4, 14),
+                   Qt::AlignLeft | Qt::AlignVCenter,
+                   QStringLiteral("高 %1").arg(hi, 0, 'f', 2));
+        p.drawText(QRectF(w + 2, mainRect_.bottom() - 16, kRightAxisW - 4, 14),
+                   Qt::AlignLeft | Qt::AlignVCenter,
+                   QStringLiteral("低 %1").arg(lo, 0, 'f', 2));
+    }
+
     // 昨收线
     if (data_.preClose > 0) {
         double y = priceToY(data_.preClose);
@@ -239,12 +270,19 @@ void TimelineChart::drawGridAndAxis(QPainter& p) {
                    Qt::AlignLeft | Qt::AlignVCenter,
                    QStringLiteral("昨收 %1").arg(data_.preClose, 0, 'f', 2));
     }
-    // 量轴
+    // 量轴（万单位）
     p.drawText(QRectF(w + 2, volRect_.top() + 2, kRightAxisW - 4, 14),
-               Qt::AlignLeft | Qt::AlignVCenter, QString::number(volHi_));
-    // MACD 轴
-    p.drawText(QRectF(w + 2, macdRect_.top() + 2, kRightAxisW - 4, 14),
-               Qt::AlignLeft | Qt::AlignVCenter, QString::number(macdMaxAbs_));
+               Qt::AlignLeft | Qt::AlignVCenter,
+               QStringLiteral("%1万").arg(volHi_ / 10000.0, 0, 'f', 1));
+    // MACD 轴: 高低标注
+    if (!macdDif_.empty()) {
+        p.drawText(QRectF(w + 2, macdRect_.top() + 2, kRightAxisW - 4, 14),
+                   Qt::AlignLeft | Qt::AlignVCenter,
+                   QStringLiteral("+%1").arg(macdMaxAbs_, 0, 'f', 2));
+        p.drawText(QRectF(w + 2, macdRect_.bottom() - 16, kRightAxisW - 4, 14),
+                   Qt::AlignLeft | Qt::AlignVCenter,
+                   QStringLiteral("-%1").arg(macdMaxAbs_, 0, 'f', 2));
+    }
 }
 
 void TimelineChart::drawPriceLines(QPainter& p) {
@@ -304,7 +342,7 @@ void TimelineChart::drawVolume(QPainter& p) {
     f.setPixelSize(11);
     p.setFont(f);
     p.setPen(QColor("#d4d4d4"));
-    p.drawText(QPointF(volRect_.left() + 6, volRect_.top() + 12), tr("分时量"));
+    p.drawText(QPointF(volRect_.left() + 6, volRect_.top() + 12), tr("分时量(万)"));
 }
 
 void TimelineChart::drawMacd(QPainter& p) {
@@ -356,7 +394,7 @@ void TimelineChart::drawMacd(QPainter& p) {
     const int lastIdx = static_cast<int>(macdDif_.size()) - 1;
     p.setPen(QColor("#d4d4d4"));
     p.drawText(QPointF(macdRect_.left() + 6, macdRect_.top() + 12),
-               QStringLiteral("分时MACD  DIF %1  DEA %2")
+               QStringLiteral("分时MACD(12,26,9)  DIF %1  DEA %2")
                    .arg(macdDif_[static_cast<size_t>(lastIdx)], 0, 'f', 2)
                    .arg(macdDea_[static_cast<size_t>(lastIdx)], 0, 'f', 2));
 }

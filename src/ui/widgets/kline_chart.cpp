@@ -389,7 +389,7 @@ void KLineChart::drawVolume(QPainter& p) {
     p.fillPath(upPath, kUpColor);
     p.fillPath(downPath, kDownColor);
 
-    drawPaneHeader(p, volRect_, tr("VOL"), QColor("#d4d4d4"));
+    drawPaneHeader(p, volRect_, tr("成交量"), QColor("#d4d4d4"));
 }
 
 void KLineChart::drawBoll(QPainter& p) {
@@ -640,7 +640,11 @@ void KLineChart::drawAxes(QPainter& p) {
                    Qt::AlignLeft | Qt::AlignVCenter,
                    QString::number(v, 'f', v >= 100 ? 0 : 2));
     };
-    if (showVol_)  drawAxisLabel(volRect_, volHi_);
+    if (showVol_) {
+        p.drawText(QRectF(volRect_.right() + 2, volRect_.top() + 2, kRightAxisW - 4, 14),
+                   Qt::AlignLeft | Qt::AlignVCenter,
+                   QStringLiteral("%1万").arg(volHi_ / 10000.0, 0, 'f', 1));
+    }
     if (showBoll_) drawAxisLabel(bollRect_, bollHi_);
     if (showMacd_) drawAxisLabel(macdRect_, macdMaxAbs_);
     if (showRsi_) {
@@ -702,12 +706,12 @@ void KLineChart::drawCrosshair(QPainter& p) {
     const double prevClose = mouseIndex_ >= 1
         ? bars_[static_cast<size_t>(mouseIndex_ - 1)].close : 0.0;
     const double change = prevClose > 0 ? (b.close - prevClose) / prevClose * 100.0 : 0.0;
-    QString txt = QStringLiteral("%1\n开:%2 高:%3\n低:%4 收:%5\n涨跌幅:%6% 量:%7")
+    QString txt = QStringLiteral("%1\n开:%2 高:%3\n低:%4 收:%5\n涨跌幅:%6% 量:%7万")
         .arg(QString::fromStdString(utils::toDateString(b.time)))
         .arg(b.open, 0, 'f', 2).arg(b.high, 0, 'f', 2)
         .arg(b.low, 0, 'f', 2).arg(b.close, 0, 'f', 2)
         .arg(change, 0, 'f', 2)
-        .arg(static_cast<qlonglong>(b.volume));
+        .arg(b.volume / 10000.0, 0, 'f', 1);
     if (ind_.valid) {
         txt += QStringLiteral("\nMA5:%1 MA10:%2 MA20:%3")
                    .arg(ind_.ma5[static_cast<size_t>(mouseIndex_)], 0, 'f', 2)
