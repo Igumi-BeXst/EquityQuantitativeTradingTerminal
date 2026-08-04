@@ -1,6 +1,6 @@
 #include "ui/panels/market_panel.h"
 #include "ui/models/market_rank_model.h"
-#include "data/tencent_provider.h"
+#include "data/idata_provider.h"
 #include "data/curated_stocks.h"
 #include "core/thread_pool.h"
 #include "foundation/enums.h"
@@ -24,7 +24,7 @@ constexpr int kTopN = 30;
 constexpr int kRefreshMs = 10000;
 }  // namespace
 
-MarketPanel::MarketPanel(TencentProvider* provider, QWidget* parent)
+MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider) {
     // 池 + 名称表（精选股票）
     for (const auto& c : kCuratedSH) {

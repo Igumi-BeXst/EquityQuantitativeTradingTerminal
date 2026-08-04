@@ -14,7 +14,7 @@ class QTabWidget;
 
 namespace st {
 
-class TencentProvider;
+class IDataProvider;
 class MarketRankModel;
 struct MarketRankItem;
 
@@ -26,7 +26,7 @@ class MarketPanel : public QWidget {
     Q_OBJECT
 
 public:
-    explicit MarketPanel(TencentProvider* provider, QWidget* parent = nullptr);
+    explicit MarketPanel(IDataProvider* provider, QWidget* parent = nullptr);
 
 signals:
     void openChart(const StockCode& code);
@@ -39,7 +39,7 @@ private:
     void onGainersDoubleClicked(const QModelIndex& index);
     void onLosersDoubleClicked(const QModelIndex& index);
 
-    TencentProvider* provider_ = nullptr;
+    IDataProvider* provider_ = nullptr;
     QTimer* timer_ = nullptr;
     bool refreshing_ = false;
     int gen_ = 0;

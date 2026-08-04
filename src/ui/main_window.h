@@ -12,7 +12,7 @@ class QTabWidget;
 
 namespace st {
 
-class TencentProvider;
+class IDataProvider;
 class LogPanel;
 class MarketIndexStrip;
 class StockSearchBar;
@@ -29,7 +29,7 @@ class StressTestPanel;
 
 /// 主窗口 — 菜单栏 + 工具栏(搜索/指数条) + QDockWidget 布局 + 状态栏
 ///
-/// 服务装配: AppPaths/LogManager/ConfigManager/TencentProvider 初始化，
+/// 服务装配: AppPaths/LogManager/ConfigManager/IDataProvider 初始化，
 /// 快捷键注册，dock 布局持久化（QSettings 到 %APPDATA%）。
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -52,7 +52,7 @@ private:
     void openPreferences();
     void resetLayout();
 
-    std::unique_ptr<TencentProvider> provider_;
+    std::unique_ptr<IDataProvider> provider_;
     std::unique_ptr<ShortcutManager> shortcuts_;
     std::unique_ptr<QSettings> settings_;
 

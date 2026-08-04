@@ -15,7 +15,7 @@ class QPlainTextEdit;
 
 namespace st {
 
-class TencentProvider;
+class IDataProvider;
 class PaperTradeEngine;
 class TradeTableModel;
 class IStrategy;
@@ -25,7 +25,7 @@ class PaperTradePanel : public QWidget {
     Q_OBJECT
 
 public:
-    explicit PaperTradePanel(TencentProvider* provider, QWidget* parent = nullptr);
+    explicit PaperTradePanel(IDataProvider* provider, QWidget* parent = nullptr);
 
 private slots:
     void onToggleClicked();
@@ -39,7 +39,7 @@ private:
     std::shared_ptr<IStrategy> makeStrategy() const;
     StockCode selectedCode() const;
 
-    TencentProvider* provider_ = nullptr;
+    IDataProvider* provider_ = nullptr;
     std::unique_ptr<PaperTradeEngine> engine_;
     QTimer* timer_ = nullptr;
 

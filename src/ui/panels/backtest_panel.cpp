@@ -1,7 +1,7 @@
 #include "ui/panels/backtest_panel.h"
 #include "ui/widgets/equity_curve_widget.h"
 #include "ui/models/trade_table_model.h"
-#include "data/tencent_provider.h"
+#include "data/idata_provider.h"
 #include "data/data_cache.h"
 #include "data/curated_stocks.h"
 #include "engine/backtest/backtest_engine.h"
@@ -47,7 +47,7 @@ void colorMetric(QLabel* label, double v) {
 
 }  // namespace
 
-BacktestPanel::BacktestPanel(TencentProvider* provider, QWidget* parent)
+BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider), cache_(std::make_unique<DataCache>()) {
     auto* scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);

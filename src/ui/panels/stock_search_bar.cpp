@@ -1,5 +1,5 @@
 #include "ui/panels/stock_search_bar.h"
-#include "data/tencent_provider.h"
+#include "data/idata_provider.h"
 #include "core/thread_pool.h"
 #include "foundation/enums.h"
 #include <QLineEdit>
@@ -17,7 +17,7 @@ constexpr int kMaxResults = 8;
 constexpr int kDebounceMs = 100;
 }
 
-StockSearchBar::StockSearchBar(TencentProvider* provider, QWidget* parent)
+StockSearchBar::StockSearchBar(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider) {
     auto* layout = new QHBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);

@@ -17,7 +17,7 @@ class QTableView;
 
 namespace st {
 
-class TencentProvider;
+class IDataProvider;
 class DataCache;
 class EquityCurveWidget;
 class TradeTableModel;
@@ -32,7 +32,7 @@ class BacktestPanel : public QWidget {
     Q_OBJECT
 
 public:
-    explicit BacktestPanel(TencentProvider* provider, QWidget* parent = nullptr);
+    explicit BacktestPanel(IDataProvider* provider, QWidget* parent = nullptr);
 
     /// 从策略面板载入策略与参数
     void loadStrategy(const QString& id, const QVariantMap& params);
@@ -50,7 +50,7 @@ private:
     void setMetrics(const Performance& perf, const BacktestResult& result);
     void updateParamLabels();
 
-    TencentProvider* provider_ = nullptr;
+    IDataProvider* provider_ = nullptr;
     std::unique_ptr<DataCache> cache_;
     bool running_ = false;
 

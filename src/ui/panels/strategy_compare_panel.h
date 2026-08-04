@@ -15,7 +15,7 @@ class QLabel;
 
 namespace st {
 
-class TencentProvider;
+class IDataProvider;
 class DataCache;
 class ComparisonTableModel;
 class EquityCurveWidget;
@@ -25,7 +25,7 @@ class StrategyComparePanel : public QWidget {
     Q_OBJECT
 
 public:
-    explicit StrategyComparePanel(TencentProvider* provider, QWidget* parent = nullptr);
+    explicit StrategyComparePanel(IDataProvider* provider, QWidget* parent = nullptr);
 
 private slots:
     void onRunClicked();
@@ -38,7 +38,7 @@ private:
     std::vector<ComparisonItem> selectedItems() const;
     void resetToIdle();
 
-    TencentProvider* provider_ = nullptr;
+    IDataProvider* provider_ = nullptr;
     std::unique_ptr<DataCache> cache_;
 
     QListWidget* strategyList_ = nullptr;

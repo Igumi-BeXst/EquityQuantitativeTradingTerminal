@@ -14,7 +14,7 @@ class QProgressBar;
 
 namespace st {
 
-class TencentProvider;
+class IDataProvider;
 class DataCache;
 class EquityCurveWidget;
 
@@ -23,7 +23,7 @@ class StressTestPanel : public QWidget {
     Q_OBJECT
 
 public:
-    explicit StressTestPanel(TencentProvider* provider, QWidget* parent = nullptr);
+    explicit StressTestPanel(IDataProvider* provider, QWidget* parent = nullptr);
 
 private slots:
     void onRunClicked();
@@ -37,7 +37,7 @@ private:
     void resetToIdle();
     std::vector<StockCode> selectedSymbols() const;
 
-    TencentProvider* provider_ = nullptr;
+    IDataProvider* provider_ = nullptr;
     std::unique_ptr<DataCache> cache_;
 
     QComboBox* strategyCombo_ = nullptr;

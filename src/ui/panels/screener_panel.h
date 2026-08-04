@@ -17,7 +17,7 @@ class QTableView;
 
 namespace st {
 
-class TencentProvider;
+class IDataProvider;
 class DataCache;
 class ScreenResultModel;
 
@@ -26,7 +26,7 @@ class ScreenerPanel : public QWidget {
     Q_OBJECT
 
 public:
-    explicit ScreenerPanel(TencentProvider* provider, QWidget* parent = nullptr);
+    explicit ScreenerPanel(IDataProvider* provider, QWidget* parent = nullptr);
 
 signals:
     /// 双击选股结果行 → 打开 K 线图
@@ -42,7 +42,7 @@ private:
     std::vector<StockCode> selectedSymbols() const;
     void resetToIdle();
 
-    TencentProvider* provider_ = nullptr;
+    IDataProvider* provider_ = nullptr;
     std::unique_ptr<DataCache> cache_;
 
     // 候选因子（默认权重集）

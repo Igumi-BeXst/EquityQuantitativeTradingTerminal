@@ -1,5 +1,16 @@
 # 变更记录
 
+## P9 (2026-08-04) — TDX 通达信数据源
+- 数据源: 直连通达信主站（TCP :7709）完全替换腾讯，参考 injoyai/tdx 移植
+- 协议层: WinSock2 TdxSocket + 帧编解码（0x0C 请求 / 0xB1CB7400 响应 + zlib）+ 变长整数/量解码
+- TdxProvider: 单连接串行 + 断线重连 + 8 服务器 failover；日/周/月K线前复权（gbbq 仿射变换）；batchQuote 分块；getStockList 分页；subscribeQuote 轮询发布
+- 接口: IDataProvider 加 batchQuote/getIntraday/refreshQuotes/providerName 纯虚
+- 重构: 12 个 UI 类 TencentProvider*→IDataProvider*；main_window 用 makeDataProvider()（config data.provider 默认 tdx）；AKShare 补桩
+- 实连验证: 登录/K线前复权/报价/列表均正确（茅台收 1328.36 与报价一致）
+- 已知降级: 分时 0x051D 格式待校准（getIntraday 返回 nullopt，Step 10）
+- 状态栏/About 数据源文案动态显示 providerName()
+- 测试 136 全绿（编译零警告）
+
 ## P7 修复 (2026-08-03) — 优化崩溃 + 回测性能
 - 修复优化崩溃: BacktestEngine::getPortfolio 函数级 static → 实例成员（并行回测线程隔离）
 - BarSeries 重构: shared_ptr 存储 + append()，回测热循环 O(n²) 整段拷贝 → O(1) 追加

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "data/tencent_provider.h"
+#include "data/idata_provider.h"
 #include "foundation/stock_code.h"
 #include <QWidget>
 #include <QString>
@@ -8,7 +8,7 @@
 
 namespace st {
 
-class TencentProvider;
+class IDataProvider;
 
 /// 分时图 — 日内逐分钟价格线 + 均价线 + 量柱
 ///
@@ -18,7 +18,7 @@ class TimelineChart : public QWidget {
     Q_OBJECT
 
 public:
-    explicit TimelineChart(TencentProvider* provider, QWidget* parent = nullptr);
+    explicit TimelineChart(IDataProvider* provider, QWidget* parent = nullptr);
 
     /// 异步加载分时数据（loadGen_ 守卫竞态）
     void loadStock(const StockCode& code, const QString& name);
@@ -47,7 +47,7 @@ private:
     void drawMacd(QPainter& p);
     void drawCrosshair(QPainter& p);
 
-    TencentProvider* provider_ = nullptr;
+    IDataProvider* provider_ = nullptr;
     IntradayData data_;
     StockCode code_;
     QString name_;

@@ -1,5 +1,5 @@
 #include "ui/widgets/time_line_chart.h"
-#include "data/tencent_provider.h"
+#include "data/idata_provider.h"
 #include "core/thread_pool.h"
 #include "foundation/utils/datetime.h"
 #include "foundation/utils/indicators.h"
@@ -25,7 +25,7 @@ constexpr double kMainRatio = 0.58;   // 主价格区占可绘图区
 constexpr double kVolRatio = 0.16;    // 量区
 }  // namespace
 
-TimelineChart::TimelineChart(TencentProvider* provider, QWidget* parent)
+TimelineChart::TimelineChart(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider) {
     setMouseTracking(true);
     setMinimumSize(400, 300);

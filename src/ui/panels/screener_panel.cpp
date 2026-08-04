@@ -1,6 +1,6 @@
 #include "ui/panels/screener_panel.h"
 #include "ui/models/screen_result_model.h"
-#include "data/tencent_provider.h"
+#include "data/idata_provider.h"
 #include "data/data_cache.h"
 #include "data/curated_stocks.h"
 #include "engine/screener/stock_screener.h"
@@ -49,7 +49,7 @@ QString factorDisplayName(const std::string& name) {
 
 }  // namespace
 
-ScreenerPanel::ScreenerPanel(TencentProvider* provider, QWidget* parent)
+ScreenerPanel::ScreenerPanel(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider), cache_(std::make_unique<DataCache>()) {
     auto* scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);

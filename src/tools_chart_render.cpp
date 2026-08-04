@@ -1,7 +1,7 @@
 // 图表渲染验证工具 — K线图/分时图离屏渲染为 PNG，供人工检查视觉
 #include "ui/widgets/kline_chart.h"
 #include "ui/widgets/time_line_chart.h"
-#include "data/tencent_provider.h"
+#include "data/provider_factory.h"
 #include "core/log_manager.h"
 #include <QApplication>
 #include <QTimer>
@@ -18,16 +18,16 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     LogManager::instance()->init("logs/chart_render.log");
 
-    TencentProvider provider;
-    provider.connect();
+    auto provider = makeDataProvider();
+    provider->connect();
     StockCode code(Market::SH, "600519");
 
-    KLineChart kline(&provider);
+    KLineChart kline(provider.get());
     kline.resize(900, 520);
     kline.loadStock(code, "贵州茅台");
     kline.show();
 
-    TimelineChart timeline(&provider);
+    TimelineChart timeline(provider.get());
     timeline.resize(900, 520);
     timeline.loadStock(code, "贵州茅台");
     timeline.hide();

@@ -1,5 +1,5 @@
 #include "ui/widgets/kline_chart.h"
-#include "data/tencent_provider.h"
+#include "data/idata_provider.h"
 #include "core/thread_pool.h"
 #include "foundation/utils/datetime.h"
 #include "foundation/utils/indicators.h"
@@ -41,7 +41,7 @@ QString periodLabel(BarPeriod p) {
 }
 }  // namespace
 
-KLineChart::KLineChart(TencentProvider* provider, QWidget* parent)
+KLineChart::KLineChart(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider) {
     setMouseTracking(true);
     setMinimumSize(400, 300);

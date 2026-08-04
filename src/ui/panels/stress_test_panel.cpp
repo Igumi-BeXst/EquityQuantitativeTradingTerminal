@@ -1,6 +1,6 @@
 #include "ui/panels/stress_test_panel.h"
 #include "ui/widgets/equity_curve_widget.h"
-#include "data/tencent_provider.h"
+#include "data/idata_provider.h"
 #include "data/data_cache.h"
 #include "data/curated_stocks.h"
 #include "core/thread_pool.h"
@@ -25,7 +25,7 @@
 
 namespace st {
 
-StressTestPanel::StressTestPanel(TencentProvider* provider, QWidget* parent)
+StressTestPanel::StressTestPanel(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider), cache_(std::make_unique<DataCache>()) {
     auto* scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);

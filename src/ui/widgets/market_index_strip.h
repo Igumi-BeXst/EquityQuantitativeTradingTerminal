@@ -9,7 +9,7 @@ class QToolButton;
 
 namespace st {
 
-class TencentProvider;
+class IDataProvider;
 
 /// 顶部指数条 — 上证/深证/创业板/科创50 实时行情，红涨绿跌，可点击
 ///
@@ -19,7 +19,7 @@ class MarketIndexStrip : public QWidget {
     Q_OBJECT
 
 public:
-    explicit MarketIndexStrip(TencentProvider* provider, QWidget* parent = nullptr);
+    explicit MarketIndexStrip(IDataProvider* provider, QWidget* parent = nullptr);
 
 signals:
     /// 点击某个指数（P6 跳转 K线图）
@@ -35,7 +35,7 @@ private:
         QToolButton* button = nullptr;
     };
 
-    TencentProvider* provider_ = nullptr;
+    IDataProvider* provider_ = nullptr;
     std::vector<IndexItem> items_;
 };
 

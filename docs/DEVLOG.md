@@ -1,5 +1,30 @@
 # 开发日志 (Development Log)
 
+## 2026-08-04 — P9 TDX 通达信数据源（协议层 + Provider + 接口重构）
+
+### 背景
+用户要求参考 [injoyai/tdx](https://github.com/injoyai/tdx)（Go 通达信协议客户端）把数据源改为**直连通达信主站**（TCP :7709），完全替换腾讯数据源。已确认 C++ 直连二进制协议、覆盖全部 UI 消费（日/周/月K线+分时+实时盘口+股票列表）。
+
+### 已完成（提交 c4d48a8，+2005 行）
+- [x] **协议层** `src/data/tdx/`：TdxSocket（WinSock2 同步 TCP + TdxTransport 虚接口供测试注入）、tdx_protocol（帧编解码：请求 0x0C 12B 头 / 响应 0xB1CB7400 16B 头 + zlib 解压、变长整数、量解码 getVolume2、命令构造、tdxMarket/klineCategory）、tdx_models（K线差分价格/报价分单位/分时/除权除息/股票列表解码）
+- [x] **TdxProvider**：单连接 mutex 串行 + 断线重连 + 8 服务器 failover（已更新为可连通 IP）；getBars 日/周/月**前复权**（gbbq 缓存 + 仿射变换 P_adj=(P-c)/m）；batchQuote 分块 60；getStockList 分页 1000；subscribeQuote pollThread + EventBus
+- [x] **接口重构**：IDataProvider 加 batchQuote/getIntraday/refreshQuotes/providerName 纯虚；12 个 UI 类 `TencentProvider*`→`IDataProvider*`；main_window `makeDataProvider()`；provider_factory 读 config `data.provider`（默认 tdx）；AKShare 补桩；cn_encoding 抽取 GBK 工具；vcpkg 加 zlib
+- [x] **实连验证**（tools_tdx_live）：登录 ✓、日/周/月K线前复权 ✓（茅台 2026-08-04 收 1328.36 与报价一致）、报价 ✓（量 3745000/额 50 亿）、列表解析 ✓（每页 1000）
+
+### Step 8 构建验证（本日收尾）
+- 脚本替换后首次编译，修复 2 处遗漏：
+  1. `main_window.cpp` `std::makeDataProvider()` — 脚本保留 `std::` 前缀，改为 `makeDataProvider()`（namespace st 自由函数）
+  2. `tools_chart_render.cpp` 用旧签名构造 `KLineChart(TencentProvider*)`/`TimelineChart(TencentProvider*)` — 改 `makeDataProvider()` + `provider.get()`
+- 状态栏/About 数据源文案 `"腾讯行情"` → `provider_->providerName()` 动态显示
+- `cmake --build --preset with-qt` 零错误零警告；`ctest` 136/136 全绿（含 test_tencent_provider 回归基线）
+
+### 已知降级（Step 10 待办）
+- **分时 0x051D 格式待校准**：实测数据起点 [13]（非参考实现 [6]），差分累积前 2 条对后续错位 → `getIntraday` 返回 nullopt（分时图显示"无数据"，不显示错误数据）。备选：0x0FC5 分时成交明细聚合
+- 股票列表全量 28 页（27642 只）拉取较慢，需优化
+
+### 测试
+- 136/136（无新增单测，协议层靠 tools_tdx_live 实连验证；test_tdx_protocol/test_tdx_provider 留 Step 10）
+
 ## 2026-08-03 — P7 优化崩溃修复 + 回测性能优化
 
 ### 背景

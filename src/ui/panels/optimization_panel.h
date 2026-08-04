@@ -17,7 +17,7 @@ class QListWidget;
 
 namespace st {
 
-class TencentProvider;
+class IDataProvider;
 class DataCache;
 class GridSearchTableModel;
 
@@ -26,7 +26,7 @@ class OptimizationPanel : public QWidget {
     Q_OBJECT
 
 public:
-    explicit OptimizationPanel(TencentProvider* provider, QWidget* parent = nullptr);
+    explicit OptimizationPanel(IDataProvider* provider, QWidget* parent = nullptr);
 
 signals:
     /// 点中某行 → 应用该组参数到回测面板
@@ -44,7 +44,7 @@ private:
     Objective currentObjective() const;
     void resetToIdle();
 
-    TencentProvider* provider_ = nullptr;
+    IDataProvider* provider_ = nullptr;
     std::unique_ptr<DataCache> cache_;
 
     QComboBox* strategyCombo_ = nullptr;

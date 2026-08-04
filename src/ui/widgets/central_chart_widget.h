@@ -9,7 +9,7 @@ class QToolButton;
 
 namespace st {
 
-class TencentProvider;
+class IDataProvider;
 class KLineChart;
 class TimelineChart;
 
@@ -18,7 +18,7 @@ class CentralChartWidget : public QWidget {
     Q_OBJECT
 
 public:
-    explicit CentralChartWidget(TencentProvider* provider, QWidget* parent = nullptr);
+    explicit CentralChartWidget(IDataProvider* provider, QWidget* parent = nullptr);
 
     /// 加载股票（默认日线 K 线）
     void loadStock(const StockCode& code, const QString& name);
@@ -27,7 +27,7 @@ public:
     void setPeriod(BarPeriod period);
 
 private:
-    TencentProvider* provider_ = nullptr;
+    IDataProvider* provider_ = nullptr;
     KLineChart* kline_ = nullptr;
     TimelineChart* timeline_ = nullptr;
     QStackedWidget* stack_ = nullptr;

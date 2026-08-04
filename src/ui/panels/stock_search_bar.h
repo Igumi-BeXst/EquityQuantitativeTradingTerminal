@@ -12,7 +12,7 @@ class QTimer;
 
 namespace st {
 
-class TencentProvider;
+class IDataProvider;
 
 /// 全局搜索栏 — 代码/名称/拼音首字母模糊搜索，自定义下拉浮层
 ///
@@ -22,7 +22,7 @@ class StockSearchBar : public QWidget {
     Q_OBJECT
 
 public:
-    explicit StockSearchBar(TencentProvider* provider, QWidget* parent = nullptr);
+    explicit StockSearchBar(IDataProvider* provider, QWidget* parent = nullptr);
 
     /// 聚焦输入框（快捷键 Ctrl+Space 用）
     void focusEdit();
@@ -45,7 +45,7 @@ private:
     void hidePopup();
     void moveNext(bool down);
 
-    TencentProvider* provider_ = nullptr;
+    IDataProvider* provider_ = nullptr;
     QLineEdit* edit_ = nullptr;
     QListWidget* popup_ = nullptr;
     QTimer* debounce_ = nullptr;

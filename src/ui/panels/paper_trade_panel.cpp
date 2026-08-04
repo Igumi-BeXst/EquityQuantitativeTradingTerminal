@@ -1,6 +1,6 @@
 #include "ui/panels/paper_trade_panel.h"
 #include "ui/models/trade_table_model.h"
-#include "data/tencent_provider.h"
+#include "data/idata_provider.h"
 #include "data/curated_stocks.h"
 #include "engine/paper_trade/paper_trade_engine.h"
 #include "engine/strategy/istrategy.h"
@@ -31,7 +31,7 @@ namespace {
 constexpr int kRefreshMs = 3000;
 }  // namespace
 
-PaperTradePanel::PaperTradePanel(TencentProvider* provider, QWidget* parent)
+PaperTradePanel::PaperTradePanel(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider) {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(8, 8, 8, 8);

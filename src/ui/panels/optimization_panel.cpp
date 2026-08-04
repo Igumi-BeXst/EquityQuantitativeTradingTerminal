@@ -1,6 +1,6 @@
 #include "ui/panels/optimization_panel.h"
 #include "ui/models/grid_search_table_model.h"
-#include "data/tencent_provider.h"
+#include "data/idata_provider.h"
 #include "data/data_cache.h"
 #include "data/curated_stocks.h"
 #include "core/thread_pool.h"
@@ -38,7 +38,7 @@ QSpinBox* makeRangeSpin(QWidget* parent, int from, int to, int value) {
 }
 }  // namespace
 
-OptimizationPanel::OptimizationPanel(TencentProvider* provider, QWidget* parent)
+OptimizationPanel::OptimizationPanel(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider), cache_(std::make_unique<DataCache>()) {
     auto* scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);

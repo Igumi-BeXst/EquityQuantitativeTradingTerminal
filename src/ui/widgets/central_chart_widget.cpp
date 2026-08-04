@@ -1,7 +1,7 @@
 #include "ui/widgets/central_chart_widget.h"
 #include "ui/widgets/kline_chart.h"
 #include "ui/widgets/time_line_chart.h"
-#include "data/tencent_provider.h"
+#include "data/idata_provider.h"
 #include <QStackedWidget>
 #include <QToolButton>
 #include <QHBoxLayout>
@@ -11,7 +11,7 @@
 
 namespace st {
 
-CentralChartWidget::CentralChartWidget(TencentProvider* provider, QWidget* parent)
+CentralChartWidget::CentralChartWidget(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider) {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);

@@ -14,7 +14,8 @@
 #include "ui/panels/optimization_panel.h"
 #include "ui/panels/strategy_compare_panel.h"
 #include "ui/panels/stress_test_panel.h"
-#include "data/tencent_provider.h"
+#include "data/idata_provider.h"
+#include "data/provider_factory.h"
 #include "core/app_paths.h"
 #include "core/config_manager.h"
 #include "core/log_manager.h"
@@ -97,7 +98,7 @@ void MainWindow::initServices() {
     cfg->save();
 
     // 2. 数据源（主线程亲和，供指数条/搜索栏使用）
-    provider_ = std::make_unique<TencentProvider>();
+    provider_ = makeDataProvider();
     provider_->connect();
 
     shortcuts_ = std::make_unique<ShortcutManager>();
@@ -235,8 +236,10 @@ void MainWindow::createMenus() {
         QMessageBox::about(this, tr("关于 StockTerminal"),
             QStringLiteral("<h3>StockTerminal</h3>"
                            "<p>量化交易工作站 · 版本 0.1.0</p>"
-                           "<p>数据源: 腾讯行情（主） / 东方财富（备）</p>"
-                           "<p>纯本地单机，零遥测。</p>"));
+                           "<p>数据源: %1</p>"
+                           "<p>纯本地单机，零遥测。</p>")
+                .arg(QString::fromStdString(
+                    provider_ ? provider_->providerName() : "unknown")));
     });
 }
 
@@ -266,7 +269,9 @@ void MainWindow::createToolbar() {
 
 void MainWindow::createStatusBar() {
     auto* sb = statusBar();
-    auto* sourceLabel = new QLabel(tr("数据源: 腾讯行情"), this);
+    auto* sourceLabel = new QLabel(
+        tr("数据源: %1").arg(QString::fromStdString(
+            provider_ ? provider_->providerName() : "unknown")), this);
     connLabel_ = new QLabel(tr("未连接"), this);
     connLabel_->setStyleSheet(QStringLiteral("color:#fb8c00;"));
 

@@ -1,7 +1,7 @@
 #include "ui/panels/strategy_compare_panel.h"
 #include "ui/models/comparison_table_model.h"
 #include "ui/widgets/equity_curve_widget.h"
-#include "data/tencent_provider.h"
+#include "data/idata_provider.h"
 #include "data/data_cache.h"
 #include "data/curated_stocks.h"
 #include "engine/analyzer/monte_carlo.h"
@@ -54,7 +54,7 @@ const QColor kSeriesColors[] = {
 
 }  // namespace
 
-StrategyComparePanel::StrategyComparePanel(TencentProvider* provider, QWidget* parent)
+StrategyComparePanel::StrategyComparePanel(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider), cache_(std::make_unique<DataCache>()) {
     auto* scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);

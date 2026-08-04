@@ -1,5 +1,5 @@
 #include "ui/widgets/market_index_strip.h"
-#include "data/tencent_provider.h"
+#include "data/idata_provider.h"
 #include "core/event_bus.h"
 #include <QHBoxLayout>
 #include <QToolButton>
@@ -27,7 +27,7 @@ const IndexDef kIndices[] = {
 };
 }  // namespace
 
-MarketIndexStrip::MarketIndexStrip(TencentProvider* provider, QWidget* parent)
+MarketIndexStrip::MarketIndexStrip(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider) {
     auto* layout = new QHBoxLayout(this);
     layout->setContentsMargins(4, 0, 4, 0);

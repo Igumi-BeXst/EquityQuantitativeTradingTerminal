@@ -12,7 +12,7 @@ class QPainterPath;
 
 namespace st {
 
-class TencentProvider;
+class IDataProvider;
 
 /// K线图主控件 — QPainter 自绘蜡烛图
 ///
@@ -25,7 +25,7 @@ class KLineChart : public QWidget {
 public:
     enum class Indicator { Ma, Vol, Boll, Macd, Rsi };
 
-    explicit KLineChart(TencentProvider* provider, QWidget* parent = nullptr);
+    explicit KLineChart(IDataProvider* provider, QWidget* parent = nullptr);
 
     /// 异步加载股票（保持当前周期），快速切换安全
     void loadStock(const StockCode& code, const QString& name);
@@ -87,7 +87,7 @@ private:
     void drawPaneHeader(QPainter& p, const QRectF& rect, const QString& title,
                         const QColor& color);
 
-    TencentProvider* provider_ = nullptr;
+    IDataProvider* provider_ = nullptr;
     std::vector<Bar> bars_;
     StockCode code_;
     QString name_;
