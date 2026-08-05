@@ -57,6 +57,8 @@ struct Quote {
     Price      bidPrice1     = 0.0;   // 买一价
     Volume     askVol1       = 0;     // 卖一量
     Price      askPrice1     = 0.0;   // 卖一价
+    Volume     outerVol      = 0;     // 外盘（主动买，股）
+    Volume     innerVol      = 0;     // 内盘（主动卖，股）
 };
 
 /// 日内分时数据点（time 当日 HH:MM；volume/amount 为累计值）

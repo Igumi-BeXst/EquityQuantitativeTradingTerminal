@@ -427,6 +427,59 @@ TEST(TdxModels, DecodeQuoteBatchFromFixture) {
     EXPECT_NEAR(recs[5].price, 76.88, 0.5);
 }
 
+TEST(TdxModels, DecodeQuoteFiveLevelDepth) {
+    // 构造含完整五档尾部的单条报价 payload
+    std::vector<uint8_t> p;
+    putU16(p, 0);       // 前导 2B
+    putU16(p, 1);       // number = 1
+    p.push_back(0);     // mkt = SZ
+    const std::string code = "000001";
+    p.insert(p.end(), code.begin(), code.end());
+    putU16(p, 0);       // active1
+    putVar(p, 1000);    // price = 1000 分 = 10.00
+    putVar(p, -200);    // lastDiff → preClose 800 分 = 8.00
+    putVar(p, -50);     // openDiff → 9.50
+    putVar(p, 50);      // highDiff → 10.50
+    putVar(p, -100);    // lowDiff → 9.00
+    putVar(p, 0);       // rev0
+    putVar(p, 0);       // rev1
+    putVar(p, 500);     // vol 手
+    putVar(p, 100);     // cur_vol
+    putU32(p, 0);       // amount
+    putVar(p, 300); putVar(p, 200); putVar(p, 0); putVar(p, 0);  // s_vol(内盘) b_vol(外盘) rev2 rev3
+    const int bidDiff[5] = {-1, -2, -3, -4, -5};  // 相对现价差分（分）
+    const int askDiff[5] = {1, 2, 3, 4, 5};
+    const int bidVol[5] = {100, 200, 300, 400, 500};
+    const int askVol[5] = {600, 700, 800, 900, 1000};
+    for (int k = 0; k < 5; ++k) {
+        putVar(p, bidDiff[k]);
+        putVar(p, askDiff[k]);
+        putVar(p, bidVol[k]);
+        putVar(p, askVol[k]);
+    }
+    putU16(p, 0);       // rev4
+    putVar(p, 0); putVar(p, 0); putVar(p, 0); putVar(p, 0);  // rev5-8
+    putU16(p, 0);       // rev9
+    putU16(p, 0);       // active2
+
+    auto recs = tdx::decodeQuote(p);
+    ASSERT_EQ(recs.size(), 1u);
+    const auto& r = recs[0];
+    EXPECT_EQ(r.code.code(), "000001");
+    EXPECT_NEAR(r.price, 10.00, 1e-3);
+    EXPECT_NEAR(r.preClose, 8.00, 1e-3);
+    // 五档：价（元）/量（股）
+    EXPECT_NEAR(r.bids[0].price, 9.99, 1e-3);    // 买一
+    EXPECT_NEAR(r.bids[4].price, 9.95, 1e-3);    // 买五
+    EXPECT_NEAR(r.asks[0].price, 10.01, 1e-3);   // 卖一
+    EXPECT_NEAR(r.asks[4].price, 10.05, 1e-3);   // 卖五
+    EXPECT_DOUBLE_EQ(r.bids[1].volume, 20000.0);  // 200 手 → 20000 股
+    EXPECT_DOUBLE_EQ(r.asks[3].volume, 90000.0);  // 900 手 → 90000 股
+    // 外盘/内盘：s_vol=300 手 → 30000 股（内盘），b_vol=200 手 → 20000 股（外盘）
+    EXPECT_DOUBLE_EQ(r.sVol, 30000.0);
+    EXPECT_DOUBLE_EQ(r.bVol, 20000.0);
+}
+
 TEST(TdxModels, DecodeKlineIndexFromFixture) {
     // 上证指数 K线：记录多 4 字节涨跌家数，需跳过
     auto p = readFixture("kline_000001_day.bin");

@@ -8,6 +8,7 @@
 #include "foundation/utils/pinyin.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -495,6 +496,8 @@ std::vector<Quote> TdxProvider::batchQuote(const std::vector<StockCode>& codes) 
                 q.amount = r.amount;
                 q.change = r.preClose > 0
                     ? (r.price - r.preClose) / r.preClose * 100.0 : 0.0;
+                q.outerVol = static_cast<Volume>(r.bVol);  // 外盘（主动买）
+                q.innerVol = static_cast<Volume>(r.sVol);  // 内盘（主动卖）
                 out.push_back(q);
             }
         }
@@ -507,6 +510,55 @@ std::vector<Quote> TdxProvider::batchQuote(const std::vector<StockCode>& codes) 
         if (chunk.size() >= quoteChunk_) flush();
     }
     flush();
+    return out;
+}
+
+std::optional<MarketDepth> TdxProvider::getMarketDepth(const StockCode& code) {
+    const int mkt = tdx::tdxMarket(code.market());
+    if (mkt < 0) return std::nullopt;
+    const auto req = tdx::buildQuoteReq({{static_cast<uint8_t>(mkt), code.code()}});
+    const auto resp = executeCommand(tdx::Cmd::Quote, req, requestTimeoutMs_);
+    if (!resp.ok) return std::nullopt;
+    const auto recs = tdx::decodeQuote(resp.payload);
+    if (recs.empty()) return std::nullopt;
+
+    const auto& r = recs.front();
+    MarketDepth md;
+    md.code = r.code;
+    md.time = utils::now();
+    for (int k = 0; k < 5; ++k) {
+        md.bids[k] = {r.bids[k].price, static_cast<Volume>(r.bids[k].volume)};
+        md.asks[k] = {r.asks[k].price, static_cast<Volume>(r.asks[k].volume)};
+    }
+    return md;
+}
+
+std::vector<Tick> TdxProvider::getTransactions(const StockCode& code, int limit) {
+    const int mkt = tdx::tdxMarket(code.market());
+    if (mkt < 0 || limit <= 0) return {};
+    const auto req = tdx::buildTransactionReq(static_cast<uint8_t>(mkt), code.code(), 0,
+                                              static_cast<uint16_t>(limit));
+    const auto resp = executeCommand(tdx::Cmd::MinuteTrade, req, requestTimeoutMs_);
+    if (!resp.ok) return {};
+    auto recs = tdx::decodeTransaction(resp.payload);
+    // 页内按时间升序（最新=收盘在最后）→ 只留最近 limit 条并反转（最新在前）
+    if (recs.size() > static_cast<size_t>(limit)) {
+        recs.erase(recs.begin(), recs.end() - static_cast<ptrdiff_t>(limit));
+    }
+    const std::string today = utils::toDateString(utils::now());
+    std::vector<Tick> out;
+    out.reserve(recs.size());
+    for (auto it = recs.rbegin(); it != recs.rend(); ++it) {
+        Tick t;
+        t.code = code;
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%s %02d:%02d:00", today.c_str(), it->hour, it->minute);
+        t.time = utils::parseDateTime(buf);
+        t.price = it->price;
+        t.volume = static_cast<Volume>(it->volume * 100.0);  // 手 → 股
+        t.direction = (it->buyorsell == 1) ? Direction::Sell : Direction::Buy;
+        out.push_back(t);
+    }
     return out;
 }
 

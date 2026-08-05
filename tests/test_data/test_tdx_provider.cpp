@@ -109,6 +109,57 @@ std::vector<uint8_t> makeQuotePayload(const std::string& code, int mkt) {
     return p;
 }
 
+// 报价 payload（1 条，含完整五档尾部；price=10.00，bids 9.99..9.95 / asks 10.01..10.05）
+std::vector<uint8_t> makeQuotePayloadFullDepth(const std::string& code, int mkt) {
+    std::vector<uint8_t> p;
+    putU16(p, 0);
+    putU16(p, 1);
+    p.push_back(static_cast<uint8_t>(mkt));
+    p.insert(p.end(), code.begin(), code.end());
+    putU16(p, 0);
+    putVar(p, 1000);     // price 分 → 10.00
+    putVar(p, 0);        // lastDiff → preClose 10.00
+    putVar(p, -50);      // openDiff → 9.50
+    putVar(p, 50);       // highDiff → 10.50
+    putVar(p, -100);     // lowDiff → 9.00
+    putVar(p, 0);
+    putVar(p, 0);
+    putVar(p, 500);      // vol 手
+    putVar(p, 100);      // cur_vol
+    putU32(p, 0);        // amount
+    putVar(p, 0); putVar(p, 0); putVar(p, 0); putVar(p, 0);  // s_vol b_vol rev2 rev3
+    const int bidDiff[5] = {-1, -2, -3, -4, -5};  // 相对现价差分（分）
+    const int askDiff[5] = {1, 2, 3, 4, 5};
+    const int bidVol[5] = {100, 200, 300, 400, 500};
+    const int askVol[5] = {600, 700, 800, 900, 1000};
+    for (int k = 0; k < 5; ++k) {
+        putVar(p, bidDiff[k]);
+        putVar(p, askDiff[k]);
+        putVar(p, bidVol[k]);
+        putVar(p, askVol[k]);
+    }
+    putU16(p, 0);        // rev4
+    putVar(p, 0); putVar(p, 0); putVar(p, 0); putVar(p, 0);  // rev5-8
+    putU16(p, 0);        // rev9
+    putU16(p, 0);        // active2
+    return p;
+}
+
+// 成交明细 payload（n 条，分钟 09:30 起递增；每条差分 +1 分，量 手，买卖交替）
+std::vector<uint8_t> makeTransactionPayload(int n) {
+    std::vector<uint8_t> p;
+    putU16(p, static_cast<uint16_t>(n));
+    for (int i = 0; i < n; ++i) {
+        putU16(p, static_cast<uint16_t>(9 * 60 + 30 + i));  // minutes
+        putVar(p, 1);          // priceDiff（累积 → 价格 = (i+1)/100）
+        putVar(p, 10 + i);     // vol 手
+        putVar(p, 1);          // num
+        putVar(p, i % 2);      // buyorsell：0=买 1=卖
+        putVar(p, 0);          // unknown
+    }
+    return p;
+}
+
 // ---- 假传输（共享状态）----
 struct FakeState {
     bool failOpen = false;
@@ -245,6 +296,71 @@ TEST(TdxProviderTest, BatchQuoteChunking) {
     // 2 次 Quote 请求（60 + 1）；connect 也算 1 次 sendAll
     EXPECT_EQ(st->sendsByCmd[static_cast<uint16_t>(tdx::Cmd::Quote)], 2);
     EXPECT_GE(st->sendCount, 2);
+    provider.disconnect();
+}
+
+// ============================================================
+// getMarketDepth 盘口五档
+// ============================================================
+TEST(TdxProviderTest, GetMarketDepth) {
+    TdxProvider provider;
+    auto st = std::make_shared<FakeState>();
+    st->payloads[static_cast<uint16_t>(tdx::Cmd::Quote)] =
+        makeQuotePayloadFullDepth("600519", 1);
+    connectWithFake(provider, st);
+
+    auto md = provider.getMarketDepth(StockCode(Market::SH, "600519"));
+    ASSERT_TRUE(md.has_value());
+    EXPECT_NEAR(md->bestBid(), 9.99, 1e-3);
+    EXPECT_NEAR(md->bestAsk(), 10.01, 1e-3);
+    EXPECT_NEAR(md->spread(), 0.02, 1e-3);
+    EXPECT_NEAR(md->bids[4].price, 9.95, 1e-3);   // 买五
+    EXPECT_NEAR(md->asks[4].price, 10.05, 1e-3); // 卖五
+    EXPECT_EQ(md->bids[1].volume, 20000);         // 200 手 → 20000 股
+    EXPECT_EQ(md->asks[3].volume, 90000);
+    provider.disconnect();
+}
+
+TEST(TdxProviderTest, GetMarketDepthEmptyResponseReturnsNull) {
+    TdxProvider provider;
+    auto st = std::make_shared<FakeState>();
+    st->payloads[static_cast<uint16_t>(tdx::Cmd::Quote)] = {};  // 空 payload
+    connectWithFake(provider, st);
+
+    auto md = provider.getMarketDepth(StockCode(Market::SH, "600519"));
+    EXPECT_FALSE(md.has_value());
+    provider.disconnect();
+}
+
+// ============================================================
+// getTransactions 最近成交明细（最新在前）
+// ============================================================
+TEST(TdxProviderTest, GetTransactions) {
+    TdxProvider provider;
+    auto st = std::make_shared<FakeState>();
+    st->payloads[static_cast<uint16_t>(tdx::Cmd::MinuteTrade)] =
+        makeTransactionPayload(30);
+    connectWithFake(provider, st);
+
+    auto ticks = provider.getTransactions(StockCode(Market::SH, "600519"), 30);
+    ASSERT_EQ(ticks.size(), 30u);
+    // 最新在前：第 30 条（分钟 09:59 = 570+29）排第一
+    EXPECT_EQ(st::utils::toDateTimeString(ticks.front().time).substr(11, 5), "09:59");
+    EXPECT_GT(ticks.front().volume, 0);
+    // 方向：record 29 的 buyorsell=29%2=1 → Sell
+    EXPECT_EQ(ticks.front().direction, Direction::Sell);
+    EXPECT_EQ(ticks.front().code.code(), "600519");
+    provider.disconnect();
+}
+
+TEST(TdxProviderTest, GetTransactionsEmptyResponse) {
+    TdxProvider provider;
+    auto st = std::make_shared<FakeState>();
+    st->payloads[static_cast<uint16_t>(tdx::Cmd::MinuteTrade)] = {};
+    connectWithFake(provider, st);
+
+    auto ticks = provider.getTransactions(StockCode(Market::SH, "600519"), 30);
+    EXPECT_TRUE(ticks.empty());
     provider.disconnect();
 }
 

@@ -22,6 +22,7 @@ enum class Cmd : uint16_t {
     MinuteTrade   = 0x0FC5,  // 分时成交
     Kline         = 0x052D,  // K线
     Gbbq          = 0x000F,  // 除权除息
+    Finance       = 0x0A04,  // 财务数据（股本/市值/市盈率等）
 };
 
 // 帧头常量
@@ -56,6 +57,8 @@ std::vector<uint8_t> buildKlineReq(uint8_t market, const std::string& code,
 std::vector<uint8_t> buildGbbqReq(uint8_t market, const std::string& code);
 std::vector<uint8_t> buildTransactionReq(uint8_t market, const std::string& code,
                                          uint16_t start, uint16_t count);
+/// 财务数据请求（0x0A04）：market(1) + code6
+std::vector<uint8_t> buildFinanceReq(uint8_t market, const std::string& code);
 
 /// 市场编码：SH=1, SZ=0, BJ=2；其他 -1
 int tdxMarket(Market m);

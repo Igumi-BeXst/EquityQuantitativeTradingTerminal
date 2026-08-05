@@ -8,7 +8,6 @@ class QToolBar;
 class QLabel;
 class QSettings;
 class QStackedWidget;
-class QTabWidget;
 
 namespace st {
 
@@ -17,15 +16,11 @@ class LogPanel;
 class MarketIndexStrip;
 class StockSearchBar;
 class MarketPanel;
-class StrategyPanel;
-class BacktestPanel;
 class CentralChartWidget;
 class ShortcutManager;
-class ScreenerPanel;
-class PaperTradePanel;
-class OptimizationPanel;
-class StrategyComparePanel;
-class StressTestPanel;
+class QuantWindow;
+class MarketDepthWidget;
+class StockKeyDataWidget;
 
 /// 主窗口 — 菜单栏 + 工具栏(搜索/指数条) + QDockWidget 布局 + 状态栏
 ///
@@ -50,6 +45,7 @@ private:
     void createStatusBar();
     void registerShortcuts();
     void openPreferences();
+    void openQuantWindow();
     void resetLayout();
 
     std::unique_ptr<IDataProvider> provider_;
@@ -57,18 +53,13 @@ private:
     std::unique_ptr<QSettings> settings_;
 
     QDockWidget* logDock_ = nullptr;
-    QDockWidget* backtestDock_ = nullptr;
-    QDockWidget* quantDock_ = nullptr;
-    QTabWidget* quantTabs_ = nullptr;
+    QuantWindow* quantWindow_ = nullptr;
+    MarketDepthWidget* marketDepth_ = nullptr;
+    StockKeyDataWidget* keyData_ = nullptr;
     LogPanel* logPanel_ = nullptr;
     MarketIndexStrip* indexStrip_ = nullptr;
     StockSearchBar* searchBar_ = nullptr;
     MarketPanel* marketPanel_ = nullptr;
-    ScreenerPanel* screenerPanel_ = nullptr;
-    PaperTradePanel* paperTradePanel_ = nullptr;
-    OptimizationPanel* optimizationPanel_ = nullptr;
-    StrategyComparePanel* strategyComparePanel_ = nullptr;
-    StressTestPanel* stressTestPanel_ = nullptr;
     CentralChartWidget* centralChart_ = nullptr;
     QStackedWidget* centralStack_ = nullptr;
     QLabel* connLabel_ = nullptr;

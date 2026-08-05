@@ -29,7 +29,7 @@ public:
     explicit MarketPanel(IDataProvider* provider, QWidget* parent = nullptr);
 
 signals:
-    void openChart(const StockCode& code);
+    void openChart(const StockCode& code, const QString& name);
 
 private slots:
     void refresh();

@@ -1,0 +1,93 @@
+#pragma once
+
+#include "engine/optimizer/grid_search.h"
+#include "foundation/stock_code.h"
+#include <QWidget>
+#include <memory>
+#include <vector>
+
+class QComboBox;
+class QLabel;
+class QSpinBox;
+class QDateEdit;
+class QDoubleSpinBox;
+class QPushButton;
+class QProgressBar;
+class QTableView;
+class QListWidget;
+class QPlainTextEdit;
+
+namespace st {
+
+class IDataProvider;
+class DataCache;
+class GridSearchTableModel;
+namespace advisor { struct AdvisorSuggestion; }
+
+/// 优化建议面板 — 网格搜索 + 蒙特卡洛 → StrategyAdvisor 中文建议 + 精化网格
+///
+/// 照 OptimizationPanel 的两阶段异步模式跑真实网格回测，
+/// 再用 StrategyAdvisor 给出参数建议（含过拟合/风险/整体不佳警告）。
+class AdvisorPanel : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit AdvisorPanel(IDataProvider* provider, QWidget* parent = nullptr);
+
+signals:
+    /// 应用建议参数到回测面板
+    void applyParams(const QString& strategyId, const QVariantMap& params);
+
+private slots:
+    void onRunClicked();
+    void onAllDataFetched();
+    void onStrategyChanged();
+    void onUseRefined();
+
+private:
+    void onResult(const std::vector<GridSearchResult>& results,
+                  const st::advisor::AdvisorSuggestion& suggestion,
+                  const std::vector<st::ParamRange>& refined,
+                  const QString& p1Name, const QString& p2Name);
+    void displaySuggestion(const st::advisor::AdvisorSuggestion& s);
+    void fillRefinedRanges(const std::vector<st::ParamRange>& ranges);
+    std::vector<StockCode> selectedSymbols() const;
+    Objective currentObjective() const;
+    void resetToIdle();
+
+    IDataProvider* provider_ = nullptr;
+    std::unique_ptr<DataCache> cache_;
+
+    QComboBox* strategyCombo_ = nullptr;
+    QLabel* p1Label_ = nullptr;
+    QLabel* p2Label_ = nullptr;
+    QSpinBox* p1From_ = nullptr;
+    QSpinBox* p1To_ = nullptr;
+    QSpinBox* p1Step_ = nullptr;
+    QSpinBox* p2From_ = nullptr;
+    QSpinBox* p2To_ = nullptr;
+    QSpinBox* p2Step_ = nullptr;
+    QComboBox* objectiveCombo_ = nullptr;
+    QListWidget* stockList_ = nullptr;
+    QDateEdit* startDate_ = nullptr;
+    QDateEdit* endDate_ = nullptr;
+    QDoubleSpinBox* capital_ = nullptr;
+    QPushButton* runBtn_ = nullptr;
+    QProgressBar* progress_ = nullptr;
+
+    // 建议区
+    QLabel* advParams_ = nullptr;
+    QLabel* advConfidence_ = nullptr;
+    QLabel* advWarnings_ = nullptr;
+    QPlainTextEdit* advText_ = nullptr;
+    QLabel* refinedText_ = nullptr;
+    QPushButton* useRefinedBtn_ = nullptr;
+    std::vector<st::ParamRange> refinedRanges_;
+
+    QTableView* resultView_ = nullptr;
+    GridSearchTableModel* resultModel_ = nullptr;
+
+    bool running_ = false;
+};
+
+} // namespace st

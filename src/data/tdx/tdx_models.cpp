@@ -162,15 +162,17 @@ std::vector<TdxQuoteRec> decodeQuote(const std::vector<uint8_t>& payload) {
         // 完整记录剩余字段（pytdx 字段序列），必须全部消费才能推进到下一记录：
         // s_vol / b_vol / reversed2 / reversed3 / 五档 bid1-5·ask1-5·量 /
         // reversed4(2B) / reversed5-8 / reversed9(2B)+active2(2B)
-        readPriceVar(payload, pos);  // s_vol
-        readPriceVar(payload, pos);  // b_vol
+        r.sVol = static_cast<double>(readPriceVar(payload, pos)) * kHandToShare;  // 内盘（手→股）
+        r.bVol = static_cast<double>(readPriceVar(payload, pos)) * kHandToShare;  // 外盘（手→股）
         readPriceVar(payload, pos);  // reversed_bytes2
         readPriceVar(payload, pos);  // reversed_bytes3
-        for (int k = 0; k < 5; ++k) {  // 五档（暂不消费，仅推进）
-            readPriceVar(payload, pos);  // bid_k
-            readPriceVar(payload, pos);  // ask_k
-            readPriceVar(payload, pos);  // bid_vol_k
-            readPriceVar(payload, pos);  // ask_vol_k
+        // 五档：bid/ask 价为相对现价 priceFen 的差分（分）→ 绝对价 = priceFen + diff → 元；
+        // bid_vol_k / ask_vol_k（手）→ 股（实连验证：买1=现价、卖1=现价+0.01，买递减卖递增）
+        for (int k = 0; k < 5; ++k) {
+            r.bids[k].price  = static_cast<double>(priceFen + readPriceVar(payload, pos)) / 100.0;
+            r.asks[k].price  = static_cast<double>(priceFen + readPriceVar(payload, pos)) / 100.0;
+            r.bids[k].volume = static_cast<double>(readPriceVar(payload, pos)) * kHandToShare;
+            r.asks[k].volume = static_cast<double>(readPriceVar(payload, pos)) * kHandToShare;
         }
         if (pos + 2 > payload.size()) break;
         pos += 2;  // reversed_bytes4 (uint16)

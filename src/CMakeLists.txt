@@ -108,15 +108,22 @@ add_library(st_ui STATIC
     ui/panels/optimization_panel.cpp
     ui/panels/strategy_compare_panel.cpp
     ui/panels/stress_test_panel.cpp
+    ui/panels/quant_window.cpp
+    ui/panels/pattern_panel.cpp
+    ui/panels/advisor_panel.cpp
+    ui/panels/sentiment_panel.cpp
     ui/panels/log_panel.cpp
+    ui/widgets/market_depth_widget.cpp
+    ui/widgets/stock_key_data_widget.cpp
     ui/models/stock_list_model.cpp
     ui/models/trade_table_model.cpp
     ui/models/market_rank_model.cpp
     ui/models/screen_result_model.cpp
     ui/models/grid_search_table_model.cpp
     ui/models/comparison_table_model.cpp
+    ui/models/pattern_table_model.cpp
 )
-target_link_libraries(st_ui PUBLIC st_engine Qt6::Widgets)
+target_link_libraries(st_ui PUBLIC st_engine st_intelligence Qt6::Widgets)
 
 add_executable(StockTerminal main.cpp)
 target_link_libraries(StockTerminal PRIVATE st_ui st_engine st_data st_core st_foundation)
@@ -160,6 +167,10 @@ target_link_libraries(tdx_market_probe PRIVATE st_data st_core st_foundation Qt6
 # Intelligence 层实连验证工具（P9 验证用：形态识别/形态因子/优化建议/情绪桩）
 add_executable(intelligence_demo tools_intelligence_demo.cpp)
 target_link_libraries(intelligence_demo PRIVATE st_intelligence st_engine st_data st_core st_foundation Qt6::Core)
+
+# 盘口五档实连诊断工具（P10 验证用）
+add_executable(depth_probe tools_depth_probe.cpp)
+target_link_libraries(depth_probe PRIVATE st_data st_core st_foundation Qt6::Core)
 
 else()
 # Without Qt: just build the Foundation CLI test runner

@@ -1,5 +1,69 @@
 # 开发日志 (Development Log)
 
+## 2026-08-06 — 修复：堆损坏崩溃（异步 lambda 悬垂 this）
+
+### 症状（用户实测）
+- 运行 run.bat 有时打不开软件；有时能打开但**关闭时弹出 MSVC CRT**：
+  `HEAP CORRUPTION DETECTED: after Normal block(#12334). wrote to memory after end of heap buffer`
+- 崩溃**非确定性**（有时启动即崩、有时关闭时检测），事件日志 APPCRASH P7=c0000374（STATUS_HEAP_CORRUPTION）
+
+### 根因（代码审查确认）
+**ThreadPool 异步 lambda 捕获裸 `this` 指针**：连续轮询部件（盘口 2.5s / 个股关键数据 5s / 市场面板 30s / 搜索栏）的 `submitIO([this, code]{ provider_->... })` 在 IO 线程读取 `this->provider_`。若用户在轮询进行中**关闭窗口**，widget 先被销毁、IO 线程后执行 lambda → 读已释放内存中的 `provider_` 得到垃圾指针 → 经垃圾指针调方法 → **随机堆写**，覆盖相邻堆块哨兵 → 释放时 CRT 检测到 "after end of heap buffer"。
+
+### 修复（9 处 + 1 处次要）
+统一改为**安全异步模式**：IO 线程**按值捕获 provider**（不读 `this->provider_`），结果投递用 **`QPointer` 守卫**（widget 销毁后 guard 变 null，`QMetaObject::invokeMethod` 安全跳过）：
+- `MarketDepthWidget::onPoll`（盘口+成交明细轮询）
+- `StockKeyDataWidget::onPoll` + `setStock` 日K异步
+- `MarketPanel` 全A股池加载 + `refresh()` 轮询
+- `StockSearchBar` 股票池加载
+- `PatternPanel::startDetect` + `onAllDataFetched` worker
+- `AdvisorPanel::onRunClicked` IO + `onAllDataFetched` worker
+- 次要：`SentimentPanel` 舆情表 `setItem` 前先 `insertRow`（避免 QStandardItemModel 内部状态不一致）
+
+### 验证
+- 构建零警告；ctest **225/225** 全过；15s 稳定性运行正常
+- 二分确认：P9 基线 3 次启动无崩溃，P10 全量有时崩
+
+## 2026-08-06 — P10 第一轮：扩展增强（量化工作台 / 盘口五档 / 形态因子接入）
+
+### 背景
+P9 完成后进入 P10「扩展增强」。需求文档三项：实盘交易（券商API）、盘口数据、多数据源。**用户选定范围**：量化独立窗口（AI 三面板）+ 盘口五档 + 形态因子接入选股面板；实盘交易（需真实券商账户）与多数据源留后续轮次。
+
+### 已完成（构建零警告 / ctest 223/223 全过）
+1. **盘口五档数据层**：
+   - `TdxQuoteRec` 增加 `DepthLevel{price,volume}` + `bids/asks` 各 5 档（[tdx_models.h](src/data/tdx/tdx_models.h)）
+   - `decodeQuote` 五档循环由「仅推进」改为「消费并保存」；**实连验证（tools_depth_probe）发现五档价格是相对现价的差分（分）**，绝对价 = priceFen + diff 再 ÷100，量 手→股（[tdx_models.cpp](src/data/tdx/tdx_models.cpp)）；字段消费顺序不变，现有 fixture 回归无影响
+   - **验证**：茅台现价 1306.45 → bestBid 1306.45 / bestAsk 1306.46 / spread 0.01，买1=现价、卖1=现价+0.01，买卖档位单调正确
+   - **外盘/内盘解析**：`decodeQuote` 保存 s_vol（内盘）/b_vol（外盘）→ `TdxQuoteRec` → `Quote.outerVol/innerVol`；实连验证 外盘17819手+内盘24870手=42689手≈成交量42688手，且内盘>外盘对应下跌行情
+5. **个股关键数据窗口** `StockKeyDataWidget`（盘口上方独立 Dock）：20 项（最高/最低/开盘/昨收/成交量/成交额/量比/振幅/涨停价/跌停价/换手率/换手率(实)/外盘/内盘/市盈(静)/市盈(TTM)/总市值/流通值/总股本/流通股）
+   - 数据来自 batchQuote + 计算：振幅=(高-低)/昨收、涨停/跌停按板块（创业板/科创板20%其余10%）、量比=今日量/5日均量（异步取 5 根日K）
+   - 高/低/开/昨收 跟随涨跌红绿着色
+   - **换手率/市盈/市值/股本显示 "—"**：实测 TDX 财务命令 0x0A04（pytdx get_finance_info）本服务器返回 FAILED（不支持），基础数据源待 P10 后续（换数据源或另寻财务接口）
+   - `IDataProvider::getMarketDepth()` 非纯虚默认 nullopt（Tencent/Akshare/fake 无需改）；`TdxProvider::getMarketDepth` 单只报价请求 → `st::MarketDepth`（[tick.h](src/foundation/tick.h) 原有结构首次启用）
+2. **量化独立窗口 QuantWindow**（主窗口菜单「量化 → 量化工作台」，非模态 WA_DeleteOnClose，重复触发只 raise）——**承载全部量化面板**：3 个 Intelligence 面板 + 原主窗口 quantDock 的选股/参数优化/策略对比/压力测试/模拟交易 + 策略/回测，共 10 个 tab；**内部跨面板信号**（策略/参数优化/优化建议 → 回测面板），双击结果行冒泡 openChart → 主窗口中央图；主窗口只留「市场/盘口/日志」看盘面板：
+   - `PatternPanel` 形态识别：复用 `StockSearchBar`（代码/名称/拼音）+ `KLineChart` 联动 + 新 `PatternTableModel`（日期/形态/置信度/方向/说明，方向列红涨绿跌）；IO 拉日K → Worker `PatternRecognizer::detect` → 填表；`detectGen_` 世代守卫防快速切股竞态；双击行 → 主窗口中央图
+   - `AdvisorPanel` 优化建议：照 OptimizationPanel 配置区（策略/参数范围/objective/股票池/日期/资金）+ 网格搜索 → 从最优净值曲线派生日收益跑 `MonteCarlo` → `StrategyAdvisor::advise` + `suggestRefinedRanges`；建议区显示 建议参数/置信度/警告(红字)/正文+理由/精化网格；「应用参数」跳回测面板、「用精化网格再优化」回填范围重跑
+   - `SentimentPanel` 舆情情绪：纯本地关键词打分（无真实资讯源，顶部注明待接入 ISentimentProvider）；多行标题 → 逐条 analyze + averageScore
+3. **PatternFactor 接入选股面板**：`screener_panel.cpp` 的 `candidateFactors_` 追加 `make_shared<PatternFactor>()` 权重 1.0 + `factorDisplayName` 加「形态评分」（选股面板因子勾选区现 12 个因子）
+4. **盘口 UI**：`MarketDepthWidget`（QGridLayout+QLabel：标题=**个股名称 + 代码**（如「贵州茅台 600519」）；左上角最新价/涨跌幅，**涨红跌绿平盘默认**；卖5..卖1 → **分隔线** → 买1..买5，每档标价格（价两位/量按手；**卖价绿/买价红**）；**卖盘上下顺序修正**——asks[0]=卖1（价最低）在最下，asks[4]=卖5 在最上）+ **成交明细表**（盘口下方，QTableView 时间/价格/量/方向，量红买绿卖、最新在前；`IDataProvider::getTransactions` 新增默认空 + `TdxProvider` 用 0x0FC5 逐笔实现，最新 limit 条反转）+ 主窗口「盘口」Dock（右区，宽 260-400）；QTimer 2.5s → IO 池 getMarketDepth+batchQuote+getTransactions → 回主线程；showEvent 启动 / hideEvent 停止（dock 收起省网）；`polling_` 防重叠；**切换个股全路径联动**——搜索栏/市场面板/选股面板/量化窗口开图都同步盘口（`MarketPanel::openChart` 信号增加 name 参数，市场窗口进入的个股能识别名称；指数路径不联动）
+
+### 关键决策
+- **盘口用单只单独请求**而非 batchQuote 缓存：`executeCommand` 已 mutex 串行，最简、永远新鲜；主面板 5s 轮询与盘口 2.5s 错开。缓存留后续优化
+- **PatternFactor 走 UI 层追加**而非改 `defaultFactorSet()`：P9 已批准「调用处接入，引擎无需改动」；UI→Intelligence 是合法依赖方向，零文件迁移、零测试搬迁。若未来要全引擎默认含形态因子，再把 pattern 下移到 st_engine（纯算法，仅依赖 foundation）
+- **QuantWindow 非模态 + WA_DeleteOnClose + destroyed→置空**，面板信号（openChart/applyParams）冒泡到主窗口
+- **AdvisorPanel 本轮只跑 MonteCarlo 风险**（从最优净值曲线派生，便宜）；StressTest 接入留 P10 第二轮
+
+### 测试（新增 3 用例，220 → 223）
+- `test_tdx_protocol.cpp`：`DecodeQuoteFiveLevelDepth`（合成完整五档 payload，断言各档价/量 + price/preClose 不受影响）
+- `test_tdx_provider.cpp`：`GetMarketDepth`（FakeTdxTransport + 完整五档 payload，断言 bestBid/bestAsk/spread/买五卖五/量）、`GetMarketDepthEmptyResponseReturnsNull`（空 payload → nullopt）
+- UI 面板不自动测，启动冒烟：StockTerminal 5s 存活无崩溃
+
+### 待办（P10 第二轮）
+- [ ] StressTest 接入 AdvisorPanel（真实压力窗口回撤警告）
+- [ ] ISentimentProvider 接真实资讯流（东方财富/同花顺）
+- [ ] 多数据源（AKShare 接入 factory + MultiProvider fallback）
+- [ ] 实盘交易（券商API，需真实账户）
+
 ## 2026-08-05 — P9 Intelligence 层（形态识别 + 参数优化建议 + 形态因子 + 舆情桩）
 
 ### 背景

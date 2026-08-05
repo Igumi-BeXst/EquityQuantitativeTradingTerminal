@@ -45,6 +45,19 @@ public:
     /// 当日分时数据（分时图用）
     virtual std::optional<IntradayData> getIntraday(const StockCode& code) = 0;
 
+    /// 盘口五档（仅 TDX 支持；其余数据源默认不支持）
+    virtual std::optional<MarketDepth> getMarketDepth(const StockCode& code) {
+        (void)code;
+        return std::nullopt;
+    }
+
+    /// 最近成交明细（逐笔，最新在前），默认不支持返回空
+    virtual std::vector<Tick> getTransactions(const StockCode& code, int limit = 50) {
+        (void)code;
+        (void)limit;
+        return {};
+    }
+
     /// 手动刷新一次实时报价（F5）
     virtual void refreshQuotes() = 0;
 };

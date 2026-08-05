@@ -201,6 +201,28 @@ static void probeTransaction(tdx::TdxSocket& sock) {
     saveTo("tests/fixtures/tdx/transaction_600519.bin", pl);
 }
 
+static void probeFinance(tdx::TdxSocket& sock) {
+    const auto req = tdx::buildFinanceReq(static_cast<uint8_t>(tdx::tdxMarket(Market::SH)),
+                                          "600519");
+    std::vector<uint8_t> pl;
+    if (!transact(sock, tdx::Cmd::Finance, req, pl)) {
+        std::printf("[财务] FAILED\n");
+        return;
+    }
+    std::printf("[财务] payload %zu 字节\n", pl.size());
+    hexdump("  原始", pl, 280);
+    const auto rd64 = [&pl](size_t off) -> double {
+        if (off + 8 > pl.size()) return 0.0;
+        double v = 0.0;
+        std::memcpy(&v, pl.data() + off, 8);
+        return v;
+    };
+    std::printf("  流通股本@7  %.0f\n", rd64(7));
+    std::printf("  总股本@15   %.0f\n", rd64(15));
+    std::printf("  总市值@??   市盈率@249 %.2f\n", rd64(249));
+    std::printf("  市净率@241  %.2f\n", rd64(241));
+}
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     const std::string host = "124.71.187.122";
@@ -216,6 +238,7 @@ int main(int argc, char** argv) {
     probeBatchQuote(sock);
     probeMinuteKline(sock);
     probeTransaction(sock);
+    probeFinance(sock);
     sock.close();
     return 0;
 }

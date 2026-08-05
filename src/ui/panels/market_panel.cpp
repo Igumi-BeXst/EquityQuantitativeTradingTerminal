@@ -16,6 +16,7 @@
 #include <QGridLayout>
 #include <QHeaderView>
 #include <QMetaObject>
+#include <QPointer>
 #include <algorithm>
 
 namespace st {
@@ -101,7 +102,9 @@ MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
 
     // 异步加载全 A 股池（TDX 全列表过滤可交易股，覆盖完整市场），完成后立即刷新
     if (provider_) {
-        ThreadPool::submitIO([this, provider = provider_] {
+        // 安全异步：捕获构造参数 provider + QPointer 守卫投递回主线程（面板销毁后自动跳过）
+        QPointer<MarketPanel> guard(this);
+        ThreadPool::submitIO([provider, guard] {
             struct PoolData {
                 std::vector<StockCode> pool;
                 std::unordered_map<std::string, std::string> names;
@@ -121,11 +124,11 @@ MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
                     d.names[s.code.displayCode()] = s.name;
                 }
             }
-            QMetaObject::invokeMethod(this, [this, d = std::move(d)]() mutable {
+            QMetaObject::invokeMethod(guard, [guard, d = std::move(d)]() mutable {
                 if (d.pool.empty()) return;
-                pool_ = std::move(d.pool);
-                nameByCode_ = std::move(d.names);
-                refresh();  // 用全市场池立即刷一次
+                guard->pool_ = std::move(d.pool);
+                guard->nameByCode_ = std::move(d.names);
+                guard->refresh();  // 用全市场池立即刷一次
             }, Qt::QueuedConnection);
         });
     }
@@ -136,13 +139,15 @@ void MarketPanel::refresh() {
     refreshing_ = true;
     const int gen = ++gen_;
     std::vector<StockCode> pool = pool_;
-
-    ThreadPool::submitIO([this, gen, pool] {
-        auto quotes = provider_->batchQuote(pool);
-        QMetaObject::invokeMethod(this, [this, gen, quotes = std::move(quotes)]() mutable {
-            refreshing_ = false;
-            if (gen != gen_) return;  // 陈旧回写丢弃
-            onQuotesReady(quotes);
+    // 安全异步：按值捕获 provider + QPointer 守卫投递回主线程
+    QPointer<MarketPanel> guard(this);
+    IDataProvider* provider = provider_;
+    ThreadPool::submitIO([provider, guard, gen, pool] {
+        auto quotes = provider->batchQuote(pool);
+        QMetaObject::invokeMethod(guard, [guard, gen, quotes = std::move(quotes)]() mutable {
+            guard->refreshing_ = false;
+            if (gen != guard->gen_) return;  // 陈旧回写丢弃
+            guard->onQuotesReady(quotes);
         }, Qt::QueuedConnection);
     });
 }
@@ -191,11 +196,17 @@ void MarketPanel::onQuotesReady(const std::vector<Quote>& quotes) {
 }
 
 void MarketPanel::onGainersDoubleClicked(const QModelIndex& index) {
-    if (index.isValid()) emit openChart(gainersModel_->itemAt(index.row()).code);
+    if (!index.isValid()) return;
+    const auto& item = gainersModel_->itemAt(index.row());
+    emit openChart(item.code, QString::fromUtf8(item.name.c_str(),
+                                               static_cast<int>(item.name.size())));
 }
 
 void MarketPanel::onLosersDoubleClicked(const QModelIndex& index) {
-    if (index.isValid()) emit openChart(losersModel_->itemAt(index.row()).code);
+    if (!index.isValid()) return;
+    const auto& item = losersModel_->itemAt(index.row());
+    emit openChart(item.code, QString::fromUtf8(item.name.c_str(),
+                                               static_cast<int>(item.name.size())));
 }
 
 } // namespace st

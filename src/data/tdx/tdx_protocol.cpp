@@ -154,6 +154,14 @@ std::vector<uint8_t> buildTransactionReq(uint8_t market, const std::string& code
     return d;
 }
 
+std::vector<uint8_t> buildFinanceReq(uint8_t market, const std::string& code) {
+    // 财务数据请求体（pytdx get_finance_info）：market(1) + code(6)
+    std::vector<uint8_t> d;
+    d.push_back(market);
+    d.insert(d.end(), code.begin(), code.end());
+    return d;
+}
+
 // ---- 变长解码 ----
 int32_t decodeVarInt(const uint8_t*& p, const uint8_t* end) {
     if (p >= end) return 0;

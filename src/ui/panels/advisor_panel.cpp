@@ -1,0 +1,441 @@
+#include "ui/panels/advisor_panel.h"
+#include "ui/models/grid_search_table_model.h"
+#include "intelligence/advisor/strategy_advisor.h"
+#include "engine/optimizer/grid_search.h"
+#include "engine/backtest/fee_calculator.h"
+#include "engine/analyzer/monte_carlo.h"
+#include "data/idata_provider.h"
+#include "data/data_cache.h"
+#include "data/curated_stocks.h"
+#include "core/thread_pool.h"
+#include "core/log_manager.h"
+#include "foundation/utils/datetime.h"
+#include <QComboBox>
+#include <QLabel>
+#include <QSpinBox>
+#include <QDateEdit>
+#include <QDoubleSpinBox>
+#include <QPushButton>
+#include <QProgressBar>
+#include <QTableView>
+#include <QListWidget>
+#include <QPlainTextEdit>
+#include <QFormLayout>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QGroupBox>
+#include <QScrollArea>
+#include <QHeaderView>
+#include <QDate>
+#include <QMetaObject>
+#include <QThreadPool>
+#include <QPointer>
+#include <QVariantMap>
+#include <algorithm>
+#include <optional>
+#include <sstream>
+#include <utility>
+
+namespace st {
+
+namespace {
+constexpr char kUpColor[] = "#e54648";    // 红涨
+constexpr char kDownColor[] = "#2e9e5b";  // 绿跌
+
+QSpinBox* makeRangeSpin(QWidget* parent, int from, int to, int value) {
+    auto* s = new QSpinBox(parent);
+    s->setRange(from, to);
+    s->setValue(value);
+    return s;
+}
+
+std::string paramsText(const std::vector<std::pair<std::string, int>>& params) {
+    std::ostringstream os;
+    for (size_t i = 0; i < params.size(); ++i) {
+        if (i > 0) os << ", ";
+        os << params[i].first << "=" << params[i].second;
+    }
+    return os.str();
+}
+}  // namespace
+
+AdvisorPanel::AdvisorPanel(IDataProvider* provider, QWidget* parent)
+    : QWidget(parent), provider_(provider), cache_(std::make_unique<DataCache>()) {
+    auto* scroll = new QScrollArea(this);
+    scroll->setWidgetResizable(true);
+    auto* root = new QWidget;
+    auto* layout = new QVBoxLayout(root);
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setSpacing(6);
+
+    // ---- 配置区 ----
+    auto* form = new QGroupBox(tr("参数网格 + 优化建议"));
+    auto* fl = new QFormLayout(form);
+
+    strategyCombo_ = new QComboBox;
+    strategyCombo_->addItem(tr("双均线 MACross"), QStringLiteral("MACross"));
+    strategyCombo_->addItem(tr("海龟 Turtle"), QStringLiteral("Turtle"));
+    fl->addRow(tr("策略"), strategyCombo_);
+    connect(strategyCombo_, &QComboBox::currentIndexChanged,
+            this, &AdvisorPanel::onStrategyChanged);
+
+    auto makeRangeRow = [&](QSpinBox*& from, QSpinBox*& to, QSpinBox*& step) {
+        auto* row = new QHBoxLayout;
+        row->addWidget(new QLabel(tr("从")));
+        from = makeRangeSpin(this, 1, 500, 2);
+        row->addWidget(from);
+        row->addWidget(new QLabel(tr("到")));
+        to = makeRangeSpin(this, 2, 600, 30);
+        row->addWidget(to);
+        row->addWidget(new QLabel(tr("步长")));
+        step = makeRangeSpin(this, 1, 100, 2);
+        row->addWidget(step);
+        return row;
+    };
+    p1Label_ = new QLabel(tr("快线周期"));
+    fl->addRow(p1Label_, makeRangeRow(p1From_, p1To_, p1Step_));
+    p2Label_ = new QLabel(tr("慢线周期"));
+    fl->addRow(p2Label_, makeRangeRow(p2From_, p2To_, p2Step_));
+
+    objectiveCombo_ = new QComboBox;
+    objectiveCombo_->addItem(tr("总收益"));
+    objectiveCombo_->addItem(tr("夏普"));
+    objectiveCombo_->addItem(tr("最大回撤"));
+    objectiveCombo_->addItem(tr("卡玛"));
+    objectiveCombo_->addItem(tr("盈亏比"));
+    fl->addRow(tr("目标函数"), objectiveCombo_);
+
+    stockList_ = new QListWidget;
+    stockList_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    stockList_->setMaximumHeight(90);
+    auto addPool = [this](Market m, const std::vector<CuratedStock>& table) {
+        for (const auto& c : table) {
+            auto* item = new QListWidgetItem(QStringLiteral("%1  %2")
+                .arg(QString::fromUtf8(c.code), QString::fromUtf8(c.name)));
+            item->setData(Qt::UserRole, QString::fromStdString(StockCode(m, c.code).fullCode()));
+            stockList_->addItem(item);
+        }
+    };
+    addPool(Market::SH, kCuratedSH);
+    addPool(Market::SZ, kCuratedSZ);
+    for (int i = 0; i < std::min(3, stockList_->count()); ++i) {
+        stockList_->item(i)->setSelected(true);
+    }
+    fl->addRow(tr("股票池"), stockList_);
+
+    startDate_ = new QDateEdit(QDate(2023, 1, 1));
+    startDate_->setCalendarPopup(true);
+    endDate_ = new QDateEdit(QDate::currentDate());
+    endDate_->setCalendarPopup(true);
+    auto* dateRow = new QHBoxLayout;
+    dateRow->addWidget(startDate_);
+    dateRow->addWidget(new QLabel(tr("~")));
+    dateRow->addWidget(endDate_);
+    fl->addRow(tr("日期"), dateRow);
+
+    capital_ = new QDoubleSpinBox;
+    capital_->setRange(1000, 1e9);
+    capital_->setValue(100000.0);
+    capital_->setDecimals(0);
+    capital_->setSingleStep(10000);
+    fl->addRow(tr("初始资金"), capital_);
+
+    auto* runRow = new QHBoxLayout;
+    runBtn_ = new QPushButton(tr("开始优化建议"));
+    progress_ = new QProgressBar;
+    progress_->setRange(0, 100);
+    progress_->setValue(0);
+    progress_->setVisible(false);
+    runRow->addWidget(runBtn_);
+    runRow->addWidget(progress_, 1);
+    fl->addRow(runRow);
+    layout->addWidget(form);
+    connect(runBtn_, &QPushButton::clicked, this, &AdvisorPanel::onRunClicked);
+
+    // ---- 建议区 ----
+    auto* advBox = new QGroupBox(tr("参数建议"));
+    auto* al = new QVBoxLayout(advBox);
+    advParams_ = new QLabel(tr("—"));
+    auto paramsFont = advParams_->font();
+    paramsFont.setBold(true);
+    advParams_->setFont(paramsFont);
+    advConfidence_ = new QLabel;
+    advWarnings_ = new QLabel;
+    advText_ = new QPlainTextEdit;
+    advText_->setReadOnly(true);
+    advText_->setMaximumHeight(110);
+    refinedText_ = new QLabel(tr("—"));
+    useRefinedBtn_ = new QPushButton(tr("用精化网格再优化"));
+    auto* refinedRow = new QHBoxLayout;
+    refinedRow->addWidget(refinedText_, 1);
+    refinedRow->addWidget(useRefinedBtn_);
+    al->addWidget(advParams_);
+    al->addWidget(advConfidence_);
+    al->addWidget(advWarnings_);
+    al->addWidget(advText_);
+    al->addLayout(refinedRow);
+    layout->addWidget(advBox);
+    connect(useRefinedBtn_, &QPushButton::clicked, this, &AdvisorPanel::onUseRefined);
+
+    // ---- 结果表 ----
+    resultModel_ = new GridSearchTableModel(this);
+    resultView_ = new QTableView;
+    resultView_->setModel(resultModel_);
+    resultView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    resultView_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    resultView_->horizontalHeader()->setStretchLastSection(true);
+    resultView_->setMinimumHeight(160);
+    layout->addWidget(new QLabel(tr("网格结果（单击行应用参数到回测）")));
+    layout->addWidget(resultView_);
+    connect(resultView_, &QTableView::clicked, this,
+            [this](const QModelIndex& idx) {
+                const auto params = resultModel_->paramsAt(idx.row());
+                if (params.empty()) return;
+                QVariantMap map;
+                for (const auto& [name, val] : params) map[QString::fromStdString(name)] = val;
+                emit applyParams(strategyCombo_->currentData().toString(), map);
+            });
+
+    layout->addStretch();
+    scroll->setWidget(root);
+    auto* outer = new QVBoxLayout(this);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->addWidget(scroll);
+
+    onStrategyChanged();
+}
+
+void AdvisorPanel::onStrategyChanged() {
+    const bool isMa = strategyCombo_->currentIndex() == 0;
+    p1Label_->setText(isMa ? tr("快线周期") : tr("入场周期"));
+    p2Label_->setText(isMa ? tr("慢线周期") : tr("出场周期"));
+    if (isMa) {
+        p1From_->setValue(2); p1To_->setValue(30); p1Step_->setValue(2);
+        p2From_->setValue(10); p2To_->setValue(60); p2Step_->setValue(10);
+    } else {
+        p1From_->setValue(10); p1To_->setValue(40); p1Step_->setValue(5);
+        p2From_->setValue(5); p2To_->setValue(20); p2Step_->setValue(5);
+    }
+}
+
+Objective AdvisorPanel::currentObjective() const {
+    switch (objectiveCombo_->currentIndex()) {
+        case 1: return Objective::SharpeRatio;
+        case 2: return Objective::MaxDrawdown;
+        case 3: return Objective::CalmarRatio;
+        case 4: return Objective::ProfitFactor;
+        default: return Objective::TotalReturn;
+    }
+}
+
+std::vector<StockCode> AdvisorPanel::selectedSymbols() const {
+    std::vector<StockCode> symbols;
+    for (int i = 0; i < stockList_->count(); ++i) {
+        auto* item = stockList_->item(i);
+        if (item->isSelected()) {
+            symbols.push_back(StockCode(item->data(Qt::UserRole).toString().toStdString()));
+        }
+    }
+    return symbols;
+}
+
+void AdvisorPanel::onRunClicked() {
+    if (running_) return;
+    auto symbols = selectedSymbols();
+    if (symbols.empty()) {
+        LogManager::instance()->log(LogLevel::Warn, "优化建议: 请至少选择一只股票");
+        return;
+    }
+    running_ = true;
+    runBtn_->setEnabled(false);
+    useRefinedBtn_->setEnabled(false);
+    progress_->setVisible(true);
+    progress_->setValue(0);
+    cache_->clear();
+    resultModel_->setResults({}, {}, {});
+
+    const auto start = utils::parseDate(startDate_->date().toString(Qt::ISODate).toStdString());
+    const auto end = utils::parseDate(endDate_->date().toString(Qt::ISODate).toStdString());
+
+    // 安全异步：按值捕获 provider/cache + QPointer 守卫投递回主线程
+    IDataProvider* provider = provider_;
+    DataCache* cache = cache_.get();
+    QPointer<AdvisorPanel> guard(this);
+    ThreadPool::submitIO([provider, cache, guard, symbols, start, end] {
+        const int total = static_cast<int>(symbols.size());
+        int done = 0;
+        for (const auto& code : symbols) {
+            auto bars = provider->getBars(code, BarPeriod::Daily, start, end);
+            if (!bars.empty()) cache->cacheBars(code, BarPeriod::Daily, std::move(bars));
+            ++done;
+            QMetaObject::invokeMethod(guard, [guard, done, total] {
+                guard->progress_->setValue(done * 50 / total);
+            }, Qt::QueuedConnection);
+        }
+        QMetaObject::invokeMethod(guard, [guard] {
+            guard->onAllDataFetched();
+        }, Qt::QueuedConnection);
+    });
+}
+
+void AdvisorPanel::onAllDataFetched() {
+    progress_->setValue(50);
+    auto symbols = selectedSymbols();
+    if (symbols.empty()) {
+        resetToIdle();
+        return;
+    }
+
+    GridSearchConfig cfg;
+    cfg.strategyId = strategyCombo_->currentData().toString().toStdString();
+    cfg.ranges = {
+        {"", p1From_->value(), p1To_->value(), p1Step_->value()},
+        {"", p2From_->value(), p2To_->value(), p2Step_->value()},
+    };
+    const bool isMa = strategyCombo_->currentIndex() == 0;
+    cfg.ranges[0].name = isMa ? "fastPeriod" : "entryPeriod";
+    cfg.ranges[1].name = isMa ? "slowPeriod" : "exitPeriod";
+    cfg.symbols = symbols;
+    cfg.startDate = utils::parseDate(startDate_->date().toString(Qt::ISODate).toStdString());
+    cfg.endDate = utils::parseDate(endDate_->date().toString(Qt::ISODate).toStdString());
+    cfg.initialCapital = capital_->value();
+    cfg.feeConfig = FeeConfig::defaultAShare();
+    cfg.objective = currentObjective();
+    cfg.cache = cache_.get();
+#ifdef _DEBUG
+    cfg.parallelLanes = 2;
+#else
+    cfg.parallelLanes = std::max(1, QThreadPool::globalInstance()->maxThreadCount());
+#endif
+
+    const QString p1Name = p1Label_->text();
+    const QString p2Name = p2Label_->text();
+
+    // 安全异步：QPointer 守卫投递回主线程（面板销毁后自动跳过）
+    QPointer<AdvisorPanel> guard(this);
+    ThreadPool::submitWorker([guard, cfg = std::move(cfg), p1Name, p2Name]() mutable {
+        GridSearchOptimizer opt;
+        opt.setProgressCallback([guard](double p) {
+            QMetaObject::invokeMethod(guard, [guard, p] {
+                guard->progress_->setValue(50 + static_cast<int>(p * 50));
+            }, Qt::QueuedConnection);
+        });
+        auto results = opt.run(cfg);
+
+        // 蒙特卡洛风险（从最优净值曲线派生日收益，避免重跑回测）
+        std::optional<MonteCarlo::Output> mc;
+        if (!results.empty()) {
+            const auto& eq = results.front().equityCurve;
+            std::vector<double> daily;
+            if (eq.size() > 1) {
+                daily.reserve(eq.size() - 1);
+                for (size_t i = 1; i < eq.size(); ++i) {
+                    if (eq[i - 1] > 0.0) daily.push_back(eq[i] / eq[i - 1] - 1.0);
+                }
+            }
+            if (!daily.empty()) {
+                mc = MonteCarlo::simulate({daily, 1000, 0, 1.0});
+            }
+        }
+
+        st::advisor::AdvisorContext actx;
+        actx.strategyId = cfg.strategyId;
+        actx.results = results;
+        actx.monteCarlo = mc;
+        actx.stressTest = std::nullopt;
+        actx.objective = cfg.objective;
+        st::advisor::StrategyAdvisor advisor;
+        auto sug = advisor.advise(actx);
+        auto refined = advisor.suggestRefinedRanges(actx);
+
+        QMetaObject::invokeMethod(guard,
+            [guard, results = std::move(results), sug = std::move(sug),
+             refined = std::move(refined), p1Name, p2Name]() mutable {
+                guard->onResult(results, sug, refined, p1Name, p2Name);
+            }, Qt::QueuedConnection);
+    });
+}
+
+void AdvisorPanel::onResult(const std::vector<GridSearchResult>& results,
+                            const st::advisor::AdvisorSuggestion& suggestion,
+                            const std::vector<st::ParamRange>& refined,
+                            const QString& p1Name, const QString& p2Name) {
+    running_ = false;
+    runBtn_->setEnabled(true);
+    useRefinedBtn_->setEnabled(!refined.empty());
+    progress_->setValue(100);
+    progress_->setVisible(false);
+
+    resultModel_->setResults(results, p1Name, p2Name);
+    displaySuggestion(suggestion);
+
+    refinedRanges_ = refined;
+    std::ostringstream os;
+    for (const auto& r : refined) {
+        os << r.name << " [" << r.from << ".." << r.to << "] ";
+    }
+    refinedText_->setText(refined.empty()
+        ? tr("—") : tr("精化网格: %1").arg(QString::fromStdString(os.str())));
+
+    LogManager::instance()->log(LogLevel::Info,
+        "优化建议完成: 共 {} 组", results.size());
+}
+
+void AdvisorPanel::displaySuggestion(const st::advisor::AdvisorSuggestion& s) {
+    if (!s.hasRecommendation) {
+        advParams_->setText(tr("无建议"));
+        advConfidence_->setText(QString());
+        advWarnings_->setText(tr("无可用的回测结果"));
+        advWarnings_->setStyleSheet(QString());
+        advText_->setPlainText(QString());
+        return;
+    }
+    advParams_->setText(QString::fromStdString(paramsText(s.recommendedParams)));
+    advConfidence_->setText(tr("置信度: %1%")
+        .arg(static_cast<int>(s.confidence * 100.0 + 0.5)));
+    advConfidence_->setStyleSheet(QStringLiteral("color:%1;")
+        .arg(s.confidence >= 0.6 ? kUpColor : kDownColor));
+
+    QStringList warns;
+    if (s.overfitWarning) warns << tr("过拟合");
+    if (s.riskWarning) warns << tr("风险偏高");
+    if (s.poorResultWarning) warns << tr("网格整体不佳");
+    advWarnings_->setText(warns.isEmpty()
+        ? tr("警告: 无") : tr("警告: %1").arg(warns.join(tr(" / "))));
+    advWarnings_->setStyleSheet(warns.isEmpty()
+        ? QString() : QStringLiteral("color:%1;").arg(kDownColor));
+
+    advText_->setPlainText(QStringLiteral("%1\n%2")
+        .arg(QString::fromStdString(s.text),
+             QString::fromStdString(s.rationale)));
+}
+
+void AdvisorPanel::fillRefinedRanges(const std::vector<st::ParamRange>& ranges) {
+    if (ranges.size() >= 1) {
+        p1From_->setValue(ranges[0].from);
+        p1To_->setValue(ranges[0].to);
+        p1Step_->setValue(ranges[0].step);
+    }
+    if (ranges.size() >= 2) {
+        p2From_->setValue(ranges[1].from);
+        p2To_->setValue(ranges[1].to);
+        p2Step_->setValue(ranges[1].step);
+    }
+}
+
+void AdvisorPanel::onUseRefined() {
+    if (running_) return;
+    fillRefinedRanges(refinedRanges_);
+    onRunClicked();
+}
+
+void AdvisorPanel::resetToIdle() {
+    running_ = false;
+    runBtn_->setEnabled(true);
+    useRefinedBtn_->setEnabled(true);
+    progress_->setVisible(false);
+}
+
+} // namespace st
+
+#include "moc_advisor_panel.cpp"

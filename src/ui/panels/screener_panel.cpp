@@ -5,6 +5,7 @@
 #include "data/curated_stocks.h"
 #include "engine/screener/stock_screener.h"
 #include "engine/screener/factor_library.h"
+#include "intelligence/screener/pattern_factor.h"
 #include "core/thread_pool.h"
 #include "core/log_manager.h"
 #include "foundation/utils/datetime.h"
@@ -39,6 +40,7 @@ QString factorDisplayName(const std::string& name) {
         {"volatility", "年化波动率"}, {"atr_14", "ATR(14)"}, {"max_drawdown", "最大回撤"},
         {"ma_alignment", "均线多头"}, {"adx_14", "ADX(14)"}, {"volume_ratio", "量比"},
         {"turnover", "换手率"}, {"obv", "OBV"},
+        {"pattern_score", "形态评分"},
     };
     auto it = kNames.find(name);
     return it != kNames.end()
@@ -64,6 +66,8 @@ ScreenerPanel::ScreenerPanel(IDataProvider* provider, QWidget* parent)
 
     // 因子区（2 列勾选）
     candidateFactors_ = factors::defaultFactorSet();
+    // 形态因子（Intelligence 下接选股面板，权重 1.0）
+    candidateFactors_.emplace_back(std::make_shared<st::screener::PatternFactor>(), 1.0);
     auto* factorBox = new QWidget;
     auto* fg = new QGridLayout(factorBox);
     fg->setContentsMargins(0, 0, 0, 0);

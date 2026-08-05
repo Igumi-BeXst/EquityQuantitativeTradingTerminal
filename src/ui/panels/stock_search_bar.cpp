@@ -11,6 +11,7 @@
 #include <QMouseEvent>
 #include <QHBoxLayout>
 #include <QMetaObject>
+#include <QPointer>
 #include <algorithm>
 
 namespace st {
@@ -55,7 +56,9 @@ StockSearchBar::StockSearchBar(IDataProvider* provider, QWidget* parent)
 
     // 异步加载精选股票池（IO 线程池，不阻塞主线程）
     if (provider_) {
-        ThreadPool::submitIO([this, provider] {
+        // 安全异步：捕获构造参数 provider + QPointer 守卫投递回主线程
+        QPointer<StockSearchBar> guard(this);
+        ThreadPool::submitIO([provider, guard] {
             auto sh = provider->getStockList(Market::SH);
             auto sz = provider->getStockList(Market::SZ);
             std::vector<StockInfo> all;
@@ -69,9 +72,10 @@ StockSearchBar::StockSearchBar(IDataProvider* provider, QWidget* parent)
                 if (tdx::isTradableAShare(s.code) || tdx::isIndexCode(s.code))
                     all.push_back(std::move(s));
             }
-            QMetaObject::invokeMethod(this,
-                [this, all = std::move(all)]() mutable { onLoadingFinished(all); },
-                Qt::QueuedConnection);
+            QMetaObject::invokeMethod(guard,
+                [guard, all = std::move(all)]() mutable {
+                    guard->onLoadingFinished(all);
+                }, Qt::QueuedConnection);
         });
     }
 }

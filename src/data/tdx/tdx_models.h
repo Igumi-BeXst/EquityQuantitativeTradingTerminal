@@ -3,6 +3,7 @@
 #include "foundation/stock_code.h"
 #include "foundation/types.h"
 #include "data/tdx/tdx_protocol.h"
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -31,6 +32,17 @@ struct TdxQuoteRec {
     double preClose = 0.0;
     double volume = 0.0;     // 股
     double amount = 0.0;     // 元
+
+    /// 五档盘口（元 / 股），bids[0]=买一，asks[0]=卖一
+    struct DepthLevel {
+        double price = 0.0;
+        double volume = 0.0;
+    };
+    std::array<DepthLevel, 5> bids;
+    std::array<DepthLevel, 5> asks;
+
+    double sVol = 0.0;  // 内盘（主动卖，股）
+    double bVol = 0.0;  // 外盘（主动买，股）
 };
 
 /// 分时点（元/股，volume 为累计）

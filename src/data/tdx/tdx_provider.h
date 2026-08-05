@@ -37,6 +37,8 @@ public:
                              DateTime start, DateTime end) override;
     std::optional<IntradayData> getIntraday(const StockCode& code) override;
     std::vector<Quote> batchQuote(const std::vector<StockCode>& codes) override;
+    std::optional<MarketDepth> getMarketDepth(const StockCode& code) override;
+    std::vector<Tick> getTransactions(const StockCode& code, int limit = 50) override;
     void subscribeQuote(const StockCode& code) override;
     void unsubscribeQuote(const StockCode& code) override;
     void refreshQuotes() override;
