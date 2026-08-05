@@ -67,14 +67,16 @@ StockKeyDataWidget::StockKeyDataWidget(IDataProvider* provider, QWidget* parent)
         label->setStyleSheet(QStringLiteral("color:#888888;"));
         auto* value = new QLabel(tr("--"));
         value->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        // 两列排序：第 i 项在 第 (i/2) 行，(i%2) 决定左/右列
-        const int col = (i % 2) * 2;
+        // 两列排序：第 i 项在 第 (i/2) 行，(i%2) 决定左/右列；
+        // 布局列：0标签|1值|2间隔|3标签|4值 —— 第 2 列固定窄宽分隔左右两组数据
+        const int col = (i % 2) * 3;
         grid->addWidget(label, i / 2, col);
         grid->addWidget(value, i / 2, col + 1);
         values_[i] = value;
     }
     grid->setColumnStretch(1, 1);
-    grid->setColumnStretch(3, 1);
+    grid->setColumnStretch(4, 1);
+    grid->setColumnMinimumWidth(2, 16);  // 左右两列数据间隔
 
     scroll->setWidget(body);
     auto* outer = new QGridLayout(this);
@@ -212,11 +214,17 @@ void StockKeyDataWidget::applyQuote(const Quote& q) {
             static_cast<double>(q.volume) / avg5dVol_, 'f', 2));
     }
 
-    // 涨跌色（高/低/开 跟随现价涨跌；昨收保持黑色/默认）
-    const QString upDown = q.change >= 0.0 ? kUpColor : kDownColor;
-    setColor(FHigh, upDown);
-    setColor(FLow, upDown);
-    setColor(FOpen, upDown);
+    // 高/低/开 各自与昨收（零轴）比较：高于昨收→红、低于昨收→绿、持平→默认黑
+    const double preClose = q.preClose;
+    const auto colorVsPreClose = [this, preClose](double v) -> QString {
+        if (preClose <= 0.0) return QString();
+        if (v > preClose) return kUpColor;
+        if (v < preClose) return kDownColor;
+        return QString();
+    };
+    setColor(FHigh, colorVsPreClose(q.high));
+    setColor(FLow, colorVsPreClose(q.low));
+    setColor(FOpen, colorVsPreClose(q.open));
 
     // 涨停红 / 跌停绿 / 外盘红 / 内盘绿
     setColor(FLimitUp, kUpColor);

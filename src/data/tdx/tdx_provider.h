@@ -39,6 +39,9 @@ public:
     std::vector<Quote> batchQuote(const std::vector<StockCode>& codes) override;
     std::optional<MarketDepth> getMarketDepth(const StockCode& code) override;
     std::vector<Tick> getTransactions(const StockCode& code, int limit = 50) override;
+    /// 全天逐笔成交明细（0x0FC5 分页拉全当日，含买卖方向；最新在前）。
+    /// 用于内盘/外盘归属验证与成交明细全貌展示。
+    std::vector<Tick> getDayTransactions(const StockCode& code);
     void subscribeQuote(const StockCode& code) override;
     void unsubscribeQuote(const StockCode& code) override;
     void refreshQuotes() override;
@@ -67,6 +70,8 @@ private:
     void pollLoop();
     void doPollOnce();
 
+    std::vector<Tick> toTicks(const StockCode& code,
+                              const std::vector<tdx::TdxTickRec>& recs) const;
     std::vector<tdx::TdxGbbqRec> ensureGbbq(const StockCode& code);
     std::vector<Bar> fetchBarsRaw(const StockCode& code, BarPeriod period,
                                   uint16_t startIdx, uint16_t count);

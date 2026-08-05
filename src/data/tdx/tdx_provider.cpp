@@ -545,6 +545,32 @@ std::vector<Tick> TdxProvider::getTransactions(const StockCode& code, int limit)
     if (recs.size() > static_cast<size_t>(limit)) {
         recs.erase(recs.begin(), recs.end() - static_cast<ptrdiff_t>(limit));
     }
+    return toTicks(code, recs);
+}
+
+std::vector<Tick> TdxProvider::getDayTransactions(const StockCode& code) {
+    const int mkt = tdx::tdxMarket(code.market());
+    if (mkt < 0) return {};
+    // 0x0FC5：start 为「从当日末尾倒数」的偏移（start=0 最新），分页向前拉全当日
+    std::vector<tdx::TdxTickRec> recs;
+    uint32_t start = 0;
+    constexpr uint16_t kPage = 1000;
+    while (start <= 20000) {  // 安全上限（≥20 页 ≈ 2000 万手）
+        const auto req = tdx::buildTransactionReq(static_cast<uint8_t>(mkt), code.code(),
+                                                  static_cast<uint16_t>(start), kPage);
+        const auto resp = executeCommand(tdx::Cmd::MinuteTrade, req, requestTimeoutMs_);
+        if (!resp.ok) break;
+        auto page = tdx::decodeTransaction(resp.payload);
+        if (page.empty()) break;
+        recs.insert(recs.end(), page.begin(), page.end());
+        if (page.size() < kPage) break;
+        start += kPage;
+    }
+    return toTicks(code, recs);
+}
+
+std::vector<Tick> TdxProvider::toTicks(const StockCode& code,
+                                       const std::vector<tdx::TdxTickRec>& recs) const {
     const std::string today = utils::toDateString(utils::now());
     std::vector<Tick> out;
     out.reserve(recs.size());
