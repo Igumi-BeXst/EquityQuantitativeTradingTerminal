@@ -1,5 +1,62 @@
 # 开发日志 (Development Log)
 
+## 2026-08-05 — P9 Intelligence 层（形态识别 + 参数优化建议 + 形态因子 + 舆情桩）
+
+### 背景
+P9 剩余部分为 Intelligence 层（AI 智能）。TDX 数据源 + UI 图表打磨已完成并推送。本轮新建 `src/intelligence/`（此前为空）的智能服务层。**用户决策**：核心 3 项完整实现（形态识别 / 策略优化建议 / 形态因子），舆情情绪做接口桩（无新闻源）；**本轮不做 UI 面板**（量化功能后续拆独立窗口），只做 C++ 服务层 + 单元测试。
+
+### 约束与选型
+- 无 ML 库、无新闻源、**离线**。形态识别用**纯 C++ 规则**（确定性、可单测），复用 `st::indicators::sma`；**不引入 TA_CDL\* 和 pybind11**
+- 依赖：`st_intelligence` PUBLIC 链接 `st_engine st_core st_foundation`（st_engine 传递依赖 st_data，DataCache 可用）；UI 本轮不链接
+
+### 已完成（本日，构建零警告 / ctest 218/218 全过）
+1. **PatternRecognizer（16 种 K 线形态，纯规则）** `src/intelligence/pattern/`
+   - `pattern_types.h`：`PatternType` 枚举（16 种）+ `PatternSignal{type,index,confidence,name,description}` + `PatternDetectResult`
+   - `pattern_recognizer`：`detect()` 全量检测 / `detectAt()` 只检最后 3 根；可调阈值 `setMaPeriods(5,20)` / `setVolumeRatio(2.0)` / `setMinBars(40)`
+   - 16 形态：十字星(0.6)、锤头/倒锤头/吊颈/流星(0.75)、看涨/看跌吞没(0.75，实体≥2×前实体+0.1)、早晨/黄昏之星(0.8)、红三兵/三只乌鸦(0.8)、金叉/死叉(0.8)、均线多头/空头排列(0.7)、放量突破(0.75，收盘破前10根高+量≥2×均量)
+   - 影线类阈值：实体≤35%振幅、影线≥2×实体、对侧影线≤35%振幅；十字星（实体≤10%振幅）不与影线类重复
+   - `typeName()` 中文名 + `isBullish/isBearish`（十字星为中性）
+2. **StrategyAdvisor（策略参数优化建议）** `src/intelligence/advisor/`
+   - `advisor_types.h`：`AdvisorContext{strategyId, results, monteCarlo?, stressTest?, objective, topN}` + `AdvisorSuggestion{recommendedParams, confidence, overfitWarning, riskWarning, text, rationale}`
+   - **不重跑回测**：复用 `GridSearchOptimizer::objectiveMinimized` 按 objective 方向选优，直接消费已排序结果
+   - 过拟合探测：最优目标值相对其余组合中位值差 >50%；风险探测：蒙特卡洛 probOfLoss>0.4 或 p5<0.85，或任一压力窗口回撤>20%；**网格整体不佳探测**：最大化目标 best≤0 或 MaxDrawdown best>15% → 提示更换策略；置信度 0.85 起，每项警告 -0.15
+   - `suggestRefinedRanges()` 围绕推荐参数生成 value±1 精化网格
+3. **PatternFactor（智能选股形态因子）** `src/intelligence/screener/`
+   - 实现 `IFactor`：`name()="pattern_score"`、`category()=Momentum`、数据不足（<50 根）返回 nullopt
+   - score = 50 + 12×(近30根看涨-看跌形态数) + 均线排列±15，clamp [0,100]；接入：`screener.addFactor(make_shared<PatternFactor>(), 1.0)` 引擎无需改动
+4. **SentimentAnalyzer（舆情情绪，接口桩）** `src/intelligence/sentiment/`
+   - `ISentimentProvider` 纯虚接口（`fetchNews(code, limit)`）——暂无实现，P10 接真实资讯流；`SentimentAnalyzer` 本地关键词表（利好/增长/盈利…积极；利空/亏损/减持…消极）独立打分，`analyze/averageScore/analyzeStock/setKeywordTable`，平滑公式 `tanh 前身 = (pos-neg)/3` clamp [-1,1]，标签阈值 ±0.15
+   - 可无 provider 独立工作；注入 provider 后 `analyzeStock()` 聚合
+
+### 测试（新增 46 用例，174 → 220）
+- `tests/test_intelligence/`（test_main 复用 test_engine 的 QCoreApplication 入口）：
+  - `test_pattern_recognizer.cpp`（20）：合成 K 线精确控制 OHLCV 逐一验证 16 形态 + 吞没置信度加成 + 数据不足返回空 + detectAt 只返回近 3 根 + typeName/isBullish 枚举全覆盖（8 看涨 / 7 看跌 / 1 中性）
+  - `test_strategy_advisor.cpp`（14）：按 objective 选优 / Minimized 方向 / 跳过失败结果 / 平台无警告 / 尖峰过拟合警告 / 蒙特卡洛 / 压力测试 / 双警告置信度 / 网格整体不佳 / MaxDrawdown 不佳阈值 / 空结果 / 精化范围 ±1 / objective 中文名
+  - `test_pattern_factor.cpp`（5）：上升 >50 / 下降 <50 / 数据不足 nullopt / name+category / 接入 StockScreener 的 run() 含 pattern_score
+  - `test_sentiment_analyzer.cpp`（7）：积极 / 消极 / 中性 / 混合平均 / 无 provider nullopt / MockProvider 注入 / 自定义关键词表
+
+### 验证工具（tools_intelligence_demo）
+- `tools_intelligence_demo.cpp` → `intelligence_demo`：连 TDX 拉真实日K（失败回退合成序列），跑通 4 模块并打印
+- 实测发现 advisor 对**整体亏损网格**仍给 0.85 置信度 → 增加「网格整体不佳」风险信号（最优目标值为负 / MaxDrawdown>15%），置信度 -0.15 并提示更换策略
+- 实测输出：茅台 640 根日K → 近 10 条信号全为均线多头排列（升势合理）；pattern_score=100（强多头）；MACross 网格整体 -10.57% → 建议降置信度 0.70 + 「谨慎采用」；舆情 积极/消极/综合 打分正确
+
+### 修复
+- **Qt `signals` 宏冲突**：`<QCoreApplication>` 将 `signals` 宏展开为 `public`，`result.signals` 编译报 C2059。`PatternDetectResult::signals` 改名为 `items`（Qt 项目避免用 signals 作标识符；单测不引 Qt 头所以未暴露）
+
+### CMake
+- `src/CMakeLists.txt`：新增 `st_intelligence` 静态库（4 个模块 .cpp），PUBLIC 链接 st_engine st_core st_foundation；新增 `intelligence_demo` 工具
+- `tests/CMakeLists.txt`：新增 `test_intelligence`（`if(BUILD_WITH_QT)` 内），链接 st_intelligence st_engine st_data
+
+### 关键决策
+- **形态识别纯规则**：确定性可单测，符合无 ML 库约束；置信度用简单启发式而非统计模型
+- **advisor 不重跑回测**：直接消费 GridSearchOptimizer 输出，避免重复计算
+- **ST_intelligence 本轮未接入 UI**：量化面板后续随「量化独立窗口」一起规划
+
+### 待办
+- [ ] P10：ISentimentProvider 接真实资讯流（东方财富/同花顺资讯接口）
+- [ ] 量化独立窗口：形态识别/优化建议/情绪结果的 UI 展示（不占主窗口）
+- [ ] PatternFactor 接入选股面板因子选择器
+
 ## 2026-08-05 — 分时图 UI 精修 + 搜索框拼音搜索 & 焦点修复
 
 ### 已完成（用户实测迭代，未提交）

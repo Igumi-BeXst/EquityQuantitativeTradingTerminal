@@ -76,9 +76,9 @@ cmake --preset with-qt && cmake --build --preset with-qt
 
 ## 当前阶段
 
-**P8 ✅ → P9 进行中（TDX 通达信数据源 + UI 实测打磨）**
+**P9 ✅ → P10 进行中（扩展增强）**
 
-Foundation: ✅ (34) | Core: ✅ (21) | Data: ✅ (63) | Engine: ✅ (56) | 总计: ✅ 174 tests | Qt: ✅ 6.11.1 | TA-Lib: ✅ 0.7.1 | 数据源: ✅ 通达信 TDX (直连 :7709)
+Foundation: ✅ (34) | Core: ✅ (21) | Data: ✅ (63) | Engine: ✅ (56) | Intelligence: ✅ (46) | 总计: ✅ 220 tests | Qt: ✅ 6.11.1 | TA-Lib: ✅ 0.7.1 | 数据源: ✅ 通达信 TDX (直连 :7709)
 
 | 阶段 | 内容 |
 |------|------|

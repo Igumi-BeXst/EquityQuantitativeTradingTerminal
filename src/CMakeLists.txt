@@ -78,6 +78,14 @@ add_library(st_engine STATIC
 )
 target_link_libraries(st_engine PUBLIC st_data st_core st_foundation talib::talib)
 
+add_library(st_intelligence STATIC
+    intelligence/pattern/pattern_recognizer.cpp
+    intelligence/advisor/strategy_advisor.cpp
+    intelligence/screener/pattern_factor.cpp
+    intelligence/sentiment/sentiment_analyzer.cpp
+)
+target_link_libraries(st_intelligence PUBLIC st_engine st_core st_foundation)
+
 add_library(st_ui STATIC
     ui/theme_manager.cpp
     ui/shortcut_manager.cpp
@@ -148,6 +156,10 @@ target_link_libraries(tdx_diag PRIVATE st_data st_core st_foundation Qt6::Core)
 # TDX 市场异常探测工具（全A股批量报价异常检查）
 add_executable(tdx_market_probe tools_tdx_market_probe.cpp)
 target_link_libraries(tdx_market_probe PRIVATE st_data st_core st_foundation Qt6::Core)
+
+# Intelligence 层实连验证工具（P9 验证用：形态识别/形态因子/优化建议/情绪桩）
+add_executable(intelligence_demo tools_intelligence_demo.cpp)
+target_link_libraries(intelligence_demo PRIVATE st_intelligence st_engine st_data st_core st_foundation Qt6::Core)
 
 else()
 # Without Qt: just build the Foundation CLI test runner

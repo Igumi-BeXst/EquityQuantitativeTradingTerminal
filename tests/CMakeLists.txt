@@ -52,4 +52,14 @@ if(BUILD_WITH_QT)
     )
     target_link_libraries(test_engine PRIVATE st_engine st_data GTest::gtest GTest::gtest_main)
     gtest_discover_tests(test_engine)
+
+    add_executable(test_intelligence
+        test_intelligence/test_main.cpp
+        test_intelligence/test_pattern_recognizer.cpp
+        test_intelligence/test_strategy_advisor.cpp
+        test_intelligence/test_pattern_factor.cpp
+        test_intelligence/test_sentiment_analyzer.cpp
+    )
+    target_link_libraries(test_intelligence PRIVATE st_intelligence st_engine st_data GTest::gtest GTest::gtest_main)
+    gtest_discover_tests(test_intelligence)
 endif()
