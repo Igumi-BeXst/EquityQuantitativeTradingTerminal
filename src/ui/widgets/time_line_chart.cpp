@@ -35,12 +35,30 @@ QString formatVolume(double shares) {
     if (hands >= 1e4) return QStringLiteral("%1万").arg(hands / 1e4, 0, 'f', 2);
     return QStringLiteral("%1").arg(hands, 0, 'f', 0);
 }
+
+// 是否交易时段（工作日 09:25 集合竞价前 ~ 15:05 收盘后）——非交易时段分时数据静态，跳过自动刷新
+bool isTradingTime() {
+    const std::time_t now = std::time(nullptr);
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &now);
+#else
+    localtime_r(&now, &tm);
+#endif
+    if (tm.tm_wday == 0 || tm.tm_wday == 6) return false;  // 周末
+    const int mins = tm.tm_hour * 60 + tm.tm_min;
+    return mins >= 9 * 60 + 25 && mins <= 15 * 60 + 5;
+}
 }  // namespace
 
 TimelineChart::TimelineChart(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider) {
     setMouseTracking(true);
     setMinimumSize(400, 300);
+    // 实时自动刷新：交易时段每 10s 静默重拉分时数据（新分钟/最新价自动更新）
+    refreshTimer_ = new QTimer(this);
+    refreshTimer_->setInterval(10000);
+    connect(refreshTimer_, &QTimer::timeout, this, &TimelineChart::refreshData);
 }
 
 void TimelineChart::loadStock(const StockCode& code, const QString& name) {
@@ -50,12 +68,31 @@ void TimelineChart::loadStock(const StockCode& code, const QString& name) {
     loading_ = true;
     update();
     if (!provider_) { loading_ = false; return; }
+    if (refreshTimer_) refreshTimer_->start();
 
     ThreadPool::submitIO([this, gen, code] {
         auto data = provider_->getIntraday(code);
         QMetaObject::invokeMethod(this, [this, gen, data = std::move(data)]() mutable {
             if (gen != loadGen_) return;
             setData(data ? *data : IntradayData{});
+        }, Qt::QueuedConnection);
+    });
+}
+
+void TimelineChart::refreshData() {
+    if (!provider_ || !code_.isValid()) return;
+    if (!isTradingTime()) return;  // 非交易时段数据静态，跳过
+    const int gen = ++loadGen_;
+    const int savedMouse = mouseIndex_;
+    ThreadPool::submitIO([this, gen, code = code_, savedMouse] {
+        auto data = provider_->getIntraday(code);
+        QMetaObject::invokeMethod(this, [this, gen, savedMouse, data = std::move(data)]() mutable {
+            if (gen != loadGen_) return;
+            if (data) {
+                setData(*data);      // 内部 mouseIndex_=-1
+                mouseIndex_ = savedMouse;  // 保留十字线位置
+                update();
+            }
         }, Qt::QueuedConnection);
     });
 }
@@ -352,7 +389,10 @@ void TimelineChart::drawVolume(QPainter& p) {
         if (barVol <= 0) continue;
         double x = xFor(m);
         double h = barVol / volHi_ * (volRect_.height() - kPaneHeaderH);
-        auto& path = pt.price >= data_.preClose ? upPath : downPath;
+        // 量柱颜色按分钟自身涨跌（对比前一分钟），对齐成熟软件；首分钟对比昨收
+        const double refPrice = (i > 0) ? data_.points[i - 1].price
+                                : (data_.preClose > 0 ? data_.preClose : pt.price);
+        auto& path = pt.price >= refPrice ? upPath : downPath;
         path.addRect(QRectF(x - 0.35 * bw, volRect_.bottom() - h, 0.7 * bw, h));
     }
     p.fillPath(upPath, kUpColor);
@@ -482,6 +522,15 @@ void TimelineChart::mouseMoveEvent(QMouseEvent* event) {
 void TimelineChart::leaveEvent(QEvent*) {
     mouseIndex_ = -1;
     update();
+}
+
+void TimelineChart::hideEvent(QHideEvent*) {
+    if (refreshTimer_) refreshTimer_->stop();  // 隐藏时停止自动刷新
+}
+
+void TimelineChart::showEvent(QShowEvent*) {
+    if (refreshTimer_ && !refreshTimer_->isActive() && code_.isValid())
+        refreshTimer_->start();
 }
 
 } // namespace st

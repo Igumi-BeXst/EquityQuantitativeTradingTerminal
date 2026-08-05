@@ -4,6 +4,7 @@
 #include "foundation/stock_code.h"
 #include <QWidget>
 #include <QString>
+#include <QTimer>
 #include <vector>
 
 namespace st {
@@ -27,9 +28,12 @@ protected:
     void paintEvent(QPaintEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void leaveEvent(QEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
+    void showEvent(QShowEvent* event) override;
 
 private:
     void setData(IntradayData data);
+    void refreshData();  // 定时器静默刷新（不闪"加载中"）
     void computeRanges();
     void computeAvgLine();
     void computeMacd();
@@ -53,6 +57,7 @@ private:
     QString name_;
     bool loading_ = false;
     int loadGen_ = 0;
+    QTimer* refreshTimer_ = nullptr;  // 实时自动刷新
 
     std::vector<double> avgLine_;
     std::vector<double> macdDif_, macdDea_, macdHist_;

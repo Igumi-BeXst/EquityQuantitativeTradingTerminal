@@ -433,10 +433,12 @@ std::optional<IntradayData> TdxProvider::getIntraday(const StockCode& code) {
     data.code = code;
     data.date = tradeDate;
     data.preClose = preClose;
-    // 满 240 点数组（缺分钟价格 carry-forward、量不变），使量柱=单分钟量、均价/MACD 连续
+    // 满 240 点数组（缺分钟价格 carry-forward、量不变），使量柱=单分钟量、均价/MACD 连续。
+    // 只建到最后一个有成交的分钟——未来分钟不生成点，避免未到时间在图上拉一条直线。
+    const int lastIdxWithData = mins.rbegin()->first;
     double cumVol = 0.0, cumAmt = 0.0;
     double lastPrice = 0.0;
-    for (int idx = 0; idx <= 239; ++idx) {
+    for (int idx = 0; idx <= lastIdxWithData; ++idx) {
         const auto it = mins.find(idx);
         if (it != mins.end()) {
             const auto& a = it->second;
