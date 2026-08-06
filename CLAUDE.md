@@ -76,9 +76,9 @@ cmake --preset with-qt && cmake --build --preset with-qt
 
 ## 当前阶段
 
-**P9 ✅ → P10 第二轮 ✅ → P10 第三轮 ✅（筹码分布 + 成交分布 + 区间统计）**
+**P9 ✅ → P10 第二轮 ✅ → P10 第三轮 ✅ → P10 第四轮 ✅ → P10 第五轮 ✅（筹码分布 + 板块热力图 + 数据导出/截图/画线）**
 
-Foundation: ✅ (34) | Core: ✅ (21) | Data: ✅ (78) | Engine: ✅ (70) | Intelligence: ✅ (52) | 总计: ✅ 255 tests | Qt: ✅ 6.11.1 | TA-Lib: ✅ 0.7.1 | 数据源: ✅ 通达信 TDX (直连 :7709) + 腾讯/AKShare 备源 + MultiProvider
+Foundation: ✅ (38) | Core: ✅ (21) | Data: ✅ (83) | Engine: ✅ (76) | Intelligence: ✅ (52) | 总计: ✅ 270 tests | Qt: ✅ 6.11.1 | TA-Lib: ✅ 0.7.1 | 数据源: ✅ 通达信 TDX (直连 :7709) + 腾讯/AKShare 备源 + MultiProvider
 
 | 阶段 | 内容 |
 |------|------|

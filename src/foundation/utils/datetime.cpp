@@ -8,10 +8,6 @@ namespace st::utils {
 
 using namespace std::chrono;
 
-static DateTime from_time_t(std::time_t t) {
-    return system_clock::from_time_t(t);
-}
-
 static std::time_t to_time_t(DateTime dt) {
     return system_clock::to_time_t(dt);
 }

@@ -39,6 +39,11 @@ public:
     void setIndicatorVisible(Indicator ind, bool visible);
     bool isIndicatorVisible(Indicator ind) const;
 
+    /// 导出当前 K 线数据为 CSV（当前周期全部已加载 bar）
+    void exportData();
+    /// 清除画线标注
+    void clearAnnotations();
+
 signals:
     void periodChanged(BarPeriod period);
 
@@ -91,6 +96,20 @@ private:
     void drawPaneHeader(QPainter& p, const QRectF& rect, const QString& title,
                         const QColor& color);
 
+    // 画线工具
+    enum class DrawMode { None, Horizontal, Trend };
+    struct ChartLine {
+        bool horizontal = false;
+        int idx1 = 0;
+        double price1 = 0.0;
+        int idx2 = 0;
+        double price2 = 0.0;
+    };
+    void setDrawMode(DrawMode mode);
+    void drawAnnotations(QPainter& p);
+    int indexAtX(double x) const;
+    double priceFromY(double y) const;
+
     IDataProvider* provider_ = nullptr;
     std::vector<Bar> bars_;
     StockCode code_;
@@ -103,6 +122,7 @@ private:
     int visibleCount_ = 120;
     int mouseIndex_ = -1;
     std::optional<DateTime> lastEmittedDate_;  // 已发出的十字线日期（避免重复发射）
+    double mouseX_ = 0;
     double mouseY_ = 0;
     bool dragging_ = false;
     int dragStartX_ = 0;
@@ -120,6 +140,12 @@ private:
     QRectF mainRect_, volRect_, macdRect_, rsiRect_, bollRect_;
     std::vector<std::pair<Indicator, QRectF>> paneRects_;  // 可见面板及其区域
     double priceHi_ = 0, priceLo_ = 0, volHi_ = 0, bollHi_ = 0, bollLo_ = 0, macdMaxAbs_ = 0;
+
+    DrawMode drawMode_ = DrawMode::None;
+    bool drawing_ = false;
+    int dragStartIdx_ = -1;
+    double dragStartPrice_ = 0.0;
+    std::vector<ChartLine> lines_;  // 画线标注（锚定 bar 索引+价格，随平移缩放稳定）
 };
 
 } // namespace st

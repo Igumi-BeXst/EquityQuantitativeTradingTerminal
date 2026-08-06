@@ -1,6 +1,8 @@
 #pragma once
 
 #include "foundation/types.h"
+#include "foundation/order.h"
+#include "engine/backtest/performance.h"
 #include <QWidget>
 #include <memory>
 #include <vector>
@@ -24,7 +26,6 @@ class TradeTableModel;
 class IStrategy;
 struct BacktestConfig;
 struct BacktestResult;
-struct Performance;
 class StockCode;
 
 /// 回测面板 — 选股/选策略/参数/日期/资金 → 异步回测 → 指标+净值曲线+成交明细
@@ -42,6 +43,7 @@ private slots:
     void onStrategyChanged();
     void onAllDataFetched();
     void onResult(const BacktestResult& result);
+    void onExportClicked();
 
 private:
     std::vector<StockCode> selectedSymbols() const;
@@ -83,6 +85,11 @@ private:
     EquityCurveWidget* equityCurve_ = nullptr;
     QTableView* tradesView_ = nullptr;
     TradeTableModel* tradeModel_ = nullptr;
+
+    bool hasResult_ = false;          // 是否有可导出的回测结果
+    Performance lastPerf_;            // 上次回测绩效（导出用）
+    std::vector<Trade> lastTrades_;   // 上次回测成交（导出用）
+    QPushButton* exportBtn_ = nullptr;
 };
 
 } // namespace st

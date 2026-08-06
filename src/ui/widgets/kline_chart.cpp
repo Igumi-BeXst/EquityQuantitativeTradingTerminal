@@ -1,8 +1,11 @@
 #include "ui/widgets/kline_chart.h"
 #include "data/idata_provider.h"
 #include "core/thread_pool.h"
+#include "core/app_paths.h"
+#include "core/log_manager.h"
 #include "foundation/utils/datetime.h"
 #include "foundation/utils/indicators.h"
+#include "foundation/utils/csv.h"
 #include <QPainter>
 #include <QPainterPath>
 #include <QMouseEvent>
@@ -10,8 +13,14 @@
 #include <QMetaObject>
 #include <QPointer>
 #include <QToolButton>
+#include <QPushButton>
+#include <QButtonGroup>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
+#include <QFileDialog>
+#include <QFile>
+#include <QTextStream>
 #include <algorithm>
 #include <cmath>
 
@@ -80,7 +89,53 @@ KLineChart::KLineChart(IDataProvider* provider, QWidget* parent)
     addToggle(tr("BOLL"), Indicator::Boll);
     addToggle(tr("MACD"), Indicator::Macd);
     addToggle(tr("RSI"), Indicator::Rsi);
-    bar->addStretch();
+    bar->addStretch();  // 指标开关靠左，工具组右对齐（图表右上角）
+
+    // 画线/导出工具组：显眼样式（亮字 + 边框 + 激活金色高亮），与指标开关区分
+    const QString toolBtnStyle = QStringLiteral(
+        "QPushButton { color:#e6e6e6; border:1px solid #6a6a6a; border-radius:3px;"
+        "  padding:2px 8px; background:#2a2a2c; }"
+        "QPushButton:hover { background:#3d3d40; border-color:#999999; }"
+        "QPushButton:checked { color:#ffd700; border-color:#ffd700;"
+        "  background:#3a3220; font-weight:bold; }");
+    auto* sep = new QFrame(controlBar_);
+    sep->setFrameShape(QFrame::VLine);
+    sep->setStyleSheet(QStringLiteral("color:#555555;"));
+    bar->addWidget(sep);
+    bar->addSpacing(4);
+
+    auto* drawGroup = new QButtonGroup(this);
+    drawGroup->setExclusive(false);
+    const auto addDrawToggle = [&](const QString& text, DrawMode mode) {
+        auto* btn = new QPushButton(text, controlBar_);
+        btn->setCheckable(true);
+        btn->setStyleSheet(toolBtnStyle);
+        drawGroup->addButton(btn);
+        bar->addWidget(btn);
+        connect(btn, &QPushButton::clicked, this, [this, btn, drawGroup, mode] {
+            if (btn->isChecked()) {
+                for (auto* b : drawGroup->buttons()) {
+                    if (b != btn) b->setChecked(false);
+                }
+                setDrawMode(mode);
+            } else {
+                setDrawMode(DrawMode::None);
+            }
+        });
+    };
+    addDrawToggle(tr("水平线"), DrawMode::Horizontal);
+    addDrawToggle(tr("趋势线"), DrawMode::Trend);
+
+    auto* clearBtn = new QPushButton(tr("清除标注"), controlBar_);
+    clearBtn->setStyleSheet(toolBtnStyle);
+    bar->addWidget(clearBtn);
+    connect(clearBtn, &QPushButton::clicked, this, &KLineChart::clearAnnotations);
+
+    auto* exportBtn = new QPushButton(tr("导出"), controlBar_);
+    exportBtn->setStyleSheet(toolBtnStyle);
+    bar->addWidget(exportBtn);
+    connect(exportBtn, &QPushButton::clicked, this, &KLineChart::exportData);
+
     layout->addWidget(controlBar_);
     layout->addStretch();
 }
@@ -107,6 +162,72 @@ bool KLineChart::isIndicatorVisible(Indicator ind) const {
     return true;
 }
 
+void KLineChart::setDrawMode(DrawMode mode) {
+    drawMode_ = mode;
+    drawing_ = false;
+    setCursor(mode != DrawMode::None ? Qt::CrossCursor : Qt::ArrowCursor);
+    update();
+}
+
+void KLineChart::clearAnnotations() {
+    lines_.clear();
+    update();
+}
+
+void KLineChart::exportData() {
+    if (bars_.empty()) return;
+    const QString defaultPath = QString::fromStdString(AppPaths::dataDir() + "/kline.csv");
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("导出 K 线数据"), defaultPath, tr("CSV 文件 (*.csv)"));
+    if (path.isEmpty()) return;
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        LogManager::instance()->log(LogLevel::Warn, "K线导出失败: {}", path.toStdString());
+        return;
+    }
+    const std::string csv = csv::klineToCsv(bars_);
+    file.write(csv.c_str(), static_cast<qint64>(csv.size()));
+    LogManager::instance()->log(LogLevel::Info, "已导出 K 线数据 {} 根: {}", bars_.size(),
+                                path.toStdString());
+}
+
+int KLineChart::indexAtX(double x) const {
+    if (bars_.empty()) return -1;
+    int idx = firstVisible_ + static_cast<int>((x - mainRect_.left()) / bodyWidth());
+    return std::clamp(idx, 0, static_cast<int>(bars_.size()) - 1);
+}
+
+double KLineChart::priceFromY(double y) const {
+    if (priceHi_ - priceLo_ < 1e-12) return priceHi_;
+    return priceHi_ - (y - mainRect_.top()) / mainRect_.height() *
+                          (priceHi_ - priceLo_);
+}
+
+void KLineChart::drawAnnotations(QPainter& p) {
+    const bool preview = drawing_ && drawMode_ == DrawMode::Trend;
+    if (lines_.empty() && !preview) return;
+    p.setPen(QPen(QColor("#ffd700"), 1, Qt::DashLine));
+    for (const auto& line : lines_) {
+        if (line.horizontal) {
+            const double y = priceToY(line.price1);
+            if (y < mainRect_.top() - 12 || y > mainRect_.bottom() + 12) continue;
+            p.drawLine(QPointF(mainRect_.left(), y), QPointF(mainRect_.right(), y));
+            p.drawText(QPointF(mainRect_.right() - 44, y - 4),
+                       QString::number(line.price1, 'f', 2));
+        } else {
+            p.drawLine(QPointF(barCenterX(line.idx1), priceToY(line.price1)),
+                       QPointF(barCenterX(line.idx2), priceToY(line.price2)));
+        }
+    }
+    // 趋势预览：起点 → 当前光标（2px 实线，拖拽时清楚跟随）
+    if (preview && dragStartIdx_ >= 0) {
+        p.setPen(QPen(QColor("#ffd700"), 2));
+        p.drawLine(QPointF(barCenterX(dragStartIdx_), priceToY(dragStartPrice_)),
+                   QPointF(mouseX_, priceFromY(mouseY_)));
+        p.setPen(QPen(QColor("#ffd700"), 1, Qt::DashLine));  // 恢复已存线的虚线笔
+    }
+}
+
 // ============================================================
 // 数据
 // ============================================================
@@ -115,6 +236,9 @@ void KLineChart::loadStock(const StockCode& code, const QString& name) {
     code_ = code;
     name_ = name;
     loading_ = true;
+    lines_.clear();   // 切股不带旧标注
+    drawMode_ = DrawMode::None;
+    drawing_ = false;
     update();
     if (!provider_) { loading_ = false; return; }
 
@@ -347,6 +471,7 @@ void KLineChart::paintEvent(QPaintEvent*) {
     if (showMacd_) drawMacd(p);
     if (showRsi_)  drawRsi(p);
     drawAxes(p);
+    drawAnnotations(p);  // 画线标注（十字线之下）
     drawCrosshair(p);
 }
 
@@ -748,14 +873,16 @@ void KLineChart::drawCrosshair(QPainter& p) {
 // 交互
 // ============================================================
 void KLineChart::mouseMoveEvent(QMouseEvent* event) {
-    if (event->pos().y() < plotTop()) return;  // 控制条区域忽略
+    // 先记录光标位置（趋势线预览用原始坐标，即使移到控制条区域也保持最新）
+    mouseX_ = event->pos().x();
+    mouseY_ = event->pos().y();
+    if (event->pos().y() < plotTop()) return;  // 控制条区域忽略其余处理
     if (dragging_ && !bars_.empty()) {
         const int dx = dragStartX_ - event->pos().x();
         const int maxFirst = std::max(0, static_cast<int>(bars_.size()) - visibleCount_);
         firstVisible_ = std::clamp(dragStartFirst_ + static_cast<int>(dx / bodyWidth()),
                                    0, maxFirst);
     }
-    mouseY_ = event->pos().y();
     if (!bars_.empty()) {
         int idx = firstVisible_ + static_cast<int>(
             (event->pos().x() - mainRect_.left()) / bodyWidth());
@@ -779,6 +906,22 @@ void KLineChart::mouseMoveEvent(QMouseEvent* event) {
 void KLineChart::mousePressEvent(QMouseEvent* event) {
     if (event->pos().y() < plotTop()) return;
     if (event->button() == Qt::LeftButton && !bars_.empty()) {
+        // 画线模式：水平线点击即画，趋势线按下记起点
+        if (drawMode_ == DrawMode::Horizontal) {
+            lines_.push_back({true, 0, priceFromY(event->pos().y()), 0, 0});
+            update();
+            return;
+        }
+        if (drawMode_ == DrawMode::Trend) {
+            drawing_ = true;
+            dragStartIdx_ = indexAtX(event->pos().x());
+            dragStartPrice_ = priceFromY(event->pos().y());
+            dragStartX_ = event->pos().x();
+            setCursor(Qt::CrossCursor);
+            update();
+            return;
+        }
+        // 默认：拖拽平移
         dragging_ = true;
         dragStartX_ = event->pos().x();
         dragStartFirst_ = firstVisible_;
@@ -787,6 +930,19 @@ void KLineChart::mousePressEvent(QMouseEvent* event) {
 }
 
 void KLineChart::mouseReleaseEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton && drawing_ &&
+        drawMode_ == DrawMode::Trend) {
+        // 趋势线提交终点（退化点：同 bar 同价则忽略）
+        const int idx2 = indexAtX(event->pos().x());
+        const double price2 = priceFromY(event->pos().y());
+        drawing_ = false;
+        unsetCursor();
+        if (idx2 != dragStartIdx_ || std::abs(price2 - dragStartPrice_) > 1e-6) {
+            lines_.push_back({false, dragStartIdx_, dragStartPrice_, idx2, price2});
+        }
+        update();
+        return;
+    }
     if (event->button() == Qt::LeftButton && dragging_) {
         dragging_ = false;
         unsetCursor();

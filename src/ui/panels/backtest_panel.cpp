@@ -10,7 +10,9 @@
 #include "engine/strategy/templates/turtle_strategy.h"
 #include "core/thread_pool.h"
 #include "core/log_manager.h"
+#include "core/app_paths.h"
 #include "foundation/utils/datetime.h"
+#include "foundation/utils/csv.h"
 #include <QComboBox>
 #include <QSpinBox>
 #include <QListWidget>
@@ -28,6 +30,11 @@
 #include <QScrollArea>
 #include <QDate>
 #include <QHeaderView>
+#include <QFileDialog>
+#include <QFile>
+#include <QTextStream>
+#include <iomanip>
+#include <sstream>
 #include <QMetaObject>
 #include <QPointer>
 #include <algorithm>
@@ -113,15 +120,18 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
 
     auto* runRow = new QHBoxLayout();
     runBtn_ = new QPushButton(tr("运行回测"));
+    exportBtn_ = new QPushButton(tr("导出结果"));
     progress_ = new QProgressBar();
     progress_->setRange(0, 100);
     progress_->setValue(0);
     progress_->setVisible(false);
     runRow->addWidget(runBtn_);
+    runRow->addWidget(exportBtn_);
     runRow->addWidget(progress_, 1);
     fl->addRow(runRow);
     layout->addWidget(form);
     connect(runBtn_, &QPushButton::clicked, this, &BacktestPanel::onRunClicked);
+    connect(exportBtn_, &QPushButton::clicked, this, &BacktestPanel::onExportClicked);
 
     // ---- 绩效指标 ----
     auto* metricBox = new QGroupBox(tr("绩效指标"));
@@ -342,10 +352,75 @@ void BacktestPanel::onResult(const BacktestResult& result) {
     setMetrics(result.performance, result);
     equityCurve_->setData(result.performance.equityCurve);
     tradeModel_->setTrades(result.trades);
+    hasResult_ = true;
+    lastPerf_ = result.performance;
+    lastTrades_ = result.trades;
     LogManager::instance()->log(LogLevel::Info,
         "回测完成: 总收益 {:.2f}% 夏普 {:.2f} 交易 {} 笔",
         result.performance.totalReturn, result.performance.sharpeRatio,
         static_cast<int>(result.trades.size()));
+}
+
+void BacktestPanel::onExportClicked() {
+    if (!hasResult_) return;
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("导出回测结果"),
+        QString::fromStdString(AppPaths::dataDir() + "/backtest.csv"),
+        tr("CSV 文件 (*.csv)"));
+    if (path.isEmpty()) return;
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+
+    const auto fmt = [](double v, int prec) {
+        std::ostringstream s;
+        s << std::fixed << std::setprecision(prec) << v;
+        return s.str();
+    };
+    std::ostringstream os;
+    const auto row = [&os](const std::vector<std::string>& cols) {
+        os << csv::joinRow(cols) << '\n';
+    };
+
+    // 绩效
+    os << "=== 绩效指标 ===\n";
+    row({"总收益率(%)", fmt(lastPerf_.totalReturn, 2)});
+    row({"年化收益率(%)", fmt(lastPerf_.annualReturn, 2)});
+    row({"最大回撤(%)", fmt(lastPerf_.maxDrawdown, 2)});
+    row({"夏普比率", fmt(lastPerf_.sharpeRatio, 2)});
+    row({"胜率(%)", fmt(lastPerf_.winRate, 2)});
+    row({"盈亏比", fmt(lastPerf_.profitFactor, 2)});
+    row({"卡玛比率", fmt(lastPerf_.calmarRatio, 2)});
+    row({"波动率(%)", fmt(lastPerf_.volatility, 2)});
+    row({"索提诺比率", fmt(lastPerf_.sortinoRatio, 2)});
+    row({"Alpha", fmt(lastPerf_.alpha, 4)});
+    row({"Beta", fmt(lastPerf_.beta, 4)});
+    row({"总交易次数", std::to_string(lastPerf_.totalTrades)});
+    row({"盈利交易", std::to_string(lastPerf_.winningTrades)});
+    row({"总盈亏", fmt(lastPerf_.totalPnl, 2)});
+
+    // 净值曲线
+    os << "\n=== 净值曲线 ===\n";
+    row({"序号", "净值"});
+    for (size_t i = 0; i < lastPerf_.equityCurve.size(); ++i) {
+        row({std::to_string(i), fmt(lastPerf_.equityCurve[i], 4)});
+    }
+
+    // 成交明细
+    os << "\n=== 成交明细 ===\n";
+    row({"时间", "代码", "方向", "价格", "数量", "成交额", "费用"});
+    for (const auto& t : lastTrades_) {
+        row({utils::toDateTimeString(t.time),
+             t.code.displayCode(),
+             t.direction == Direction::Buy ? "买入" : "卖出",
+             fmt(t.price, 2),
+             std::to_string(t.volume),
+             fmt(t.amount, 2),
+             fmt(t.totalFee, 2)});
+    }
+
+    const std::string text = os.str();
+    file.write(text.c_str(), static_cast<qint64>(text.size()));
+    LogManager::instance()->log(LogLevel::Info, "已导出回测结果: {}", path.toStdString());
 }
 
 } // namespace st

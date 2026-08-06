@@ -7,6 +7,7 @@ add_executable(test_foundation
     test_foundation/test_json_utils.cpp
     test_foundation/test_indicators.cpp
     test_foundation/test_pinyin.cpp
+    test_foundation/test_csv.cpp
 )
 target_link_libraries(test_foundation PRIVATE st_foundation GTest::gtest GTest::gtest_main)
 gtest_discover_tests(test_foundation)
@@ -34,6 +35,7 @@ if(BUILD_WITH_QT)
         test_data/test_tdx_provider.cpp
         test_data/test_multi_provider.cpp
         test_data/test_akshare_provider.cpp
+        test_data/test_sector_provider.cpp
     )
     target_compile_definitions(test_data PRIVATE
         ST_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
@@ -52,6 +54,7 @@ if(BUILD_WITH_QT)
         test_engine/test_grid_search.cpp
         test_engine/test_analyzer.cpp
         test_engine/test_chip_distribution.cpp
+        test_engine/test_treemap.cpp
     )
     target_link_libraries(test_engine PRIVATE st_engine st_data GTest::gtest GTest::gtest_main)
     gtest_discover_tests(test_engine)

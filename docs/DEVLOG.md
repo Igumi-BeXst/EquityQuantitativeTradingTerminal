@@ -1,5 +1,105 @@
 # 开发日志 (Development Log)
 
+## 2026-08-07 — 修复②：`_CrtIsValidHeapPointer` 崩溃（同根因=陈旧对象，clean rebuild 解决）
+
+### 症状
+用户复测关闭又弹 `Debug Assertion Failed! Expression: _CrtIsValidHeapPointer(block)`（debug_heap.cpp:904，free 收到无效指针）。
+
+### 排查
+1. 用户回滚了代码后未 rebuild → **又是陈旧对象/ABI 错位**（与上一轮同根因）
+2. 全量 `--clean-first` rebuild → 复测 3/5 轮干净退出、0 CRT 报告
+3. 检测方法修正：进程存活 ≠ 崩溃——waitForDone 会等限流的东财 IO（启动板块/换手率拉取，每主机 3 重试），关闭需 ~8s，之前误判为「慢退出即崩溃」
+
+### 修复
+- 全量 clean rebuild（陈旧对象一次性根因）
+- 顺手：移除 closeEvent 里 `provider_->disconnect()`（与在飞 IO 线程竞争 TDX 内部状态）——~MainWindow 已在 waitForDone 排空后再 disconnect，更安全
+- 移除 datetime.cpp 未引用 `from_time_t`（C4505 警告）
+- 移除全部临时诊断（stderr 重定向/栈回溯 hook/检查点）
+- **已知小问题**：东财限流期间启动后立即关闭，waitForDone 等启动 IO → 关闭慢 ~8s（非崩溃，限流恢复后消失）
+
+## 2026-08-07 — 修复：关闭时堆损坏（根因=陈旧对象/ABI 不一致，clean rebuild 解决）
+
+### 症状
+用户测试画线工具后关闭 StockTerminal，**每次必现** `HEAP CORRUPTION DETECTED: after Normal block`（非确定性块号 #8014/#8016/#8018）。
+
+### 排查（系统化二分）
+1. 临时把 CRT 报告重定向 stderr（main.cpp `_CrtSetReportMode`）→ **无人值守静默复现**：启动+WM_CLOSE 必现
+2. **基线对比**：`git stash` 后测 58de071（round 3）→ **干净退出** → 确定是 round 4/5 未提交改动引入
+3. 二分：禁用板块面板 + K线画线按钮 → 仍崩；移除 closeEvent disconnect → 仍崩
+4. 加 `_CrtCheckMemory()` 检查点 → **`HEAP CORRUPT at startup`**（窗口 show 后、事件循环前堆已损坏）→ 定位到 `new CentralChartWidget` 构造段
+5. **根因**：`git stash` 恢复时增量构建混用新旧目标文件 → KLineChart 等类**布局不一致（ABI 错位）** → 成员写入越过堆缓冲区，非确定性块号即源于此
+6. **全量 `--clean-first` rebuild → 修复**，启动+关闭干净退出
+
+### 修复（代码层面）
+- 全量 clean rebuild 消除陈旧对象（一次性根因，非代码 bug）
+- **趋势线预览跟随**：mouseMoveEvent 顶部先记录 `mouseX_/mouseY_`（原始光标坐标，不依赖 bar 量化），预览线改 2px 金色实线 → 拖拽时逐像素跟随光标
+- 画线/导出按钮移到 K线图**右上角**（stretch 前置 + 右对齐），显眼样式（亮字+边框+激活金色高亮+竖分隔线）
+- 移除临时诊断（main.cpp / main_window.cpp crtdbg 检查点）
+- 测试 270/270 全过；构建零警告
+
+### 经验
+- **git stash 恢复后必须 clean rebuild**：增量构建可能残留按旧 header 编译的目标文件，导致类布局 ABI 错位 → 隐蔽堆损坏
+- 排查大法：`_CrtSetReportMode(MODE_FILE)` 重定向 CRT 报告到 stderr 可无人值守复现；`_CrtCheckMemory()` 检查点定位损坏发生时机
+
+## 2026-08-07 — P10 第五轮：数据导出 CSV + K线截图 + 画线工具
+
+### 背景
+用户选定范围 = 数据导出 CSV + K线截图 + 画线工具（纯本地工程，不依赖网络，不受东财限流影响）。给图表补齐「留痕」能力：标注画线、保存图像、导出数据。
+
+### Step 1 — CSV 工具（新建 `foundation/utils/csv.{h,cpp}` + 4 测试）
+- `csv::escape`（逗号/引号/换行转义）、`csv::joinRow`、`csv::klineToCsv`（日期,OHLC,量(股),额(元),换手率）
+- **修一个坑**：默认 ostream 精度 6 把大额（1050000）输出成科学计数 `1.05e+06` → 数值列改 `std::fixed` 定精度（价格/额 2 位、换手率 4 位）
+- 测试 `test_foundation/test_csv.cpp` 4 例全过
+
+### Step 2 — 画线工具（改 `kline_chart.{h,cpp}`）
+- 控制条追加 水平线 / 趋势线（互斥 checkable，可再点取消）+ 清除标注 + 导出
+- `ChartLine` 锚定（bar索引, 价格）→ 用已验证坐标逆函数 `indexAtX`/`priceFromY`，平移/缩放时标注随数据稳定
+- 交互：水平线点击即画；趋势线按下记起点 → 拖拽预览 → 松开提交（退化同 bar 同价忽略）；非画线模式恢复正常十字/平移
+- 绘制：paintEvent 在十字线前插 `drawAnnotations`，亮黄 #ffd700 虚线，水平线右轴标价；`loadStock` 切股清空标注
+- 导出：`exportData()` → QFileDialog → `csv::klineToCsv(bars_)` 写文件 → LogManager 记路径
+
+### Step 4 — K线截图（改 `central_chart_widget` + `main_window`）
+- CentralChartWidget 加 `currentCode()` getter
+- 文件菜单「截图当前图表(&S)…」：`centralChart_->grab()` → `dataDir/screenshots/`（QDir mkpath）→ `screenshot_<code>_<时间戳>.png` 自动保存 → statusBar + LogManager
+
+### Step 5 — 回测结果导出（改 `backtest_panel` + `trade_table_model`）
+- TradeTableModel 加 `trades()` getter；BacktestPanel 存上次 `Performance`+`std::vector<Trade>`
+- 「导出结果」按钮 → QFileDialog → CSV 三段：绩效指标（14 项）/ 净值曲线（序号,净值）/ 成交明细（时间,代码,方向,价格,数量,成交额,费用）
+
+### 验证
+- 测试 266 → **270**（csv 4 例）；构建零警告；应用 6s 存活
+- 待用户 run.bat 冒烟：画线/截图/导出
+
+## 2026-08-06 — P10 第四轮：板块指数 + 概念热力图（东财板块行情 + Squarified Treemap）
+
+### 背景
+用户选定下一步范围 = 板块指数/概念热力图。交付左区「板块」面板：行业/概念板块 Squarified Treemap 热力图（面积∝成交额、颜色∝涨跌幅红涨绿跌），悬停详情，30s 自动刷新。
+
+### Step 1 — 数据层（新建 `src/data/eastmoney_sector_provider.{h,cpp}`）
+- 东财 `clist/get` 板块接口：`fs=m:90+t:2` 行业 / `fs=m:90+t:3` 概念；字段 f2指数 f3涨跌幅 f6成交额 f8换手率 f12代码 f14名称 f104/f105/f106涨跌平家数 f128领涨股 f136领涨股涨跌幅
+- **实测：板块接口每页上限 100（pz=600 也被截断）→ fetchBoards 自动分页直到 total；行业 ~496 / 概念 ~504 细分板块（东财 m:90+t:2 现已含 500 细分行业）**
+- **限流健壮性**：主域 `push2.eastmoney.com` 被 CDN 限流（clist 连接被丢弃，ulist.np 正常）→ **主机列表回退**（push2/2.push2/1.push2/3.push2，每主机尝试分页，首个非空返回）；fetch 记录 errorString
+- `parsePage` 纯静态可单测：兼容 `data.diff` 数组/对象形态；字段缺失默认值；畸形返回空
+
+### Step 2 — 引擎层（新建 `src/engine/analyzer/treemap.{h,cpp}`）
+- `Treemap::layout(w, h, weights)`：Squarified 矩形树（Bruls et al.），权重降序 + 行贪心（行最差纵横比不再改善即翻行）+ 溢出守卫
+- 不变量：矩形铺满 w×h、不重叠、面积守恒（单测锁定）
+
+### Step 3 — UI 面板（新建 `src/ui/panels/sector_panel.{h,cpp}`）
+- 布局：顶行 [行业板块][概念板块] tab + 刷新 + 更新时间；中部自绘 `SectorHeatmap`（treemap：tile 填充色按 |涨跌|/5% 饱和度插值，平盘灰 #3a3a3c，字号按 tile 自适应）；底部悬停详情（名称/涨跌幅/领涨股/涨跌家数/成交额）
+- 异步：IO 池 fetchBoards（shared_ptr provider + QPointer 守卫 + gen_ 世代守卫）→ 主线程 applyBoards → treemap 布局（主线程，~500 项微秒级）+ repaint；resize 重排
+- 30s 定时器；showEvent 启动 / hideEvent 停止；**获取失败空态明确提示「板块数据源暂不可用，将自动重试」**（限流可自愈）
+
+### Step 4 — 接入 MainWindow + CMake
+- 左区 `sectorDock`（市场面板下方垂直分割，tr("板块")）；st_data +eastmoney_sector_provider、st_engine +treemap、st_ui +sector_panel、工具 `sector_calib`
+- tests：test_data +test_sector_provider（5 例）、test_engine +test_treemap（6 例）
+
+### Step 5 — 实连验证
+- **sector_calib 实连成功**（限流前）：行业 496 只 top=钨+6.85%/种子+6.07%/焦煤+5.82%（中钨高新领涨 8.83%）、概念 504 只 top=昨日连板+5.93% —— 全部真实合理
+- **东财 clist 限流事件**：连续校准请求（~20 次/2min）触发 CDN IP 级过滤（clist 连接 http_code=000 被丢弃，ulist.np 仍正常，1.push2/2.push2/3.push2 均受影响）→ 增加主机回退 + 空态提示；限流为临时状态，正常运行（30s 间隔）不触发
+- 测试 255 → **266**（板块解析 5 + treemap 6）；构建零警告；应用 6s 存活
+- 待用户 run.bat 复验（限流恢复后热力图出数据）
+
 ## 2026-08-06 — P10 第三轮细化②：筹码面板精简（去掉当日成交/区间统计，加 70% 成本区间）
 
 ### 用户反馈

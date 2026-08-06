@@ -27,6 +27,9 @@ public:
     /// 周期切换: 分时→Timeline，其余→KLine
     void setPeriod(BarPeriod period);
 
+    /// 当前股票代码（截图文件名用）
+    StockCode currentCode() const { return currentCode_; }
+
 signals:
     /// 转发 K线十字光标日期（日/周/月；nullopt = 离开/重载回退最新）
     void crosshairDateChanged(const std::optional<DateTime>& date);

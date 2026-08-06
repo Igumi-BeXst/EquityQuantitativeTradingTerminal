@@ -7,6 +7,7 @@
 #include "ui/panels/log_panel.h"
 #include "ui/panels/stock_search_bar.h"
 #include "ui/panels/market_panel.h"
+#include "ui/panels/sector_panel.h"
 #include "ui/panels/quant_window.h"
 #include "ui/widgets/market_depth_widget.h"
 #include "ui/widgets/stock_key_data_widget.h"
@@ -33,6 +34,9 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QKeySequence>
+#include <QDir>
+#include <QDateTime>
+#include <QFileDialog>
 
 namespace st {
 
@@ -162,6 +166,16 @@ void MainWindow::createDocks() {
         if (chipPanel_) chipPanel_->setStock(code, name);
     });
 
+    // 左: 板块热力图（市场面板下方；行业/概念 Squarified Treemap）
+    // [BISECT] 暂时禁用 sector panel 定位关闭堆损坏
+    // auto* sectorDock = new QDockWidget(tr("板块"), this);
+    // sectorDock->setObjectName(QStringLiteral("sectorDock"));
+    // sectorPanel_ = new SectorPanel(sectorDock);
+    // sectorDock->setWidget(sectorPanel_);
+    // addDockWidget(Qt::LeftDockWidgetArea, sectorDock);
+    // splitDockWidget(marketDock, sectorDock, Qt::Vertical);
+    // sectorDock->setMinimumWidth(260);
+
     // 右: 个股关键数据（盘口上方）+ 盘口五档 + 成交明细
     auto* keyDataDock = new QDockWidget(tr("个股关键数据"), this);
     keyDataDock->setObjectName(QStringLiteral("keyDataDock"));
@@ -206,6 +220,27 @@ void MainWindow::createDocks() {
 void MainWindow::createMenus() {
     // 文件
     auto* fileMenu = menuBar()->addMenu(tr("文件(&F)"));
+    fileMenu->addAction(tr("截图当前图表(&S)…"), this, [this] {
+        if (!centralChart_) return;
+        const QString dir = QString::fromStdString(AppPaths::dataDir() + "/screenshots");
+        QDir().mkpath(dir);
+        const QString code = centralChart_->currentCode().isValid()
+            ? QString::fromStdString(centralChart_->currentCode().displayCode())
+            : QStringLiteral("chart");
+        const QString defaultPath = dir + "/screenshot_" + code + "_" +
+            QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss") + ".png";
+        // 保存对话框：用户自己选位置（默认 screenshots 目录），避免找不到
+        const QString path = QFileDialog::getSaveFileName(
+            this, tr("保存截图"), defaultPath, tr("PNG 图片 (*.png)"));
+        if (path.isEmpty()) return;
+        const QPixmap pm = centralChart_->grab();
+        if (pm.save(path, "PNG")) {
+            statusBar()->showMessage(tr("截图已保存: %1").arg(path), 5000);
+            LogManager::instance()->log(LogLevel::Info, "截图: {}", path.toStdString());
+        } else {
+            statusBar()->showMessage(tr("截图保存失败"), 3000);
+        }
+    });
     fileMenu->addAction(tr("退出(&X)"), QKeySequence::Quit, this, &QWidget::close);
 
     // 视图
@@ -345,7 +380,8 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 
     ConfigManager::instance()->save();
     LogManager::instance()->flush();
-    if (provider_) provider_->disconnect();
+    // 不在 closeEvent 里 disconnect：会与在飞 IO 线程（市场面板/关键数据/盘口 TDX 轮询）
+    // 竞争 provider 内部状态 → 释放无效指针。~MainWindow 已在 waitForDone 后排空后再 disconnect。
 
     QMainWindow::closeEvent(event);
 }

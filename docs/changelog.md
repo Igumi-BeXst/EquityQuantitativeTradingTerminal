@@ -1,5 +1,19 @@
 # 变更记录
 
+## P10 第五轮 (2026-08-07) — 数据导出 CSV + K线截图 + 画线工具
+- 工具: foundation/utils/csv（escape/joinRow/klineToCsv，fixed 精度避免科学计数）
+- 图表: KLineChart 画线工具（水平线/趋势线/清除，锚定 bar+价格随缩放稳定）+ K线数据导出 CSV
+- 主窗口: 文件→截图当前图表（grab 存 dataDir/screenshots/ PNG）
+- 回测: 「导出结果」→ 绩效/净值曲线/成交明细 CSV
+- 测试 266 → 270（csv 4 例）
+
+## P10 第四轮 (2026-08-06) — 板块指数 + 概念热力图
+- 数据: EastMoneySectorProvider 东财板块行情（行业 m:90+t:2 / 概念 m:90+t:3，自动分页，主机回退防限流）
+- 引擎: Treemap Squarified 矩形树布局（面积∝成交额）
+- UI: 左区「板块」面板 — 行业/概念 treemap 热力图（红涨绿跌强度按幅度）、悬停详情、30s 自动刷新、限流空态提示
+- 工具: sector_calib 实连校准（行业 496 / 概念 504，top 钨+6.85% 等真实数据）
+- 测试 255 → 266（板块解析 5 + treemap 6）
+
 ## P10 第三轮 (2026-08-06) — 筹码分布 + 成交分布 + 区间统计
 - 引擎: ChipDistribution 筹码分布（三角分布 + 换手率衰减模型，200 桶，派生平均成本/获利盘/90%成本区间/集中度）
 - 引擎: TransactionDistribution 当日成交分布（分时/逐笔 → 价格直方图）、RangeStats 区间统计（涨跌幅/振幅/换手/均价/量额）

@@ -22,6 +22,7 @@ class QuantWindow;
 class MarketDepthWidget;
 class StockKeyDataWidget;
 class ChipPanel;
+class SectorPanel;
 
 /// 主窗口 — 菜单栏 + 工具栏(搜索/指数条) + QDockWidget 布局 + 状态栏
 ///
@@ -62,6 +63,7 @@ private:
     MarketIndexStrip* indexStrip_ = nullptr;
     StockSearchBar* searchBar_ = nullptr;
     MarketPanel* marketPanel_ = nullptr;
+    SectorPanel* sectorPanel_ = nullptr;
     CentralChartWidget* centralChart_ = nullptr;
     QStackedWidget* centralStack_ = nullptr;
     QLabel* connLabel_ = nullptr;

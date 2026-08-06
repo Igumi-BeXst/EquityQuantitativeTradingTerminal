@@ -11,6 +11,7 @@ add_library(st_foundation STATIC
     foundation/utils/json_utils.cpp
     foundation/utils/indicators.cpp
     foundation/utils/pinyin.cpp
+    foundation/utils/csv.cpp
 )
 target_include_directories(st_foundation PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(st_foundation PUBLIC nlohmann_json::nlohmann_json)
@@ -48,6 +49,7 @@ add_library(st_data STATIC
     data/tdx/tdx_provider.cpp
     data/provider_factory.cpp
     data/multi_provider.cpp
+    data/eastmoney_sector_provider.cpp
 )
 target_link_libraries(st_data PUBLIC st_foundation st_core Qt6::Sql Qt6::Network nlohmann_json::nlohmann_json ZLIB::ZLIB)
 if(WIN32)
@@ -77,6 +79,7 @@ add_library(st_engine STATIC
     engine/analyzer/stress_test.cpp
     engine/analyzer/monte_carlo.cpp
     engine/analyzer/chip_distribution.cpp
+    engine/analyzer/treemap.cpp
 )
 target_link_libraries(st_engine PUBLIC st_data st_core st_foundation talib::talib)
 
@@ -119,6 +122,7 @@ add_library(st_ui STATIC
     ui/widgets/market_depth_widget.cpp
     ui/widgets/stock_key_data_widget.cpp
     ui/widgets/chip_panel.cpp
+    ui/panels/sector_panel.cpp
     ui/models/stock_list_model.cpp
     ui/models/trade_table_model.cpp
     ui/models/market_rank_model.cpp
@@ -187,6 +191,10 @@ target_link_libraries(heap_stress PRIVATE st_intelligence st_engine st_data st_c
 # 筹码分布实连校准工具（P10 第三轮验证用）
 add_executable(chip_calib tools_chip_calib.cpp)
 target_link_libraries(chip_calib PRIVATE st_engine st_data st_core st_foundation Qt6::Core)
+
+# 东财板块行情实连校准工具（P10 第四轮验证用）
+add_executable(sector_calib tools_sector_calib.cpp)
+target_link_libraries(sector_calib PRIVATE st_data st_core st_foundation Qt6::Core)
 
 else()
 # Without Qt: just build the Foundation CLI test runner
