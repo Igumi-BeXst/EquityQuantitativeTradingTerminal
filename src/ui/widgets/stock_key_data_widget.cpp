@@ -48,7 +48,8 @@ double round2(double v) { return std::round(v * 100.0) / 100.0; }
 }  // namespace
 
 StockKeyDataWidget::StockKeyDataWidget(IDataProvider* provider, QWidget* parent)
-    : QWidget(parent), provider_(provider) {
+    : QWidget(parent), provider_(provider),
+      fundProvider_(std::make_shared<AKShareProvider>()) {
     auto* scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);
     auto* body = new QWidget;
@@ -86,6 +87,10 @@ StockKeyDataWidget::StockKeyDataWidget(IDataProvider* provider, QWidget* parent)
     timer_ = new QTimer(this);
     timer_->setInterval(5000);  // OHLC/量比变化慢，5s 轮询与盘口 2.5s 错开
     connect(timer_, &QTimer::timeout, this, &StockKeyDataWidget::onPoll);
+
+    fundTimer_ = new QTimer(this);
+    fundTimer_->setInterval(60000);  // 基本面慢刷新（与行情 5s 错开）
+    connect(fundTimer_, &QTimer::timeout, this, &StockKeyDataWidget::requestFundamentals);
 }
 
 void StockKeyDataWidget::setPollIntervalMs(int ms) {
@@ -97,6 +102,8 @@ void StockKeyDataWidget::setStock(const StockCode& code, const QString& name) {
     name_ = name;
     barsLoaded_ = false;
     avg5dVol_ = 0.0;
+    fund_ = std::nullopt;
+    fundFetching_ = false;
     resetLabels();
 
     // 异步取 5 日均量（量比分母）
@@ -135,6 +142,7 @@ void StockKeyDataWidget::setStock(const StockCode& code, const QString& name) {
         });
     }
     onPoll();
+    requestFundamentals();
 }
 
 void StockKeyDataWidget::showEvent(QShowEvent* event) {
@@ -143,11 +151,16 @@ void StockKeyDataWidget::showEvent(QShowEvent* event) {
         timer_->start();
         if (!code_.code().empty()) onPoll();
     }
+    if (fundTimer_ && !fundTimer_->isActive()) {
+        fundTimer_->start();
+        if (!code_.code().empty()) requestFundamentals();
+    }
 }
 
 void StockKeyDataWidget::hideEvent(QHideEvent* event) {
     QWidget::hideEvent(event);
     if (timer_) timer_->stop();
+    if (fundTimer_) fundTimer_->stop();
 }
 
 void StockKeyDataWidget::onPoll() {
@@ -165,6 +178,71 @@ void StockKeyDataWidget::onPoll() {
                 if (!quotes.empty()) guard->applyQuote(quotes.front());
             }, Qt::QueuedConnection);
     });
+}
+
+void StockKeyDataWidget::requestFundamentals() {
+    if (fundFetching_ || code_.code().empty() || !fundProvider_) return;
+    fundFetching_ = true;
+    const StockCode code = code_;
+    // 安全异步：shared_ptr 按值捕获（widget 销毁后 provider 仍存活）+ QPointer 守卫回主线程。
+    // provider 移入主线程回调，确保 AKShareProvider 在 IO 线程用完、回主线程后才析构
+    // （避免析构时跨线程访问成员 QNAM clearAccessCache）。
+    auto provider = fundProvider_;
+    QPointer<StockKeyDataWidget> guard(this);
+    ThreadPool::submitIO([provider, guard, code] {
+        auto f = provider->getQuoteFundamentals(code);
+        QMetaObject::invokeMethod(guard,
+            [guard, f = std::move(f), provider = std::move(provider)]() mutable {
+                guard->fundFetching_ = false;
+                guard->onFundamentalsFetched(std::move(f));
+            }, Qt::QueuedConnection);
+    });
+}
+
+void StockKeyDataWidget::onFundamentalsFetched(std::optional<QuoteFundamentals> f) {
+    fund_ = std::move(f);
+    applyFundamentals();
+}
+
+void StockKeyDataWidget::applyFundamentals() {
+    auto setText = [this](Field f, const QString& text) {
+        values_[f]->setText(text);
+    };
+    const auto numText = [](double v) -> QString {
+        return v > 0.0 ? QString::number(v, 'f', 2) : QStringLiteral("—");
+    };
+    const auto pctText = [](double v) -> QString {
+        return v > 0.0 ? QStringLiteral("%1%").arg(v, 0, 'f', 2) : QStringLiteral("—");
+    };
+    const auto capText = [](double yuan) -> QString {  // 市值 元 → 万亿/亿
+        if (yuan >= 1e12) return QStringLiteral("%1万亿").arg(yuan / 1e12, 0, 'f', 2);
+        if (yuan >= 1e8) return QStringLiteral("%1亿").arg(yuan / 1e8, 0, 'f', 2);
+        return QStringLiteral("—");
+    };
+    const auto sharesText = [](double shares) -> QString {  // 股本 股 → 亿股
+        if (shares >= 1e8) return QStringLiteral("%1亿股").arg(shares / 1e8, 0, 'f', 2);
+        return QStringLiteral("—");
+    };
+    if (!fund_ || !fund_->valid) {
+        setText(FTurnover, QStringLiteral("—"));
+        setText(FTurnoverReal, QStringLiteral("—"));
+        setText(FPeStatic, QStringLiteral("—"));
+        setText(FPeTtm, QStringLiteral("—"));
+        setText(FMarketCap, QStringLiteral("—"));
+        setText(FFloatCap, QStringLiteral("—"));
+        setText(FTotalShares, QStringLiteral("—"));
+        setText(FFloatShares, QStringLiteral("—"));
+        return;
+    }
+    const auto& f = *fund_;
+    setText(FTurnover, pctText(f.turnoverRate));
+    setText(FTurnoverReal, pctText(f.turnoverRateReal));
+    setText(FPeStatic, numText(f.peStatic));
+    setText(FPeTtm, numText(f.peTtm));  // 东财 clist 无可靠 TTM → 常为 "—"
+    setText(FMarketCap, capText(f.marketCap));
+    setText(FFloatCap, capText(f.floatCap));
+    setText(FTotalShares, sharesText(f.totalShares));
+    setText(FFloatShares, sharesText(f.floatShares));
 }
 
 void StockKeyDataWidget::onBarsFetched(double avg5dVol, double lastVol, double lastAmt,

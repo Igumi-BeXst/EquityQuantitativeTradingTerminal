@@ -6,6 +6,10 @@
   },
   "data": {
     "provider": "tdx",
+    "multi": {
+      "primary": "tdx",
+      "fallback": "tencent"
+    },
     "dbPath": "data/stock_data.db",
     "syncInterval": 300,
     "cacheSize": 5000,

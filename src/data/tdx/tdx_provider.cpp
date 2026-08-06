@@ -61,6 +61,7 @@ void TdxProvider::setTransportFactory(std::function<std::unique_ptr<tdx::TdxTran
 }
 
 bool TdxProvider::connect() {
+    stopThreads_ = false;  // 重新运行标记（disconnect 后不再重置，重连由 connect 恢复）
     {
         std::lock_guard<std::mutex> lk(mutex_);
         if (state_ == State::Connected) return true;
@@ -93,7 +94,9 @@ void TdxProvider::disconnect() {
     }
     if (heartbeatThread_.joinable()) heartbeatThread_.join();
     if (pollThread_.joinable()) pollThread_.join();
-    stopThreads_ = false;
+    // 注意：不再重置 stopThreads_=false。若在 close 窗口内 detached doConnect 线程
+    // 仍在尝试连接，keep true 使它在获取 mutex_ 后立即退出，避免 provider 析构后
+    // 该线程访问已释放的 this → 关闭时堆损坏。
 }
 
 bool TdxProvider::isConnected() const {
@@ -105,6 +108,7 @@ bool TdxProvider::isConnected() const {
 // 连接状态机
 // ============================================================
 bool TdxProvider::ensureConnected(std::unique_lock<std::mutex>& lk, int timeoutMs) {
+    if (stopThreads_.load()) return false;  // 已 disconnect，不再触发重连（防 detached 线程悬垂）
     if (state_ == State::Connected && transport_) return true;
     if (state_ != State::Connecting) {
         state_ = State::Connecting;
@@ -668,6 +672,7 @@ void TdxProvider::unsubscribeQuote(const StockCode& code) {
 }
 
 void TdxProvider::refreshQuotes() {
+    if (stopThreads_.load()) return;  // 关闭中不提交任务
     ThreadPool::submitIO([this] { doPollOnce(); });
 }
 

@@ -24,6 +24,7 @@
 #include <QGridLayout>
 #include <QHeaderView>
 #include <QMetaObject>
+#include <QPointer>
 
 namespace st {
 
@@ -131,6 +132,12 @@ PaperTradePanel::PaperTradePanel(IDataProvider* provider, QWidget* parent)
     onStrategyChanged();
 }
 
+PaperTradePanel::~PaperTradePanel() {
+    // 停止轮询定时器：防止关闭窗口的间隙里定时器触发 → 提交 provider 异步任务
+    if (timer_) timer_->stop();
+    if (engine_) engine_->stop();
+}
+
 StockCode PaperTradePanel::selectedCode() const {
     const QString full = stockCombo_->currentData().toString();
     return full.isEmpty() ? StockCode{} : StockCode(full.toStdString());
@@ -189,27 +196,30 @@ void PaperTradePanel::onToggleClicked() {
         const auto start = utils::addTradingDays(now, -120);
         const double capital = capital_->value();
         const double slippage = slippage_->value();
-        ThreadPool::submitIO([this, code, start, now, capital, slippage] {
-            auto seed = provider_->getBars(code, BarPeriod::Daily, start, now);
-            QMetaObject::invokeMethod(this, [this, code, seed = std::move(seed),
+        // 安全异步：捕获 provider 按值 + QPointer 守卫
+        IDataProvider* provider = provider_;
+        QPointer<PaperTradePanel> guard(this);
+        ThreadPool::submitIO([provider, guard, code, start, now, capital, slippage] {
+            auto seed = provider->getBars(code, BarPeriod::Daily, start, now);
+            QMetaObject::invokeMethod(guard, [guard, code, seed = std::move(seed),
                                              capital, slippage]() mutable {
                 // 重建引擎（清状态）
-                engine_ = std::make_unique<PaperTradeEngine>();
+                guard->engine_ = std::make_unique<PaperTradeEngine>();
                 PaperTradeConfig cfg;
                 cfg.initialCapital = capital;
                 cfg.slippage = slippage;
                 cfg.feeConfig = FeeConfig::defaultAShare();
-                engine_->setConfig(cfg);
-                engine_->addStrategy(makeStrategy());
-                engine_->seedHistory(code, seed);
+                guard->engine_->setConfig(cfg);
+                guard->engine_->addStrategy(guard->makeStrategy());
+                guard->engine_->seedHistory(code, seed);
                 if (seed.empty()) {
                     LogManager::instance()->log(LogLevel::Warn,
                         "模拟交易: 历史播种为空（无网络？），策略需积累报价后才交易");
                 }
-                engine_->start();
-                toggleBtn_->setText(tr("停止模拟交易"));
-                toggleBtn_->setEnabled(true);
-                timer_->start();
+                guard->engine_->start();
+                guard->toggleBtn_->setText(tr("停止模拟交易"));
+                guard->toggleBtn_->setEnabled(true);
+                guard->timer_->start();
             }, Qt::QueuedConnection);
         });
     } else {
@@ -233,25 +243,28 @@ void PaperTradePanel::onTimerTick() {
     if (!code.isValid()) return;
     refreshing_ = true;
     const int gen = ++gen_;
-    ThreadPool::submitIO([this, gen, code] {
-        auto quotes = provider_->batchQuote({code});
-        QMetaObject::invokeMethod(this, [this, gen, quotes = std::move(quotes)]() mutable {
-            refreshing_ = false;
-            if (gen != gen_) return;
+    // 安全异步：捕获 provider 按值 + QPointer 守卫
+    IDataProvider* provider = provider_;
+    QPointer<PaperTradePanel> guard(this);
+    ThreadPool::submitIO([provider, guard, gen, code] {
+        auto quotes = provider->batchQuote({code});
+        QMetaObject::invokeMethod(guard, [guard, gen, quotes = std::move(quotes)]() mutable {
+            guard->refreshing_ = false;
+            if (gen != guard->gen_) return;
             if (quotes.empty()) return;
             const auto& q = quotes.front();
             if (q.lastPrice > 0) {
-                engine_->onQuote(q.code, q.lastPrice, q.time);
-                refreshStatus();
-                if (engine_->trades().size() > lastTradeCount_) {
-                    const auto& t = engine_->trades().back();
-                    log_->appendPlainText(QStringLiteral("[%1] %2 %3 x%4 @ %5")
+                guard->engine_->onQuote(q.code, q.lastPrice, q.time);
+                guard->refreshStatus();
+                if (guard->engine_->trades().size() > guard->lastTradeCount_) {
+                    const auto& t = guard->engine_->trades().back();
+                    guard->log_->appendPlainText(QStringLiteral("[%1] %2 %3 x%4 @ %5")
                         .arg(QString::fromStdString(utils::toDateTimeString(t.time)))
                         .arg(t.direction == Direction::Buy ? tr("买入") : tr("卖出"))
                         .arg(QString::fromStdString(t.code.displayCode()))
                         .arg(t.volume)
                         .arg(t.price, 0, 'f', 2));
-                    lastTradeCount_ = engine_->trades().size();
+                    guard->lastTradeCount_ = guard->engine_->trades().size();
                 }
             }
         }, Qt::QueuedConnection);

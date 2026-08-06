@@ -32,6 +32,8 @@ if(BUILD_WITH_QT)
         test_data/test_tencent_provider.cpp
         test_data/test_tdx_protocol.cpp
         test_data/test_tdx_provider.cpp
+        test_data/test_multi_provider.cpp
+        test_data/test_akshare_provider.cpp
     )
     target_compile_definitions(test_data PRIVATE
         ST_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
@@ -59,6 +61,7 @@ if(BUILD_WITH_QT)
         test_intelligence/test_strategy_advisor.cpp
         test_intelligence/test_pattern_factor.cpp
         test_intelligence/test_sentiment_analyzer.cpp
+        test_intelligence/test_eastmoney_news_provider.cpp
     )
     target_link_libraries(test_intelligence PRIVATE st_intelligence st_engine st_data GTest::gtest GTest::gtest_main)
     gtest_discover_tests(test_intelligence)

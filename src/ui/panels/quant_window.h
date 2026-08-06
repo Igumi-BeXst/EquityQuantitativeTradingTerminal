@@ -3,6 +3,8 @@
 #include "foundation/stock_code.h"
 #include <QMainWindow>
 
+class QCloseEvent;
+
 namespace st {
 
 class IDataProvider;
@@ -28,6 +30,9 @@ class QuantWindow : public QMainWindow {
 
 public:
     explicit QuantWindow(IDataProvider* provider, QWidget* parent = nullptr);
+
+protected:
+    void closeEvent(QCloseEvent* event) override;  // 调试：关闭前检查堆完整性
 
 signals:
     /// 双击结果行 → 主窗口打开 K 线

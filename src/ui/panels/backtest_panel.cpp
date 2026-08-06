@@ -29,6 +29,7 @@
 #include <QDate>
 #include <QHeaderView>
 #include <QMetaObject>
+#include <QPointer>
 #include <algorithm>
 
 namespace st {
@@ -48,7 +49,7 @@ void colorMetric(QLabel* label, double v) {
 }  // namespace
 
 BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
-    : QWidget(parent), provider_(provider), cache_(std::make_unique<DataCache>()) {
+    : QWidget(parent), provider_(provider), cache_(std::make_shared<DataCache>()) {
     auto* scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);
     auto* root = new QWidget;
@@ -252,19 +253,23 @@ void BacktestPanel::onRunClicked() {
     const DateTime start = utils::parseDate(startDate_->date().toString(Qt::ISODate).toStdString());
     const DateTime end = utils::parseDate(endDate_->date().toString(Qt::ISODate).toStdString());
 
-    // ① IO 池拉取数据 → 缓存
-    ThreadPool::submitIO([this, symbols, start, end] {
+    // ① IO 池拉取数据 → 缓存（安全异步：捕获 provider + shared_ptr cache + QPointer 守卫）
+    IDataProvider* provider = provider_;
+    const auto cache = cache_;
+    QPointer<BacktestPanel> guard(this);
+    ThreadPool::submitIO([provider, cache, guard, symbols, start, end] {
         const int total = static_cast<int>(symbols.size());
         int done = 0;
         for (const auto& code : symbols) {
-            auto bars = provider_->getBars(code, BarPeriod::Daily, start, end);
-            if (!bars.empty()) cache_->cacheBars(code, BarPeriod::Daily, std::move(bars));
+            auto bars = provider->getBars(code, BarPeriod::Daily, start, end);
+            if (!bars.empty()) cache->cacheBars(code, BarPeriod::Daily, std::move(bars));
             ++done;
-            QMetaObject::invokeMethod(this, [this, done, total] {
-                progress_->setValue(done * 50 / total);
+            QMetaObject::invokeMethod(guard, [guard, done, total] {
+                guard->progress_->setValue(done * 50 / total);
             }, Qt::QueuedConnection);
         }
-        QMetaObject::invokeMethod(this, [this] { onAllDataFetched(); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(guard, [guard] { guard->onAllDataFetched(); },
+                                  Qt::QueuedConnection);
     });
 }
 
@@ -279,20 +284,22 @@ void BacktestPanel::onAllDataFetched() {
     auto cfg = makeConfig(symbols);
     auto strategy = makeStrategy();
 
-    // ② Worker 池回测
-    ThreadPool::submitWorker([this, cfg = std::move(cfg), strategy]() mutable {
+    // ② Worker 池回测（安全异步：QPointer 守卫 + shared_ptr cache）
+    const auto cache = cache_;
+    QPointer<BacktestPanel> guard(this);
+    ThreadPool::submitWorker([guard, cache, cfg = std::move(cfg), strategy]() mutable {
         BacktestEngine engine;
         engine.setConfig(cfg);
-        engine.setDataCache(cache_.get());
+        engine.setDataCache(cache.get());
         engine.addStrategy(strategy);
-        engine.setProgressCallback([this](double p) {
-            QMetaObject::invokeMethod(this, [this, p] {
-                progress_->setValue(50 + static_cast<int>(p * 50));
+        engine.setProgressCallback([guard](double p) {
+            QMetaObject::invokeMethod(guard, [guard, p] {
+                guard->progress_->setValue(50 + static_cast<int>(p * 50));
             }, Qt::QueuedConnection);
         });
         auto result = engine.run();
-        QMetaObject::invokeMethod(this, [this, result = std::move(result)]() mutable {
-            onResult(result);
+        QMetaObject::invokeMethod(guard, [guard, result = std::move(result)]() mutable {
+            guard->onResult(result);
         }, Qt::QueuedConnection);
     });
 }

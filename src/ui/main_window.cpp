@@ -13,6 +13,7 @@
 #include "data/idata_provider.h"
 #include "data/provider_factory.h"
 #include "core/app_paths.h"
+#include "core/thread_pool.h"
 #include "core/config_manager.h"
 #include "core/log_manager.h"
 #include "core/event_bus.h"
@@ -80,6 +81,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 }
 
 MainWindow::~MainWindow() {
+    // 关闭前排空在途异步任务：面板/图表的 IO/worker 任务持有 provider_ 裸指针，
+    // 若在 provider_ 释放后再执行 → use-after-free → 关闭时堆损坏。
+    // 事件循环已停止，不会再提交新任务，waitForDone 只等待已在运行/排队的最长任务。
+    ThreadPool::ioPool()->waitForDone();
+    ThreadPool::workerPool()->waitForDone();
     if (provider_) provider_->disconnect();
 }
 

@@ -1,5 +1,6 @@
 #include "ui/panels/sentiment_panel.h"
 #include "core/log_manager.h"
+#include "core/thread_pool.h"
 #include <QColor>
 #include <QLineEdit>
 #include <QPlainTextEdit>
@@ -10,6 +11,9 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QMetaObject>
+#include <QPointer>
+#include <utility>
 
 namespace st {
 
@@ -26,12 +30,16 @@ QString labelText(st::sentiment::SentimentLabel label) {
 }
 }  // namespace
 
-SentimentPanel::SentimentPanel(QWidget* parent) : QWidget(parent) {
+SentimentPanel::SentimentPanel(QWidget* parent,
+                               std::shared_ptr<st::sentiment::ISentimentProvider> provider)
+    : QWidget(parent), provider_(std::move(provider)) {
+    analyzer_.setProvider(provider_);
+
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(6);
 
-    hintLabel_ = new QLabel(tr("本地关键词打分 · 暂无真实资讯源（ISentimentProvider 待接入）"));
+    hintLabel_ = new QLabel(tr("东财资讯流 · 本地关键词打分"));
     hintLabel_->setWordWrap(true);
     hintLabel_->setStyleSheet(QStringLiteral("color:#999999;"));
     layout->addWidget(hintLabel_);
@@ -39,11 +47,13 @@ SentimentPanel::SentimentPanel(QWidget* parent) : QWidget(parent) {
     auto* codeRow = new QHBoxLayout;
     codeRow->addWidget(new QLabel(tr("股票代码")));
     codeEdit_ = new QLineEdit;
-    codeEdit_->setPlaceholderText(tr("600519（仅展示，不参与计算）"));
+    codeEdit_->setPlaceholderText(tr("600519"));
+    fetchBtn_ = new QPushButton(tr("拉取东财新闻"));
     codeRow->addWidget(codeEdit_, 1);
+    codeRow->addWidget(fetchBtn_);
     layout->addLayout(codeRow);
 
-    layout->addWidget(new QLabel(tr("新闻标题（每行一条）")));
+    layout->addWidget(new QLabel(tr("或手动输入新闻标题（每行一条）")));
     newsEdit_ = new QPlainTextEdit;
     newsEdit_->setPlaceholderText(tr("公司业绩增长超预期，净利润创新高\n股东发布减持公告，机构下调评级"));
     newsEdit_->setMinimumHeight(120);
@@ -70,10 +80,10 @@ SentimentPanel::SentimentPanel(QWidget* parent) : QWidget(parent) {
     layout->addWidget(table_, 1);
 
     connect(analyzeBtn_, &QPushButton::clicked, this, &SentimentPanel::onAnalyzeClicked);
+    connect(fetchBtn_, &QPushButton::clicked, this, &SentimentPanel::onFetchNewsClicked);
 }
 
 void SentimentPanel::onAnalyzeClicked() {
-    resetTable();
     std::vector<st::sentiment::NewsItem> items;
     const QStringList lines = newsEdit_->toPlainText().split('\n', Qt::SkipEmptyParts);
     for (const auto& line : lines) {
@@ -87,7 +97,52 @@ void SentimentPanel::onAnalyzeClicked() {
         overallScore_->setText(tr("—"));
         return;
     }
+    analyzeItems(items);
+}
 
+void SentimentPanel::onFetchNewsClicked() {
+    if (fetching_) return;
+    const StockCode code(codeEdit_->text().trimmed().toStdString());
+    if (!code.isValid()) {
+        LogManager::instance()->log(LogLevel::Warn, "舆情: 请输入有效股票代码");
+        return;
+    }
+    if (!provider_) {
+        LogManager::instance()->log(LogLevel::Warn, "舆情: 无资讯源，仅支持手动输入");
+        return;
+    }
+    fetching_ = true;
+    fetchBtn_->setEnabled(false);
+    hintLabel_->setText(tr("正在拉取东财资讯…"));
+    resetTable();
+
+    // 安全异步：捕获 provider/code 按值 + QPointer 守卫投递回主线程
+    const auto provider = provider_;
+    QPointer<SentimentPanel> guard(this);
+    ThreadPool::submitIO([provider, code, guard] {
+        auto items = provider->fetchNews(code, 20);
+        QMetaObject::invokeMethod(guard,
+            [guard, items = std::move(items)]() mutable {
+                guard->fetching_ = false;
+                guard->fetchBtn_->setEnabled(true);
+                guard->applyFetchedNews(items);
+            }, Qt::QueuedConnection);
+    });
+}
+
+void SentimentPanel::applyFetchedNews(const std::vector<st::sentiment::NewsItem>& items) {
+    if (items.empty()) {
+        hintLabel_->setText(tr("东财资讯流 · 拉取失败或该股近期无资讯"));
+        overallLabel_->setText(tr("—"));
+        overallScore_->setText(tr("—"));
+        return;
+    }
+    hintLabel_->setText(tr("东财资讯流 · 本地关键词打分（%1 条）").arg(items.size()));
+    analyzeItems(items);
+}
+
+void SentimentPanel::analyzeItems(const std::vector<st::sentiment::NewsItem>& items) {
+    resetTable();
     for (const auto& item : items) {
         const auto s = analyzer_.analyze(item);
         const int row = tableModel_->rowCount();

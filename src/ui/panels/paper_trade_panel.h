@@ -26,6 +26,7 @@ class PaperTradePanel : public QWidget {
 
 public:
     explicit PaperTradePanel(IDataProvider* provider, QWidget* parent = nullptr);
+    ~PaperTradePanel() override;  // 停止轮询定时器，避免关闭窗口时触发异步任务
 
 private slots:
     void onToggleClicked();

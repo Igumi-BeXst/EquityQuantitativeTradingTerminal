@@ -15,6 +15,15 @@ const MarketRankItem& MarketRankModel::itemAt(int row) const {
     return items_[static_cast<size_t>(row)];
 }
 
+void MarketRankModel::updateTurnover(const std::string& fullCode, double turnover) {
+    for (size_t i = 0; i < items_.size(); ++i) {
+        if (items_[i].code.fullCode() != fullCode) continue;
+        items_[i].turnover = turnover;
+        emit dataChanged(index(static_cast<int>(i), 4), index(static_cast<int>(i), 4));
+        return;
+    }
+}
+
 int MarketRankModel::rowCount(const QModelIndex&) const {
     return static_cast<int>(items_.size());
 }

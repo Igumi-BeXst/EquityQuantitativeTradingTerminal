@@ -47,6 +47,7 @@ add_library(st_data STATIC
     data/tdx/tdx_models.cpp
     data/tdx/tdx_provider.cpp
     data/provider_factory.cpp
+    data/multi_provider.cpp
 )
 target_link_libraries(st_data PUBLIC st_foundation st_core Qt6::Sql Qt6::Network nlohmann_json::nlohmann_json ZLIB::ZLIB)
 if(WIN32)
@@ -83,6 +84,7 @@ add_library(st_intelligence STATIC
     intelligence/advisor/strategy_advisor.cpp
     intelligence/screener/pattern_factor.cpp
     intelligence/sentiment/sentiment_analyzer.cpp
+    intelligence/sentiment/eastmoney_news_provider.cpp
 )
 target_link_libraries(st_intelligence PUBLIC st_engine st_core st_foundation)
 
@@ -171,6 +173,14 @@ target_link_libraries(intelligence_demo PRIVATE st_intelligence st_engine st_dat
 # 盘口五档实连诊断工具（P10 验证用）
 add_executable(depth_probe tools_depth_probe.cpp)
 target_link_libraries(depth_probe PRIVATE st_data st_core st_foundation Qt6::Core)
+
+# 东财基本面实连校准工具（P10 第二轮验证用）
+add_executable(fundamental_calib tools_fundamental_calib.cpp)
+target_link_libraries(fundamental_calib PRIVATE st_data st_core st_foundation Qt6::Core)
+
+# 引擎堆压力测试（无头定位越界写）
+add_executable(heap_stress tools_heap_stress.cpp)
+target_link_libraries(heap_stress PRIVATE st_intelligence st_engine st_data st_core st_foundation Qt6::Core)
 
 else()
 # Without Qt: just build the Foundation CLI test runner

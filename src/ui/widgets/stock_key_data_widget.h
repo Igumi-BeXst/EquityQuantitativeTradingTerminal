@@ -2,9 +2,12 @@
 
 #include "foundation/stock_code.h"
 #include "foundation/tick.h"
+#include "data/quote_fundamentals.h"
+#include "data/akshare_provider.h"
 #include <QString>
 #include <QWidget>
 #include <memory>
+#include <optional>
 #include <vector>
 
 class QLabel;
@@ -40,6 +43,9 @@ private:
     void applyQuote(const Quote& q);
     void onBarsFetched(double avg5dVol, double lastVol, double lastAmt,
                        double prevVol, double prevAmt);
+    void requestFundamentals();
+    void onFundamentalsFetched(std::optional<QuoteFundamentals> f);
+    void applyFundamentals();
     void resetLabels();
 
     enum Field {
@@ -50,10 +56,14 @@ private:
     };
 
     IDataProvider* provider_ = nullptr;
+    std::shared_ptr<AKShareProvider> fundProvider_;  // 基本面专用数据源（东财 ulist，不依赖主源）；shared 供异步按值捕获
     StockCode code_;
     QString name_;
     QTimer* timer_ = nullptr;
+    QTimer* fundTimer_ = nullptr;      // 基本面慢刷新（60s）
     bool polling_ = false;
+    bool fundFetching_ = false;
+    std::optional<QuoteFundamentals> fund_;  // 基本面快照（东财，可能为空）
 
     std::vector<QLabel*> values_;  // 与 Field 枚举一一对应
     double avg5dVol_ = 0.0;        // 5 日均量（股），量比分母

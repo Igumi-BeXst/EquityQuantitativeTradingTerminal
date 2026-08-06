@@ -1,6 +1,7 @@
 #include "ui/panels/market_panel.h"
 #include "ui/models/market_rank_model.h"
 #include "data/idata_provider.h"
+#include "data/akshare_provider.h"
 #include "data/curated_stocks.h"
 #include "data/tdx/tdx_models.h"
 #include "core/thread_pool.h"
@@ -27,7 +28,8 @@ constexpr int kRefreshMs = 30000;  // 全 A 股池（~5000 只）批量拉取较
 }  // namespace
 
 MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
-    : QWidget(parent), provider_(provider) {
+    : QWidget(parent), provider_(provider),
+      fundProvider_(std::make_shared<AKShareProvider>()) {
     // 池 + 名称表（精选股票）
     for (const auto& c : kCuratedSH) {
         StockCode sc(Market::SH, c.code);
@@ -193,6 +195,39 @@ void MarketPanel::onQuotesReady(const std::vector<Quote>& quotes) {
     const double ratio = (advancing + declining) > 0
         ? static_cast<double>(advancing) / (advancing + declining) : 0.0;
     ratio_->setText(QString::number(ratio, 'f', 2));
+
+    // 异步回填显示股票的换手率（东财 ulist 批量，TDX 报价不含换手率）
+    std::vector<MarketRankItem> shown;
+    shown.reserve(gainers.size() + losers.size());
+    shown.insert(shown.end(), gainers.begin(), gainers.end());
+    shown.insert(shown.end(), losers.begin(), losers.end());
+    requestTurnover(shown);
+}
+
+void MarketPanel::requestTurnover(const std::vector<MarketRankItem>& items) {
+    if (!fundProvider_ || items.empty()) return;
+    std::vector<StockCode> codes;
+    codes.reserve(items.size());
+    for (const auto& it : items) codes.push_back(it.code);
+    // 安全异步：shared_ptr 按值捕获 + QPointer 守卫（面板销毁后 provider 仍存活）
+    const auto provider = fundProvider_;
+    QPointer<MarketPanel> guard(this);
+    ThreadPool::submitIO([provider, guard, codes] {
+        auto funds = provider->batchQuoteFundamentals(codes);
+        QMetaObject::invokeMethod(guard,
+            [guard, funds = std::move(funds)]() mutable {
+                guard->applyTurnover(funds);
+            }, Qt::QueuedConnection);
+    });
+}
+
+void MarketPanel::applyTurnover(const std::vector<QuoteFundamentals>& funds) {
+    if (!gainersModel_ || !losersModel_) return;
+    for (const auto& f : funds) {
+        if (!f.valid || f.turnoverRate <= 0.0) continue;
+        gainersModel_->updateTurnover(f.code.fullCode(), f.turnoverRate);
+        losersModel_->updateTurnover(f.code.fullCode(), f.turnoverRate);
+    }
 }
 
 void MarketPanel::onGainersDoubleClicked(const QModelIndex& index) {

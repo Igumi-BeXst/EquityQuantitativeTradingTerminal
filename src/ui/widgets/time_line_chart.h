@@ -20,6 +20,7 @@ class TimelineChart : public QWidget {
 
 public:
     explicit TimelineChart(IDataProvider* provider, QWidget* parent = nullptr);
+    ~TimelineChart() override;  // 停止自动刷新定时器，避免关闭窗口时触发异步任务
 
     /// 异步加载分时数据（loadGen_ 守卫竞态）
     void loadStock(const StockCode& code, const QString& name);

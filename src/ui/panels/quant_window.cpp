@@ -2,6 +2,7 @@
 #include "ui/panels/pattern_panel.h"
 #include "ui/panels/advisor_panel.h"
 #include "ui/panels/sentiment_panel.h"
+#include "intelligence/sentiment/eastmoney_news_provider.h"
 #include "ui/panels/screener_panel.h"
 #include "ui/panels/paper_trade_panel.h"
 #include "ui/panels/optimization_panel.h"
@@ -10,8 +11,10 @@
 #include "ui/panels/strategy_panel.h"
 #include "ui/panels/backtest_panel.h"
 #include "data/idata_provider.h"
+#include "core/thread_pool.h"
 #include <QTabWidget>
 #include <QVariantMap>
+#include <QCloseEvent>
 
 namespace st {
 
@@ -26,7 +29,8 @@ QuantWindow::QuantWindow(IDataProvider* provider, QWidget* parent)
     // 智能面板
     patternPanel_ = new PatternPanel(provider, tabs);
     advisorPanel_ = new AdvisorPanel(provider, tabs);
-    sentimentPanel_ = new SentimentPanel(tabs);
+    sentimentPanel_ = new SentimentPanel(
+        tabs, std::make_shared<st::sentiment::EastMoneyNewsProvider>());
     // 量化面板（原主窗口 quantDock + 策略/回测）
     optimizationPanel_ = new OptimizationPanel(provider, tabs);
     screenerPanel_ = new ScreenerPanel(provider, tabs);
@@ -63,6 +67,15 @@ QuantWindow::QuantWindow(IDataProvider* provider, QWidget* parent)
     // 双击结果行 → 主窗口中央图
     connect(patternPanel_, &PatternPanel::openChart, this, &QuantWindow::openChart);
     connect(screenerPanel_, &ScreenerPanel::openChart, this, &QuantWindow::openChart);
+}
+
+void QuantWindow::closeEvent(QCloseEvent* event) {
+    // 排空在途异步任务：面板销毁前确保没有后台任务仍在访问面板/cache，
+    // 避免「关窗瞬间任务在飞」的 use-after-free 竞态（曾导致关闭时堆损坏）。
+    // 正常关闭时无在途任务，waitForDone 立即返回。
+    ThreadPool::ioPool()->waitForDone();
+    ThreadPool::workerPool()->waitForDone();
+    QMainWindow::closeEvent(event);
 }
 
 } // namespace st

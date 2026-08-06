@@ -21,12 +21,13 @@
 #include <QHeaderView>
 #include <QDate>
 #include <QMetaObject>
+#include <QPointer>
 #include <algorithm>
 
 namespace st {
 
 StressTestPanel::StressTestPanel(IDataProvider* provider, QWidget* parent)
-    : QWidget(parent), provider_(provider), cache_(std::make_unique<DataCache>()) {
+    : QWidget(parent), provider_(provider), cache_(std::make_shared<DataCache>()) {
     auto* scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);
     auto* root = new QWidget;
@@ -165,19 +166,24 @@ void StressTestPanel::onRunClicked() {
     const auto baseStart = utils::parseDate("2015-01-01");
     const auto end = utils::now();
 
-    ThreadPool::submitIO([this, baseStart, end] {
-        const auto symbols = selectedSymbols();
+    // 安全异步：捕获 provider + shared_ptr cache + QPointer 守卫
+    const auto symbols = selectedSymbols();
+    IDataProvider* provider = provider_;
+    const auto cache = cache_;
+    QPointer<StressTestPanel> guard(this);
+    ThreadPool::submitIO([provider, cache, guard, symbols, baseStart, end] {
         const int total = static_cast<int>(symbols.size());
         int done = 0;
         for (const auto& code : symbols) {
-            auto bars = provider_->getBars(code, BarPeriod::Daily, baseStart, end);
-            if (!bars.empty()) cache_->cacheBars(code, BarPeriod::Daily, std::move(bars));
+            auto bars = provider->getBars(code, BarPeriod::Daily, baseStart, end);
+            if (!bars.empty()) cache->cacheBars(code, BarPeriod::Daily, std::move(bars));
             ++done;
-            QMetaObject::invokeMethod(this, [this, done, total] {
-                progress_->setValue(done * 50 / total);
+            QMetaObject::invokeMethod(guard, [guard, done, total] {
+                guard->progress_->setValue(done * 50 / total);
             }, Qt::QueuedConnection);
         }
-        QMetaObject::invokeMethod(this, [this] { onAllDataFetched(); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(guard, [guard] { guard->onAllDataFetched(); },
+                                  Qt::QueuedConnection);
     });
 }
 
@@ -204,20 +210,23 @@ void StressTestPanel::onAllDataFetched() {
     cfg.symbols = selectedSymbols();
     cfg.initialCapital = capital_->value();
     cfg.feeConfig = FeeConfig::defaultAShare();
-    cfg.cache = cache_.get();
+    const auto cache = cache_;  // shared_ptr：worker 内 cfg.cache 指向它，面板销毁后仍存活
+    cfg.cache = cache.get();
     cfg.baselineStart = utils::parseDate("2015-01-01");
     cfg.baselineEnd = utils::now();
 
-    ThreadPool::submitWorker([this, cfg = std::move(cfg), windows]() mutable {
+    // 安全异步：QPointer 守卫 + shared_ptr cache
+    QPointer<StressTestPanel> guard(this);
+    ThreadPool::submitWorker([guard, cache, cfg = std::move(cfg), windows]() mutable {
         StressTest st;
-        st.setProgressCallback([this](double p) {
-            QMetaObject::invokeMethod(this, [this, p] {
-                progress_->setValue(50 + static_cast<int>(p * 50));
+        st.setProgressCallback([guard](double p) {
+            QMetaObject::invokeMethod(guard, [guard, p] {
+                guard->progress_->setValue(50 + static_cast<int>(p * 50));
             }, Qt::QueuedConnection);
         });
         auto output = st.run(cfg, windows);
-        QMetaObject::invokeMethod(this, [this, output = std::move(output)]() mutable {
-            onResult(std::move(output));
+        QMetaObject::invokeMethod(guard, [guard, output = std::move(output)]() mutable {
+            guard->onResult(std::move(output));
         }, Qt::QueuedConnection);
     });
 }

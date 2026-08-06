@@ -26,6 +26,7 @@
 #include <QHeaderView>
 #include <QDate>
 #include <QMetaObject>
+#include <QPointer>
 #include <unordered_map>
 #include <algorithm>
 
@@ -52,7 +53,7 @@ QString factorDisplayName(const std::string& name) {
 }  // namespace
 
 ScreenerPanel::ScreenerPanel(IDataProvider* provider, QWidget* parent)
-    : QWidget(parent), provider_(provider), cache_(std::make_unique<DataCache>()) {
+    : QWidget(parent), provider_(provider), cache_(std::make_shared<DataCache>()) {
     auto* scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);
     auto* root = new QWidget;
@@ -177,19 +178,23 @@ void ScreenerPanel::onRunClicked() {
     const auto end = utils::parseDate(endDate_->date().toString(Qt::ISODate).toStdString());
     const auto start = utils::addTradingDays(end, -lookback_->value());
 
-    // ① IO 池拉数据 → 缓存
-    ThreadPool::submitIO([this, symbols, start, end] {
+    // ① IO 池拉数据 → 缓存（安全异步：捕获 provider + shared_ptr cache + QPointer 守卫）
+    IDataProvider* provider = provider_;
+    const auto cache = cache_;
+    QPointer<ScreenerPanel> guard(this);
+    ThreadPool::submitIO([provider, cache, guard, symbols, start, end] {
         const int total = static_cast<int>(symbols.size());
         int done = 0;
         for (const auto& code : symbols) {
-            auto bars = provider_->getBars(code, BarPeriod::Daily, start, end);
-            if (!bars.empty()) cache_->cacheBars(code, BarPeriod::Daily, std::move(bars));
+            auto bars = provider->getBars(code, BarPeriod::Daily, start, end);
+            if (!bars.empty()) cache->cacheBars(code, BarPeriod::Daily, std::move(bars));
             ++done;
-            QMetaObject::invokeMethod(this, [this, done, total] {
-                progress_->setValue(done * 50 / total);
+            QMetaObject::invokeMethod(guard, [guard, done, total] {
+                guard->progress_->setValue(done * 50 / total);
             }, Qt::QueuedConnection);
         }
-        QMetaObject::invokeMethod(this, [this] { onAllDataFetched(); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(guard, [guard] { guard->onAllDataFetched(); },
+                                  Qt::QueuedConnection);
     });
 }
 

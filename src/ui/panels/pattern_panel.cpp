@@ -22,7 +22,7 @@
 namespace st {
 
 PatternPanel::PatternPanel(IDataProvider* provider, QWidget* parent)
-    : QWidget(parent), provider_(provider), cache_(std::make_unique<DataCache>()) {
+    : QWidget(parent), provider_(provider), cache_(std::make_shared<DataCache>()) {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(6);
@@ -94,9 +94,9 @@ void PatternPanel::startDetect() {
     const auto end = utils::now();
     const auto start = utils::addTradingDays(end, -120);  // 约 120 交易日
     const StockCode code = code_;
-    // 安全异步：按值捕获 provider + QPointer 守卫投递回主线程
+    // 安全异步：按值捕获 provider + shared_ptr cache + QPointer 守卫（面板销毁后 cache 仍存活）
     IDataProvider* provider = provider_;
-    DataCache* cache = cache_.get();
+    const auto cache = cache_;
     QPointer<PatternPanel> guard(this);
     ThreadPool::submitIO([provider, cache, guard, gen, code, start, end] {
         auto bars = provider->getBars(code, BarPeriod::Daily, start, end);

@@ -4,6 +4,7 @@
 #include "engine/optimizer/grid_search.h"
 #include "engine/backtest/fee_calculator.h"
 #include "engine/analyzer/monte_carlo.h"
+#include "engine/analyzer/stress_test.h"
 #include "data/idata_provider.h"
 #include "data/data_cache.h"
 #include "data/curated_stocks.h"
@@ -60,7 +61,7 @@ std::string paramsText(const std::vector<std::pair<std::string, int>>& params) {
 }  // namespace
 
 AdvisorPanel::AdvisorPanel(IDataProvider* provider, QWidget* parent)
-    : QWidget(parent), provider_(provider), cache_(std::make_unique<DataCache>()) {
+    : QWidget(parent), provider_(provider), cache_(std::make_shared<DataCache>()) {
     auto* scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);
     auto* root = new QWidget;
@@ -161,6 +162,7 @@ AdvisorPanel::AdvisorPanel(IDataProvider* provider, QWidget* parent)
     advParams_->setFont(paramsFont);
     advConfidence_ = new QLabel;
     advWarnings_ = new QLabel;
+    advStress_ = new QLabel(tr("压力测试: —"));
     advText_ = new QPlainTextEdit;
     advText_->setReadOnly(true);
     advText_->setMaximumHeight(110);
@@ -172,6 +174,7 @@ AdvisorPanel::AdvisorPanel(IDataProvider* provider, QWidget* parent)
     al->addWidget(advParams_);
     al->addWidget(advConfidence_);
     al->addWidget(advWarnings_);
+    al->addWidget(advStress_);
     al->addWidget(advText_);
     al->addLayout(refinedRow);
     layout->addWidget(advBox);
@@ -256,16 +259,20 @@ void AdvisorPanel::onRunClicked() {
 
     const auto start = utils::parseDate(startDate_->date().toString(Qt::ISODate).toStdString());
     const auto end = utils::parseDate(endDate_->date().toString(Qt::ISODate).toStdString());
+    // 压力测试默认窗口最早到 2015-01-01 → 加载范围提前，缓存多装历史。
+    // BacktestEngine 按 config_.startDate/endDate 过滤（backtest_engine.cpp:200），
+    // 不影响网格回测的日期范围。
+    const auto loadStart = std::min(start, utils::parseDate("2015-01-01"));
 
-    // 安全异步：按值捕获 provider/cache + QPointer 守卫投递回主线程
+    // 安全异步：按值捕获 provider + shared_ptr cache + QPointer 守卫（面板销毁后 cache 仍存活）
     IDataProvider* provider = provider_;
-    DataCache* cache = cache_.get();
+    const auto cache = cache_;
     QPointer<AdvisorPanel> guard(this);
-    ThreadPool::submitIO([provider, cache, guard, symbols, start, end] {
+    ThreadPool::submitIO([provider, cache, guard, symbols, loadStart, end] {
         const int total = static_cast<int>(symbols.size());
         int done = 0;
         for (const auto& code : symbols) {
-            auto bars = provider->getBars(code, BarPeriod::Daily, start, end);
+            auto bars = provider->getBars(code, BarPeriod::Daily, loadStart, end);
             if (!bars.empty()) cache->cacheBars(code, BarPeriod::Daily, std::move(bars));
             ++done;
             QMetaObject::invokeMethod(guard, [guard, done, total] {
@@ -301,7 +308,8 @@ void AdvisorPanel::onAllDataFetched() {
     cfg.initialCapital = capital_->value();
     cfg.feeConfig = FeeConfig::defaultAShare();
     cfg.objective = currentObjective();
-    cfg.cache = cache_.get();
+    const auto cache = cache_;  // shared_ptr：worker 内 cfg.cache 指向它，面板销毁后仍存活
+    cfg.cache = cache.get();
 #ifdef _DEBUG
     cfg.parallelLanes = 2;
 #else
@@ -311,9 +319,9 @@ void AdvisorPanel::onAllDataFetched() {
     const QString p1Name = p1Label_->text();
     const QString p2Name = p2Label_->text();
 
-    // 安全异步：QPointer 守卫投递回主线程（面板销毁后自动跳过）
+    // 安全异步：QPointer 守卫投递回主线程（面板销毁后自动跳过）；cache shared_ptr 按值捕获
     QPointer<AdvisorPanel> guard(this);
-    ThreadPool::submitWorker([guard, cfg = std::move(cfg), p1Name, p2Name]() mutable {
+    ThreadPool::submitWorker([guard, cache, cfg = std::move(cfg), p1Name, p2Name]() mutable {
         GridSearchOptimizer opt;
         opt.setProgressCallback([guard](double p) {
             QMetaObject::invokeMethod(guard, [guard, p] {
@@ -338,11 +346,33 @@ void AdvisorPanel::onAllDataFetched() {
             }
         }
 
+        // 压力测试：最优参数组跑历史极端窗口（2015股灾/2016熔断/2018熊市/2020疫情/2024微盘）。
+        // 复用已加载缓存，纯计算无 IO；StrategyAdvisor::detectRisk 消费任一窗口回撤>20%。
+        std::optional<StressTestOutput> stress;
+        if (!results.empty()) {
+            StressTestConfig scfg;
+            scfg.strategyId = cfg.strategyId;
+            scfg.params = results.front().params;
+            scfg.symbols = cfg.symbols;
+            scfg.initialCapital = cfg.initialCapital;
+            scfg.feeConfig = cfg.feeConfig;
+            scfg.cache = cfg.cache;
+            scfg.baselineStart = utils::parseDate("2015-01-01");
+            scfg.baselineEnd = cfg.endDate;
+            StressTest st;
+            st.setProgressCallback([guard](double p) {
+                QMetaObject::invokeMethod(guard, [guard, p] {
+                    guard->progress_->setValue(90 + static_cast<int>(p * 10));
+                }, Qt::QueuedConnection);
+            });
+            stress = st.run(scfg, StressTest::defaultWindows());
+        }
+
         st::advisor::AdvisorContext actx;
         actx.strategyId = cfg.strategyId;
         actx.results = results;
         actx.monteCarlo = mc;
-        actx.stressTest = std::nullopt;
+        actx.stressTest = stress;
         actx.objective = cfg.objective;
         st::advisor::StrategyAdvisor advisor;
         auto sug = advisor.advise(actx);
@@ -350,8 +380,9 @@ void AdvisorPanel::onAllDataFetched() {
 
         QMetaObject::invokeMethod(guard,
             [guard, results = std::move(results), sug = std::move(sug),
-             refined = std::move(refined), p1Name, p2Name]() mutable {
-                guard->onResult(results, sug, refined, p1Name, p2Name);
+             refined = std::move(refined), stress = std::move(stress),
+             p1Name, p2Name]() mutable {
+                guard->onResult(results, sug, refined, stress, p1Name, p2Name);
             }, Qt::QueuedConnection);
     });
 }
@@ -359,6 +390,7 @@ void AdvisorPanel::onAllDataFetched() {
 void AdvisorPanel::onResult(const std::vector<GridSearchResult>& results,
                             const st::advisor::AdvisorSuggestion& suggestion,
                             const std::vector<st::ParamRange>& refined,
+                            const std::optional<StressTestOutput>& stress,
                             const QString& p1Name, const QString& p2Name) {
     running_ = false;
     runBtn_->setEnabled(true);
@@ -368,6 +400,7 @@ void AdvisorPanel::onResult(const std::vector<GridSearchResult>& results,
 
     resultModel_->setResults(results, p1Name, p2Name);
     displaySuggestion(suggestion);
+    displayStress(stress);
 
     refinedRanges_ = refined;
     std::ostringstream os;
@@ -408,6 +441,34 @@ void AdvisorPanel::displaySuggestion(const st::advisor::AdvisorSuggestion& s) {
     advText_->setPlainText(QStringLiteral("%1\n%2")
         .arg(QString::fromStdString(s.text),
              QString::fromStdString(s.rationale)));
+}
+
+void AdvisorPanel::displayStress(const std::optional<StressTestOutput>& stress) {
+    if (!advStress_) return;
+    if (!stress.has_value()) {
+        advStress_->setText(tr("压力测试: —"));
+        advStress_->setStyleSheet(QString());
+        return;
+    }
+    QStringList parts;
+    bool anyRisk = false;
+    for (const auto& w : stress->windows) {
+        if (!w.success) continue;
+        const double dd = w.performance.maxDrawdown;
+        parts << QStringLiteral("%1 -%2%")
+            .arg(QString::fromStdString(w.windowName),
+                 QString::number(dd, 'f', 1));
+        if (dd > 20.0) anyRisk = true;
+    }
+    if (parts.isEmpty()) {
+        advStress_->setText(tr("压力测试: 无窗口数据（需 2015-01-01 起历史数据）"));
+        advStress_->setStyleSheet(QString());
+    } else {
+        advStress_->setText(tr("压力测试: %1").arg(parts.join(" / ")));
+        // 任一窗口回撤>20% 红字（与 riskWarning 口径一致）
+        advStress_->setStyleSheet(anyRisk
+            ? QStringLiteral("color:%1;").arg(kDownColor) : QString());
+    }
 }
 
 void AdvisorPanel::fillRefinedRanges(const std::vector<st::ParamRange>& ranges) {

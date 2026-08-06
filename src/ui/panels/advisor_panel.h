@@ -1,9 +1,11 @@
 #pragma once
 
+#include "engine/analyzer/stress_test.h"
 #include "engine/optimizer/grid_search.h"
 #include "foundation/stock_code.h"
 #include <QWidget>
 #include <memory>
+#include <optional>
 #include <vector>
 
 class QComboBox;
@@ -48,15 +50,18 @@ private:
     void onResult(const std::vector<GridSearchResult>& results,
                   const st::advisor::AdvisorSuggestion& suggestion,
                   const std::vector<st::ParamRange>& refined,
+                  const std::optional<StressTestOutput>& stress,
                   const QString& p1Name, const QString& p2Name);
     void displaySuggestion(const st::advisor::AdvisorSuggestion& s);
+    void displayStress(const std::optional<StressTestOutput>& stress);
     void fillRefinedRanges(const std::vector<st::ParamRange>& ranges);
     std::vector<StockCode> selectedSymbols() const;
     Objective currentObjective() const;
     void resetToIdle();
 
     IDataProvider* provider_ = nullptr;
-    std::unique_ptr<DataCache> cache_;
+    // shared_ptr：异步 lambda 按值捕获，面板销毁后 DataCache 仍存活，避免悬垂写
+    std::shared_ptr<DataCache> cache_;
 
     QComboBox* strategyCombo_ = nullptr;
     QLabel* p1Label_ = nullptr;
@@ -79,6 +84,7 @@ private:
     QLabel* advParams_ = nullptr;
     QLabel* advConfidence_ = nullptr;
     QLabel* advWarnings_ = nullptr;
+    QLabel* advStress_ = nullptr;   // 压力测试各窗口最大回撤摘要
     QPlainTextEdit* advText_ = nullptr;
     QLabel* refinedText_ = nullptr;
     QPushButton* useRefinedBtn_ = nullptr;

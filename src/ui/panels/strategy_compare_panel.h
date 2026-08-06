@@ -39,7 +39,8 @@ private:
     void resetToIdle();
 
     IDataProvider* provider_ = nullptr;
-    std::unique_ptr<DataCache> cache_;
+    // shared_ptr：异步 lambda 按值捕获，面板销毁后 DataCache 仍存活
+    std::shared_ptr<DataCache> cache_;
 
     QListWidget* strategyList_ = nullptr;
     QListWidget* stockList_ = nullptr;

@@ -33,6 +33,15 @@ public:
     std::vector<Quote> batchQuote(const std::vector<StockCode>& codes) override;
     std::optional<IntradayData> getIntraday(const StockCode& code) override;
     void refreshQuotes() override;
+    std::optional<QuoteFundamentals> getQuoteFundamentals(const StockCode& code) override;
+
+    /// 批量基本面快照（东财 ulist.np 一次请求多代码，按返回顺序）
+    std::vector<QuoteFundamentals> batchQuoteFundamentals(
+        const std::vector<StockCode>& codes);
+
+    /// 纯静态解析（可单测）：解析东财 clist/get 单条记录 JSON → 基本面快照
+    static std::optional<QuoteFundamentals> parseFundamentals(
+        const std::string& itemJson, const StockCode& code);
 
 private:
     /// 东财日线行情接口 (JSON)

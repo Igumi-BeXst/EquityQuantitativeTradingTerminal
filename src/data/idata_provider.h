@@ -5,6 +5,7 @@
 #include "foundation/bar.h"
 #include "foundation/tick.h"
 #include "foundation/types.h"
+#include "data/quote_fundamentals.h"
 #include <vector>
 #include <string>
 #include <optional>
@@ -60,6 +61,12 @@ public:
 
     /// 手动刷新一次实时报价（F5）
     virtual void refreshQuotes() = 0;
+
+    /// 个股基本面快照（市值/股本/市盈/换手率），默认不支持返回 nullopt
+    virtual std::optional<QuoteFundamentals> getQuoteFundamentals(const StockCode& code) {
+        (void)code;
+        return std::nullopt;
+    }
 };
 
 } // namespace st

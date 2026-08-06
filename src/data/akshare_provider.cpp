@@ -6,15 +6,72 @@
 #include <QEventLoop>
 #include <QTimer>
 #include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QNetworkProxy>
 #include <cstdlib>
 #include <sstream>
 #include <iomanip>
+#include <chrono>
+#include <optional>
+#include <thread>
+#include <unordered_map>
 
 namespace st {
 
 namespace {
 constexpr int kTimeoutMs = 10000;
+constexpr int kFundCacheSeconds = 30;  // 东财 A 股整表缓存时长
+
+/// 线程本地 QNetworkAccessManager（NoProxy）— 任意 IO 线程可安全调用。
+/// 基本面接口从 ThreadPool IO 线程调用，不能用主线程亲和的成员 QNAM。
+QNetworkAccessManager& threadLocalHttp() {
+    static thread_local QNetworkAccessManager qnam;
+    static thread_local bool inited = false;
+    if (!inited) {
+        qnam.setProxy(QNetworkProxy::NoProxy);
+        inited = true;
+    }
+    return qnam;
 }
+
+/// 同步 GET（线程安全），失败重试 3 次
+std::string httpGet(const std::string& url) {
+    auto& http = threadLocalHttp();
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        if (attempt > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+        QNetworkRequest request{QUrl(QString::fromStdString(url))};
+        request.setHeader(QNetworkRequest::UserAgentHeader,
+                          "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+        request.setRawHeader("Referer", "https://quote.eastmoney.com/");
+        request.setRawHeader("Accept", "application/json, text/plain, */*");
+        request.setRawHeader("Accept-Language", "zh-CN,zh;q=0.9");
+        request.setTransferTimeout(kTimeoutMs);
+
+        QEventLoop loop;
+        QNetworkReply* reply = http.get(request);
+        QTimer timer;
+        timer.setSingleShot(true);
+        QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+        timer.start(kTimeoutMs);
+        QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+
+        if (reply->error() == QNetworkReply::NoError) {
+            const auto body = reply->readAll();
+            reply->deleteLater();
+            if (!body.isEmpty()) return body.toStdString();
+        } else {
+            LogManager::instance()->log(LogLevel::Warn,
+                "东财 fetch 失败 (第 {} 次): {}", attempt + 1, url);
+        }
+        reply->deleteLater();
+    }
+    return {};
+}
+
+}  // namespace
 
 AKShareProvider::AKShareProvider()
     : http_(std::make_unique<QNetworkAccessManager>()) {}
@@ -33,9 +90,9 @@ bool AKShareProvider::connect() {
 }
 
 void AKShareProvider::disconnect() {
-    if (http_) {
-        http_->clearAccessCache();
-    }
+    // 不访问成员 QNAM（http_）：本 provider 可能在 IO 线程被析构
+    // （fundProvider_ 的 shared_ptr 最后一个引用在 IO 线程释放），
+    // 跨线程调 QNAM::clearAccessCache 有堆损坏风险；清缓存非必需，跳过。
     connected_ = false;
 }
 
@@ -233,5 +290,104 @@ std::optional<IntradayData> AKShareProvider::getIntraday(const StockCode&) {
     return std::nullopt;
 }
 void AKShareProvider::refreshQuotes() {}
+
+// --- 基本面快照（东财 ulist.np 指定代码批量行情接口）---
+
+std::optional<QuoteFundamentals> AKShareProvider::getQuoteFundamentals(const StockCode& code) {
+    if (code.market() != Market::SH && code.market() != Market::SZ) return std::nullopt;
+    // 指定代码批量接口（与 clist 同域、明文 HTTP 可用，fltt=2 返回裸值 元/股/%）
+    const std::string secid = (code.market() == Market::SH ? "1." : "0.") + code.code();
+    std::ostringstream url;
+    url << "http://push2.eastmoney.com/api/qt/ulist.np/get?secids=" << secid
+        << "&fields=f12,f8,f115,f20,f21,f38,f39&fltt=2&invt=2";
+    const auto body = httpGet(url.str());
+    if (body.empty()) return std::nullopt;
+    try {
+        const auto json = nlohmann::json::parse(body);
+        const auto& data = json.value("data", nlohmann::json());
+        if (!data.is_object() || !data.contains("diff")) return std::nullopt;
+        const auto& diff = data["diff"];
+        if (!diff.is_array() || diff.empty()) return std::nullopt;
+        return parseFundamentals(diff.front().dump(), code);
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::vector<QuoteFundamentals> AKShareProvider::batchQuoteFundamentals(
+    const std::vector<StockCode>& codes) {
+    std::vector<QuoteFundamentals> out;
+    std::ostringstream secids;
+    bool first = true;
+    for (const auto& c : codes) {
+        if (c.market() != Market::SH && c.market() != Market::SZ) continue;
+        if (!first) secids << ',';
+        first = false;
+        secids << (c.market() == Market::SH ? "1." : "0.") << c.code();
+    }
+    if (first) return out;  // 无可处理代码
+
+    std::ostringstream url;
+    url << "http://push2.eastmoney.com/api/qt/ulist.np/get?secids=" << secids.str()
+        << "&fields=f12,f8,f115,f20,f21,f38,f39&fltt=2&invt=2";
+    const auto body = httpGet(url.str());
+    if (body.empty()) return out;
+    try {
+        const auto json = nlohmann::json::parse(body);
+        const auto& data = json.value("data", nlohmann::json());
+        if (!data.is_object() || !data.contains("diff")) return out;
+        const auto& diff = data["diff"];
+        if (!diff.is_array()) return out;
+        for (const auto& item : diff) {
+            std::string codeStr;
+            if (item.contains("f12") && item["f12"].is_string()) {
+                codeStr = item["f12"].get<std::string>();
+            } else if (item.contains("f12") && item["f12"].is_number()) {
+                codeStr = std::to_string(item["f12"].get<long long>());
+            }
+            while (codeStr.size() < 6) codeStr = "0" + codeStr;
+            if (codeStr.empty()) continue;
+            if (auto f = parseFundamentals(item.dump(), StockCode(codeStr))) {
+                out.push_back(std::move(*f));
+            }
+        }
+    } catch (...) {
+        return {};
+    }
+    return out;
+}
+
+std::optional<QuoteFundamentals> AKShareProvider::parseFundamentals(
+    const std::string& itemJson, const StockCode& code) {
+    try {
+        const auto item = nlohmann::json::parse(itemJson);
+        const auto num = [&item](const char* key) -> double {
+            const auto v = item.value(key, nlohmann::json());
+            if (v.is_number()) return v.get<double>();
+            if (v.is_string()) {
+                const std::string s = v.get<std::string>();
+                if (s.empty() || s == "-") return 0.0;
+                try { return std::stod(s); } catch (...) { return 0.0; }
+            }
+            return 0.0;
+        };
+        QuoteFundamentals f;
+        f.code = code;
+        f.turnoverRate = num("f8");       // 换手率 %
+        f.peStatic = num("f115");         // 市盈(静)
+        f.marketCap = num("f20");         // 总市值 元
+        f.floatCap = num("f21");          // 流通市值 元
+        f.totalShares = num("f38");       // 总股本 股
+        f.floatShares = num("f39");       // 流通股 股
+        // 换手率(实) = 换手率 × 流通股/总股本（全流通时≈换手率）
+        f.turnoverRateReal = f.totalShares > 0.0
+            ? f.turnoverRate * f.floatShares / f.totalShares : f.turnoverRate;
+        f.valid = f.marketCap > 0.0 || f.totalShares > 0.0;
+        if (!f.valid) return std::nullopt;
+        return f;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
 
 } // namespace st

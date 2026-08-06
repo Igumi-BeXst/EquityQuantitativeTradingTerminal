@@ -45,7 +45,8 @@ private:
     void resetToIdle();
 
     IDataProvider* provider_ = nullptr;
-    std::unique_ptr<DataCache> cache_;
+    // shared_ptr：异步 lambda 按值捕获，面板销毁后 DataCache 仍存活，避免悬垂写
+    std::shared_ptr<DataCache> cache_;
 
     QComboBox* strategyCombo_ = nullptr;
     QLabel* p1Label_ = nullptr;

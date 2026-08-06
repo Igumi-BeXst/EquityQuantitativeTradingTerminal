@@ -2,6 +2,7 @@
 
 #include "engine/market/market_scanner.h"
 #include <QAbstractTableModel>
+#include <string>
 #include <vector>
 
 namespace st {
@@ -15,6 +16,9 @@ public:
 
     void setItems(const std::vector<MarketRankItem>& items);
     const MarketRankItem& itemAt(int row) const;
+
+    /// 按代码更新换手率（异步拉到东财换手率后回填）
+    void updateTurnover(const std::string& fullCode, double turnover);
 
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
     int columnCount(const QModelIndex& parent = QModelIndex()) const override;

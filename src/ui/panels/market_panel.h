@@ -2,7 +2,9 @@
 
 #include "foundation/stock_code.h"
 #include "foundation/tick.h"
+#include "data/quote_fundamentals.h"
 #include <QWidget>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -15,6 +17,7 @@ class QTabWidget;
 namespace st {
 
 class IDataProvider;
+class AKShareProvider;
 class MarketRankModel;
 struct MarketRankItem;
 
@@ -39,7 +42,13 @@ private:
     void onGainersDoubleClicked(const QModelIndex& index);
     void onLosersDoubleClicked(const QModelIndex& index);
 
+    /// 异步拉取显示股票的东财换手率，回填排名表
+    void requestTurnover(const std::vector<MarketRankItem>& items);
+    void applyTurnover(const std::vector<QuoteFundamentals>& funds);
+
     IDataProvider* provider_ = nullptr;
+    // 基本面专用数据源（东财 ulist，不依赖主源）；shared 供异步按值捕获
+    std::shared_ptr<AKShareProvider> fundProvider_;
     QTimer* timer_ = nullptr;
     bool refreshing_ = false;
     int gen_ = 0;

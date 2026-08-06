@@ -1,5 +1,114 @@
 # 开发日志 (Development Log)
 
+## 2026-08-06 — 市场面板补换手率（东财 ulist 批量）
+
+- **背景**：主窗口市场面板（涨幅榜/跌幅榜）换手率列 TDX 报价不含该字段 → 恒显"—"
+- **实现**：
+  - `AKShareProvider::batchQuoteFundamentals(codes)` — 东财 `ulist.np/get` 一次请求多代码，返回批量基本面（复用 `parseFundamentals`）
+  - `MarketRankModel::updateTurnover(fullCode, turnover)` — 按代码回填换手率 + `dataChanged` 刷新该行
+  - `MarketPanel` 挂 `fundProvider_`（shared_ptr\<AKShareProvider\>，与关键数据 widget 一致），`onQuotesReady` 后异步批量拉显示股票（涨幅榜+跌幅榜 top30）换手率回填；安全异步（shared_ptr 按值 + QPointer 守卫）
+- 构建零警告；ctest 241/241 全过
+
+## 2026-08-06 — 修复：关闭时堆损坏（第三轮：QuantWindow 关闭竞态，已解决）
+
+### 症状
+关量化工作台仍偶发 `HEAP CORRUPTION DETECTED`，用遍所有功能后必现。
+
+### 排查（三轮审计 + 无头验证）
+1. 第一轮：修复异步 lambda 悬垂 this/DataCache 裸指针（7 面板 shared_ptr cache + QPointer）
+2. 第二轮：修复 TdxProvider detached 线程 stopThreads_ 语义 + MainWindow 关闭 waitForDone + 定时器析构
+3. 第三轮：**PatternPanel 漏改**（`cache_.get()` 裸指针异步捕获）→ 关量化工作台直接原因，修复
+4. **无头引擎堆压力测试**（tools_heap_stress，15 轮真实 2015-2026 数据跑 网格/压力/蒙特卡洛/形态识别，每步 `_CrtCheckMemory`）：**引擎全部堆完整** → 排除计算越界写
+
+### 最终根因
+**QuantWindow 关闭时后台任务与面板销毁竞态**：面板在飞任务持有 QPointer 守卫 + shared_ptr cache，但关窗瞬间 worker 的 `invokeMethod(QPointer)` 跨线程读 QPointer（与主线程销毁并发）存在 use-after-free 窗口，非确定性触发。
+
+### 最终修复
+- **`QuantWindow::closeEvent` 先 `ThreadPool::ioPool()->waitForDone()` + `workerPool()->waitForDone()` 再销毁面板**：串行化「任务完成 → 排空 → 面板销毁」，彻底消除竞态窗口；正常关闭无在途任务时立即返回不卡顿
+- 叠加 MainWindow::~MainWindow 排空（app 退出路径）+ 全部面板 QPointer 守卫 + shared_ptr cache
+
+### 验证
+- 用户复测：用遍量化工作台功能 + 关闭，**不再弹堆损坏**
+- 构建零警告；ctest 241/241 全过；新增 `heap_stress` 无头诊断工具（可复跑定位未来越界写）
+
+## 2026-08-06 — 修复：P10 第二轮引入的堆损坏（异步 lambda 悬垂 DataCache / this）
+
+### 症状
+用户运行后关闭时再次弹出 `HEAP CORRUPTION DETECTED: after Normal block(#12337)`。
+
+### 根因（code-reviewer 专项审计确认）
+1. **AdvisorPanel / OptimizationPanel / Screener / Backtest / StressTest / StrategyCompare 的 IO/worker lambda 捕获指向成员 `unique_ptr<DataCache>` 的裸 `DataCache*`**：面板销毁后 cache_ 释放，worker 继续 `cacheBars()`（写入已销毁的 unordered_map）+ `cfg.cache` 悬垂读取 → 越界写堆
+2. **kline_chart / time_line_chart / 各面板** 直接捕获裸 `this`（上一轮只修了轮询部件，图表与量化面板遗留）
+3. **StockKeyDataWidget 的 `fundProvider_`（shared_ptr<AKShareProvider>）在 IO 线程析构** → `~AKShareProvider` → `http_->clearAccessCache()` 跨线程访问主线程 QNAM
+
+### 修复（全部统一为安全异步模式）
+- **7 个面板**（advisor/optimization/screener/backtest/stress_test/strategy_compare）`cache_` 改 `shared_ptr<DataCache>`，lambda 按值捕获 shared_ptr + QPointer 守卫
+- **kline_chart / time_line_chart / paper_trade** 改 QPointer 守卫 + provider 按值捕获，回调全部走 `guard->`
+- **fundProvider_** 的 shared_ptr 移入主线程回调再释放（IO 线程用完、主线程析构，避免跨线程 clearAccessCache）
+- 全量 `src/ui` 复扫：`submitIO([this` / `submitWorker([this` **0 处遗留**
+
+### 验证
+- 构建零警告；ctest 241/241 全过；待用户 run.bat 稳定性复测
+
+## 2026-08-06 — 修复：关闭时堆损坏（第二轮全局审计）
+
+### 症状（用户复测）
+修复第一轮后仍弹 `HEAP CORRUPTION DETECTED: after Normal block (#7718230)`（块号很大，会话后期分配），仍非确定性、关闭时出现。
+
+### 根因（code-reviewer 第二轮全局关机审计）
+1. **`TdxProvider::disconnect()` 末尾把 `stopThreads_` 重置为 false**（tdx_provider.cpp:96）：closeEvent 第一次 disconnect 后 stopThreads_=false → 关闭窗口间隙里面板定时器（分时图 10s / 模拟交易 3s）触发异步任务 → `executeCommand` → `ensureConnected()` 派生**不受管理的 detached doConnect 线程** → provider 析构后该线程访问已释放的 this → use-after-free → 块号大（provider 释放后内存被 widget 清理复用，doConnect 写入复用块）
+2. **分时图/模拟交易面板的轮询定时器**在关闭窗口可能触发、提交持有裸 provider_ 的异步任务
+3. `refreshQuotes()` 无关闭守卫（F5 快捷键在关闭窗口仍可提交任务）
+
+### 修复
+- `stopThreads_` 语义改为「运行中」：`disconnect()` 不再重置（注释说明），`connect()` 启动时置 false（保留重连能力）；`ensureConnected()` 加 `if (stopThreads_.load()) return false;` 阻止关闭后触发重连；`refreshQuotes()` 加 `if (stopThreads_.load()) return;`
+- `MainWindow::~MainWindow` 先 `ThreadPool::ioPool()->waitForDone()` + `workerPool()->waitForDone()` 排空在途任务，再 `provider_->disconnect()`（事件循环已停止，不会提交新任务，无死锁）
+- `TimelineChart` / `PaperTradePanel` 加析构函数显式停止轮询定时器（并停引擎）
+- 复用第一轮模式：fundProvider_ 的 shared_ptr 移入主线程回调释放；AKShareProvider::disconnect 不再跨线程调 QNAM clearAccessCache
+
+### 第三轮修复（用户复测：关量化工作台仍崩）
+**根因：PatternPanel 漏改**——`startDetect` 的 IO lambda 仍捕获指向成员 `unique_ptr<DataCache>` 的裸 `cache_.get()`（pattern_panel.cpp:99），关 QuantWindow（形态识别面板在飞）时写入已释放 cache → 堆损坏。这也是「关量化工作台必崩」的直接原因。
+- PatternPanel `cache_` 改 `shared_ptr<DataCache>` + lambda 按值捕获
+- 全量复扫：`src/ui` 无 `std::unique_ptr<DataCache>` 残留、无裸 `cache_.get()` 异步捕获
+
+### 验证
+- 构建零警告；ctest 241/241 全过；待用户 run.bat 复测稳定性（打开/操作各面板/关闭不弹错误框）
+
+## 2026-08-06 — P10 第二轮：压力测试接入 / 舆情资讯流 / 多数据源 / 基本面数据
+
+### 背景
+P10 第二轮待办 4 项（用户确认全做）：StressTest 接入 AdvisorPanel、ISentimentProvider 真实资讯流、多数据源 MultiProvider、基本面 8 字段填充。实盘交易（需券商账户）留后续。
+
+### Step 1 — StressTest 接入 AdvisorPanel（改 2 文件）
+- `onRunClicked` 数据加载范围从用户 start 扩大到 `min(start, 2015-01-01)`（BacktestEngine 按 config 日期过滤，网格回测结果不变）
+- `onAllDataFetched` Worker 里用最优参数组跑 `StressTest::run(cfg, defaultWindows())`（2015股灾/2016熔断/2018熊市/2020疫情/2024微盘），替换硬编码 `actx.stressTest = nullopt` → `StrategyAdvisor::detectRisk()` 自动生效（任一窗口回撤>20% → riskWarning + 置信度-0.15）
+- 建议区新增 `advStress_` 压力摘要行：`压力测试: 2015-06 股灾 -35.2% / ...`，任一>20% 红字；无窗口数据提示
+
+### Step 2 — 东财新闻 ISentimentProvider（新建 2 + 改 2 + 测试 6 例）
+- 新建 `EastMoneyNewsProvider : ISentimentProvider`（intelligence/sentiment/）：调东财 search-api-web JSONP 接口（akshare stock_news_em 同款），静态 `parseNews` 剥离 JSONP 取 `result.cmsArticleWebOld[]`（title/content截断200/mediaName/date前10位）；fetch 用 thread_local QNAM + QEventLoop + 重试3次
+- `SentimentPanel` 构造注入 `shared_ptr<ISentimentProvider>`，新增「拉取东财新闻」按钮（IO 池安全异步 + QPointer 守卫），抽 `analyzeItems` 复用逐条打分逻辑；拉取失败优雅回退手动输入
+- `QuantWindow` 注入 `make_shared<EastMoneyNewsProvider>()`
+- 测试：JSONP 剥离/任意回调名/内容截断/limit/空/畸形
+
+### Step 3 — MultiProvider 多数据源（新建 2 + 改 2 + 测试 6 例）
+- 新建 `MultiProvider : IDataProvider`（主源优先，空/失败整体回退备源，不拼接避免价量错配）；`providerName()` = `multi(主源→备源)`
+- `provider_factory` 抽 `makeDataProviderByName`，注册 `"akshare"`；`data.provider="multi"` 时按 config `data.multi.primary/fallback`（默认 tdx→tencent）装配
+- config/default.json 加 `data.multi`；默认 `"tdx"` 不变（零回归）
+- 测试：主源采用/主空回退/主 connect 失败/首选备源/name 拼接/全空不崩
+- 注：AKShareProvider batchQuote/intraday 仍为空桩，实时行情建议 tdx/tencent 主源
+
+### Step 4 — 基本面 8 字段填充（新建 2 + 改 3 + 测试 4 例）
+- **实连校准发现**：东财 `stock/get` 单只接口在部分网络被掐断返回空，`ulist.np/get`（指定代码批量）明文 HTTP 稳定可用 → 主路径定为 ulist.np；clist 整表按涨跌幅分页会漏股票，弃用
+- 新建 `QuoteFundamentals`（Data 层自包含 struct）；`IDataProvider::getQuoteFundamentals` 默认 nullopt；`AKShareProvider` 实现（东财 ulist.np/get，f8换手率/f115市盈静/f20总市值/f21流通值/f38总股本/f39流通股，fltt=2 裸值），换手率(实)=换手率×流通股/总股本，**TTM 市盈 clist 无可靠值 → 显示"—"**
+- **关键**：fetch 用 thread_local QNAM（IO 线程可调），不复用成员 QNAM（主线程亲和）
+- 校准工具 `tools_fundamental_calib.cpp`：茅台 总市值1.636万亿/总股本12.5亿股/市盈静19.78/换手率0.20% 全部与常识吻合
+- `StockKeyDataWidget` 新增 `fundTimer_`(60s 慢刷新) + `requestFundamentals`（安全异步）→ 填充 8 字段（市值/股本 万亿亿/亿股 格式化）；无数据源（如 tdx）优雅显示"—"
+- 测试：茅台 payload 解析/部分流通换手率(实)计算/畸形回退/非A股 nullopt
+
+### 验证
+- 构建零警告（MSVC /W4）；ctest 225 → **241/241** 全过（Foundation 34/Core 21/Data 78/Engine 56/Intelligence 52）
+- 冒烟待用户 run.bat：优化建议出压力摘要、舆情拉东财新闻、config 切 multi/akshare、基本面字段变实值
+
 ## 2026-08-06 — 看盘细节修复 + 内盘/外盘数据核查
 
 ### 1. 个股关键数据：高/低/开颜色逻辑修复

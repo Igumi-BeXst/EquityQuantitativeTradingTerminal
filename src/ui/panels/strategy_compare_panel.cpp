@@ -24,6 +24,7 @@
 #include <QHeaderView>
 #include <QDate>
 #include <QMetaObject>
+#include <QPointer>
 #include <algorithm>
 
 namespace st {
@@ -55,7 +56,7 @@ const QColor kSeriesColors[] = {
 }  // namespace
 
 StrategyComparePanel::StrategyComparePanel(IDataProvider* provider, QWidget* parent)
-    : QWidget(parent), provider_(provider), cache_(std::make_unique<DataCache>()) {
+    : QWidget(parent), provider_(provider), cache_(std::make_shared<DataCache>()) {
     auto* scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);
     auto* root = new QWidget;
@@ -216,18 +217,23 @@ void StrategyComparePanel::onRunClicked() {
     const auto start = utils::parseDate(startDate_->date().toString(Qt::ISODate).toStdString());
     const auto end = utils::parseDate(endDate_->date().toString(Qt::ISODate).toStdString());
 
-    ThreadPool::submitIO([this, symbols, start, end] {
+    // 安全异步：捕获 provider + shared_ptr cache + QPointer 守卫
+    IDataProvider* provider = provider_;
+    const auto cache = cache_;
+    QPointer<StrategyComparePanel> guard(this);
+    ThreadPool::submitIO([provider, cache, guard, symbols, start, end] {
         const int total = static_cast<int>(symbols.size());
         int done = 0;
         for (const auto& code : symbols) {
-            auto bars = provider_->getBars(code, BarPeriod::Daily, start, end);
-            if (!bars.empty()) cache_->cacheBars(code, BarPeriod::Daily, std::move(bars));
+            auto bars = provider->getBars(code, BarPeriod::Daily, start, end);
+            if (!bars.empty()) cache->cacheBars(code, BarPeriod::Daily, std::move(bars));
             ++done;
-            QMetaObject::invokeMethod(this, [this, done, total] {
-                progress_->setValue(done * 50 / total);
+            QMetaObject::invokeMethod(guard, [guard, done, total] {
+                guard->progress_->setValue(done * 50 / total);
             }, Qt::QueuedConnection);
         }
-        QMetaObject::invokeMethod(this, [this] { onAllDataFetched(); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(guard, [guard] { guard->onAllDataFetched(); },
+                                  Qt::QueuedConnection);
     });
 }
 
@@ -247,18 +253,21 @@ void StrategyComparePanel::onAllDataFetched() {
     cfg.endDate = utils::parseDate(endDate_->date().toString(Qt::ISODate).toStdString());
     cfg.initialCapital = capital_->value();
     cfg.feeConfig = FeeConfig::defaultAShare();
-    cfg.cache = cache_.get();
+    const auto cache = cache_;  // shared_ptr：worker 内 cfg.cache 指向它，面板销毁后仍存活
+    cfg.cache = cache.get();
 
-    ThreadPool::submitWorker([this, cfg = std::move(cfg)]() mutable {
+    // 安全异步：QPointer 守卫 + shared_ptr cache
+    QPointer<StrategyComparePanel> guard(this);
+    ThreadPool::submitWorker([guard, cache, cfg = std::move(cfg)]() mutable {
         StrategyComparator comp;
-        comp.setProgressCallback([this](double p) {
-            QMetaObject::invokeMethod(this, [this, p] {
-                progress_->setValue(50 + static_cast<int>(p * 50));
+        comp.setProgressCallback([guard](double p) {
+            QMetaObject::invokeMethod(guard, [guard, p] {
+                guard->progress_->setValue(50 + static_cast<int>(p * 50));
             }, Qt::QueuedConnection);
         });
         auto results = comp.run(cfg);
-        QMetaObject::invokeMethod(this, [this, results = std::move(results)]() mutable {
-            onResult(results);
+        QMetaObject::invokeMethod(guard, [guard, results = std::move(results)]() mutable {
+            guard->onResult(results);
         }, Qt::QueuedConnection);
     });
 }
@@ -294,16 +303,19 @@ void StrategyComparePanel::onMonteCarloClicked() {
     const auto& best = lastResults_.front();
     const std::vector<double> returns = best.performance.dailyReturns;
 
-    ThreadPool::submitWorker([this, returns] {
+    // 安全异步：QPointer 守卫
+    QPointer<StrategyComparePanel> guard(this);
+    ThreadPool::submitWorker([guard, returns] {
         MonteCarlo::Input in;
         in.dailyReturns = returns;
         in.iterations = 1000;
         auto out = MonteCarlo::simulate(in);
-        QMetaObject::invokeMethod(this, [this, out = std::move(out)]() mutable {
-            p5_->setText(QString::number(out.p5, 'f', 3));
-            p50_->setText(QString::number(out.p50, 'f', 3));
-            p95_->setText(QString::number(out.p95, 'f', 3));
-            probLoss_->setText(QStringLiteral("%1%").arg(out.probOfLoss * 100.0, 0, 'f', 1));
+        QMetaObject::invokeMethod(guard, [guard, out = std::move(out)]() mutable {
+            guard->p5_->setText(QString::number(out.p5, 'f', 3));
+            guard->p50_->setText(QString::number(out.p50, 'f', 3));
+            guard->p95_->setText(QString::number(out.p95, 'f', 3));
+            guard->probLoss_->setText(
+                QStringLiteral("%1%").arg(out.probOfLoss * 100.0, 0, 'f', 1));
         }, Qt::QueuedConnection);
     });
 }

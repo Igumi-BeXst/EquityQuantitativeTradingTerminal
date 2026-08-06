@@ -23,6 +23,7 @@
 #include <QHeaderView>
 #include <QDate>
 #include <QMetaObject>
+#include <QPointer>
 #include <QThreadPool>
 #include <QVariantMap>
 #include <algorithm>
@@ -39,7 +40,7 @@ QSpinBox* makeRangeSpin(QWidget* parent, int from, int to, int value) {
 }  // namespace
 
 OptimizationPanel::OptimizationPanel(IDataProvider* provider, QWidget* parent)
-    : QWidget(parent), provider_(provider), cache_(std::make_unique<DataCache>()) {
+    : QWidget(parent), provider_(provider), cache_(std::make_shared<DataCache>()) {
     auto* scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);
     auto* root = new QWidget;
@@ -210,18 +211,23 @@ void OptimizationPanel::onRunClicked() {
     const auto start = utils::parseDate(startDate_->date().toString(Qt::ISODate).toStdString());
     const auto end = utils::parseDate(endDate_->date().toString(Qt::ISODate).toStdString());
 
-    ThreadPool::submitIO([this, symbols, start, end] {
+    // 安全异步：按值捕获 provider + shared_ptr cache + QPointer 守卫（面板销毁后 cache 仍存活）
+    IDataProvider* provider = provider_;
+    const auto cache = cache_;
+    QPointer<OptimizationPanel> guard(this);
+    ThreadPool::submitIO([provider, cache, guard, symbols, start, end] {
         const int total = static_cast<int>(symbols.size());
         int done = 0;
         for (const auto& code : symbols) {
-            auto bars = provider_->getBars(code, BarPeriod::Daily, start, end);
-            if (!bars.empty()) cache_->cacheBars(code, BarPeriod::Daily, std::move(bars));
+            auto bars = provider->getBars(code, BarPeriod::Daily, start, end);
+            if (!bars.empty()) cache->cacheBars(code, BarPeriod::Daily, std::move(bars));
             ++done;
-            QMetaObject::invokeMethod(this, [this, done, total] {
-                progress_->setValue(done * 50 / total);
+            QMetaObject::invokeMethod(guard, [guard, done, total] {
+                guard->progress_->setValue(done * 50 / total);
             }, Qt::QueuedConnection);
         }
-        QMetaObject::invokeMethod(this, [this] { onAllDataFetched(); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(guard, [guard] { guard->onAllDataFetched(); },
+                                  Qt::QueuedConnection);
     });
 }
 
@@ -249,7 +255,8 @@ void OptimizationPanel::onAllDataFetched() {
     cfg.initialCapital = capital_->value();
     cfg.feeConfig = FeeConfig::defaultAShare();
     cfg.objective = currentObjective();
-    cfg.cache = cache_.get();
+    const auto cache = cache_;  // shared_ptr：worker 内 cfg.cache 指向它，面板销毁后仍存活
+    cfg.cache = cache.get();
 #ifdef _DEBUG
     // Debug CRT 堆有全局锁，多线程抢锁反而比单线程慢（实测 8 线程 = 单线程 2.3 倍耗时）
     cfg.parallelLanes = 2;
@@ -260,17 +267,19 @@ void OptimizationPanel::onAllDataFetched() {
     const QString p1Name = p1Label_->text();
     const QString p2Name = p2Label_->text();
 
-    ThreadPool::submitWorker([this, cfg = std::move(cfg), p1Name, p2Name]() mutable {
+    // 安全异步：QPointer 守卫 + cache shared_ptr 按值捕获
+    QPointer<OptimizationPanel> guard(this);
+    ThreadPool::submitWorker([guard, cache, cfg = std::move(cfg), p1Name, p2Name]() mutable {
         GridSearchOptimizer opt;
-        opt.setProgressCallback([this](double p) {
-            QMetaObject::invokeMethod(this, [this, p] {
-                progress_->setValue(50 + static_cast<int>(p * 50));
+        opt.setProgressCallback([guard](double p) {
+            QMetaObject::invokeMethod(guard, [guard, p] {
+                guard->progress_->setValue(50 + static_cast<int>(p * 50));
             }, Qt::QueuedConnection);
         });
         auto results = opt.run(cfg);
-        QMetaObject::invokeMethod(this, [this, results = std::move(results),
+        QMetaObject::invokeMethod(guard, [guard, results = std::move(results),
                                         p1Name, p2Name]() mutable {
-            onResult(results, p1Name, p2Name);
+            guard->onResult(results, p1Name, p2Name);
         }, Qt::QueuedConnection);
     });
 }

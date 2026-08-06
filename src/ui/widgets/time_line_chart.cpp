@@ -8,6 +8,7 @@
 #include <QPainterPath>
 #include <QMouseEvent>
 #include <QMetaObject>
+#include <QPointer>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -61,6 +62,11 @@ TimelineChart::TimelineChart(IDataProvider* provider, QWidget* parent)
     connect(refreshTimer_, &QTimer::timeout, this, &TimelineChart::refreshData);
 }
 
+TimelineChart::~TimelineChart() {
+    // 显式停止定时器：防止关闭窗口的间隙里定时器触发 → 提交 provider 异步任务
+    if (refreshTimer_) refreshTimer_->stop();
+}
+
 void TimelineChart::loadStock(const StockCode& code, const QString& name) {
     const int gen = ++loadGen_;
     code_ = code;
@@ -70,11 +76,14 @@ void TimelineChart::loadStock(const StockCode& code, const QString& name) {
     if (!provider_) { loading_ = false; return; }
     if (refreshTimer_) refreshTimer_->start();
 
-    ThreadPool::submitIO([this, gen, code] {
-        auto data = provider_->getIntraday(code);
-        QMetaObject::invokeMethod(this, [this, gen, data = std::move(data)]() mutable {
-            if (gen != loadGen_) return;
-            setData(data ? *data : IntradayData{});
+    // 安全异步：捕获 provider 按值 + QPointer 守卫（widget 销毁后自动跳过）
+    IDataProvider* provider = provider_;
+    QPointer<TimelineChart> guard(this);
+    ThreadPool::submitIO([provider, guard, gen, code] {
+        auto data = provider->getIntraday(code);
+        QMetaObject::invokeMethod(guard, [guard, gen, data = std::move(data)]() mutable {
+            if (gen != guard->loadGen_) return;
+            guard->setData(data ? *data : IntradayData{});
         }, Qt::QueuedConnection);
     });
 }
@@ -84,14 +93,17 @@ void TimelineChart::refreshData() {
     if (!isTradingTime()) return;  // 非交易时段数据静态，跳过
     const int gen = ++loadGen_;
     const int savedMouse = mouseIndex_;
-    ThreadPool::submitIO([this, gen, code = code_, savedMouse] {
-        auto data = provider_->getIntraday(code);
-        QMetaObject::invokeMethod(this, [this, gen, savedMouse, data = std::move(data)]() mutable {
-            if (gen != loadGen_) return;
+    const StockCode code = code_;
+    IDataProvider* provider = provider_;
+    QPointer<TimelineChart> guard(this);
+    ThreadPool::submitIO([provider, guard, gen, code, savedMouse] {
+        auto data = provider->getIntraday(code);
+        QMetaObject::invokeMethod(guard, [guard, gen, savedMouse, data = std::move(data)]() mutable {
+            if (gen != guard->loadGen_) return;
             if (data) {
-                setData(*data);      // 内部 mouseIndex_=-1
-                mouseIndex_ = savedMouse;  // 保留十字线位置
-                update();
+                guard->setData(*data);              // 内部 mouseIndex_=-1
+                guard->mouseIndex_ = savedMouse;    // 保留十字线位置
+                guard->update();
             }
         }, Qt::QueuedConnection);
     });

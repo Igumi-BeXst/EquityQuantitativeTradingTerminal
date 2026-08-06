@@ -8,6 +8,7 @@
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QMetaObject>
+#include <QPointer>
 #include <QToolButton>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -117,11 +118,15 @@ void KLineChart::loadStock(const StockCode& code, const QString& name) {
     update();
     if (!provider_) { loading_ = false; return; }
 
-    ThreadPool::submitIO([this, gen, code] {
-        auto bars = provider_->getBars(code, period_, DateTime{}, utils::now());
-        QMetaObject::invokeMethod(this, [this, gen, bars = std::move(bars)]() mutable {
-            if (gen != loadGen_) return;  // 旧请求回写丢弃
-            setData(bars);
+    // 安全异步：捕获 provider 按值 + QPointer 守卫（widget 销毁后自动跳过，避免悬垂 this）
+    const BarPeriod period = period_;
+    IDataProvider* provider = provider_;
+    QPointer<KLineChart> guard(this);
+    ThreadPool::submitIO([provider, guard, gen, code, period] {
+        auto bars = provider->getBars(code, period, DateTime{}, utils::now());
+        QMetaObject::invokeMethod(guard, [guard, gen, bars = std::move(bars)]() mutable {
+            if (gen != guard->loadGen_) return;  // 旧请求回写丢弃
+            guard->setData(bars);
         }, Qt::QueuedConnection);
     });
 }
