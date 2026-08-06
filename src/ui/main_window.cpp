@@ -56,6 +56,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         QSettings::IniFormat);
     restoreGeometry(settings_->value(QStringLiteral("ui/geometry")).toByteArray());
     restoreState(settings_->value(QStringLiteral("ui/state")).toByteArray());
+    // 筹码分布默认收起（不随历史布局常驻），需要时 视图→筹码分布 打开
+    if (chipDock_) chipDock_->hide();
 
     // 搜索/指数点击 → 中央图表打开对应标的
     connect(searchBar_, &StockSearchBar::stockSelected, this,
@@ -166,15 +168,15 @@ void MainWindow::createDocks() {
         if (chipPanel_) chipPanel_->setStock(code, name);
     });
 
-    // 左: 板块热力图（市场面板下方；行业/概念 Squarified Treemap）
-    // [BISECT] 暂时禁用 sector panel 定位关闭堆损坏
-    // auto* sectorDock = new QDockWidget(tr("板块"), this);
-    // sectorDock->setObjectName(QStringLiteral("sectorDock"));
-    // sectorPanel_ = new SectorPanel(sectorDock);
-    // sectorDock->setWidget(sectorPanel_);
-    // addDockWidget(Qt::LeftDockWidgetArea, sectorDock);
-    // splitDockWidget(marketDock, sectorDock, Qt::Vertical);
-    // sectorDock->setMinimumWidth(260);
+    // 左: 板块前十榜单（市场面板下方；行业/概念涨跌幅 Top10 简单列表）
+    // [BISECT] 定位关闭堆损坏时曾临时禁用；根因实为陈旧对象/ABI 错位（全量重建已修复），面板本身无问题。
+    auto* sectorDock = new QDockWidget(tr("板块"), this);
+    sectorDock->setObjectName(QStringLiteral("sectorDock"));
+    sectorPanel_ = new SectorPanel(sectorDock);
+    sectorDock->setWidget(sectorPanel_);
+    addDockWidget(Qt::LeftDockWidgetArea, sectorDock);
+    splitDockWidget(marketDock, sectorDock, Qt::Vertical);
+    sectorDock->setMinimumWidth(260);
 
     // 右: 个股关键数据（盘口上方）+ 盘口五档 + 成交明细
     auto* keyDataDock = new QDockWidget(tr("个股关键数据"), this);
@@ -193,14 +195,15 @@ void MainWindow::createDocks() {
     depthDock->setMaximumWidth(400);
 
     // 右: 筹码分布（盘口下方；筹码云 + 成交分布 + 区间统计）
-    auto* chipDock = new QDockWidget(tr("筹码分布"), this);
-    chipDock->setObjectName(QStringLiteral("chipDock"));
-    chipPanel_ = new ChipPanel(provider_.get(), chipDock);
-    chipDock->setWidget(chipPanel_);
-    addDockWidget(Qt::RightDockWidgetArea, chipDock);
-    splitDockWidget(depthDock, chipDock, Qt::Vertical);
-    chipDock->setMinimumWidth(260);
-    chipDock->setMaximumWidth(400);
+    // 默认收起，需要时经 视图→筹码分布 打开（chipDock_ 成员供菜单 toggle）。
+    chipDock_ = new QDockWidget(tr("筹码分布"), this);
+    chipDock_->setObjectName(QStringLiteral("chipDock"));
+    chipPanel_ = new ChipPanel(provider_.get(), chipDock_);
+    chipDock_->setWidget(chipPanel_);
+    addDockWidget(Qt::RightDockWidgetArea, chipDock_);
+    splitDockWidget(depthDock, chipDock_, Qt::Vertical);
+    chipDock_->setMinimumWidth(260);
+    chipDock_->setMaximumWidth(400);
 
     // K线十字光标日期（日/周/月）→ 筹码面板按日期查询；nullopt 回退最新
     connect(centralChart_, &CentralChartWidget::crosshairDateChanged, this,
@@ -251,6 +254,8 @@ void MainWindow::createMenus() {
             QStringLiteral("已切换主题: %1")
                 .arg(ThemeManager::themeName(ThemeManager::current())), 3000);
     });
+    // 筹码分布默认收起，视图菜单按需打开/关闭（勾选状态联动 dock 可见性）
+    if (chipDock_) viewMenu->addAction(chipDock_->toggleViewAction());
     viewMenu->addAction(tr("重置布局(&R)"), this, &MainWindow::resetLayout);
 
     // 量化

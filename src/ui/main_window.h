@@ -55,6 +55,7 @@ private:
     std::unique_ptr<QSettings> settings_;
 
     QDockWidget* logDock_ = nullptr;
+    QDockWidget* chipDock_ = nullptr;  // 筹码分布（默认收起，视图菜单按需打开）
     QuantWindow* quantWindow_ = nullptr;
     MarketDepthWidget* marketDepth_ = nullptr;
     StockKeyDataWidget* keyData_ = nullptr;

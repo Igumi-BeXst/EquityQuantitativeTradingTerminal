@@ -1,5 +1,37 @@
 # 开发日志 (Development Log)
 
+## 2026-08-07 — 筹码分布默认收起，视图菜单按需打开
+
+筹码分布 Dock 改为默认隐藏（restoreState 后强制 `chipDock_->hide()`，不随历史布局常驻），视图菜单加 `chipDock_->toggleViewAction()` 勾选开关。隐藏期间面板保留上次计算结果，打开即显示（crosshair 日期联动仍生效）；数据在个股切换/十字光标时照常计算。构建零警告，274/274 通过。
+
+## 2026-08-07 — 板块模块简化：全量 treemap → 涨跌幅 Top10 榜单
+
+用户反馈板块全量热力图太复杂。将 `SectorPanel` 的 SectorHeatmap（Squarified treemap，行业 49 / 概念 175 格）替换为 **QTableWidget 前十榜单**（板块/涨跌幅/领涨股/成交额 4 列，红涨绿跌，按涨跌幅降序取前 10）。删掉悬停详情与空态提示改 QStackedWidget（表/暂无数据）。treemap 引擎代码与 6 个单测保留（可复用）。构建零警告，274/274 通过。
+
+## 2026-08-07 — 板块行情数据一直拉不到 → 根因：东财 clist 被 IP 级封锁，加新浪兜底
+
+### 症状
+板块热力图恢复显示后，数据一直拉不到（面板空态/获取失败）。
+
+### 排查（curl 实测取证）
+- `sector_calib` 复现：东财 clist 全部主机 `Connection closed`，count=0
+- **curl 独立验证**：`/api/qt/clist/get` 连 curl 都 HTTP 000 空回复；参数/Referer/ut 时间戳/子域/HTTPS 全试遍 → 全部 000
+- 同主机其他接口 `ulist.np`（实时行情）、`push2his`（K线）→ **HTTP 200 正常**
+- 结论：**东财 CDN/WAF 对本 IP 封锁了 clist 整条路径**（早前压测触发），非代码 bug、非普通限流
+
+### 修复（新浪板块行情兜底，akshare stock_sector_spot 同款）
+- `EastMoneySectorProvider::fetchBoards`：东财 clist 优先（重试降到 1 次/主机，有兜底不必久等）→ 连续 2 次全败后进程内隔离（`g_eastMoneyStrikes` 原子计数），直接走新浪
+- 新浪接口：行业 `vip.stock.finance.sina.com.cn/q/view/newSinaHy.php`、概念 `money.finance.sina.com.cn/q/view/newFLJK.php?param=class`
+- `parseSinaPage`（纯静态可单测）：**先整体 GBK→UTF-8 再解析 JSON**（GBK 第二字节可能含 `"`/`\`，先转码才安全）；字段 代码/名称/平均价/涨跌幅/成交额/领涨股涨跌幅/领涨股名称
+- 新浪无换手率/涨跌平家数 → 对应字段 0；悬停详情条件显示涨跌平段（全 0 省略）
+- 进程重启自动复测东财，封锁解除即回切富数据源
+- 验证：行业 49 / 概念 175 条真实数据；首刷 ~1s（原来 ~7s）；测试 270 → **274**（新浪解析 4 例）
+- **已知取舍**：新浪行业仅 49 个（东财 86+）；无换手率/涨跌平家数（详情已隐藏）
+
+## 2026-08-07 — 恢复板块热力图面板
+
+定位关闭堆损坏时（见下）为二分临时注释掉的板块 Dock 未恢复，导致左区板块热力图消失。根因已确认与板块面板无关（陈旧对象/ABI 错位，clean rebuild 解决），现恢复 `SectorPanel` Dock 创建（行业/概念 Treemap + 30s 自动刷新）。构建零警告，ctest 270/270 通过。
+
 ## 2026-08-07 — 修复②：`_CrtIsValidHeapPointer` 崩溃（同根因=陈旧对象，clean rebuild 解决）
 
 ### 症状

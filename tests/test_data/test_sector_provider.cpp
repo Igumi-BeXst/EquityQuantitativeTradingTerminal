@@ -85,3 +85,56 @@ TEST(SectorProviderTest, FsForMapsType) {
     EXPECT_EQ(EastMoneySectorProvider::fsFor(SectorType::Industry), "m:90+t:2");
     EXPECT_EQ(EastMoneySectorProvider::fsFor(SectorType::Concept), "m:90+t:3");
 }
+
+TEST(SectorProviderTest, SinaUrlForMapsType) {
+    EXPECT_EQ(EastMoneySectorProvider::sinaUrlFor(SectorType::Industry),
+              "http://vip.stock.finance.sina.com.cn/q/view/newSinaHy.php");
+    EXPECT_EQ(EastMoneySectorProvider::sinaUrlFor(SectorType::Concept),
+              "http://money.finance.sina.com.cn/q/view/newFLJK.php?param=class");
+}
+
+TEST(SectorProviderTest, ParseSinaIndustryBoards) {
+    // 新浪板块行情: var xxx = {"code":"code,名称,公司家数,平均价,涨跌额,涨跌幅,量,额,领涨代码,?,?,领涨涨跌幅,领涨名称",...}
+    // 名称用 GBK 字节验证整体转码路径：玻璃行业 B2A3 C1A7 D0D0 D2B5；再升科技 D4D9 C9FD BFC6 BCBC
+    const char* body =
+        "var S_Finance_bankuai_sinaindustry = {"
+        "\"new_blhy\":\"new_blhy,\xB2\xA3\xC1\xA7\xD0\xD0\xD2\xB5,19,16.35,"
+        "0.23578947368421,1.4632393768168,943190154,21632449097,sh603601,5.895,9.700,"
+        "0.540,\xD4\xD9\xC9\xFD\xBF\xC6\xBC\xBC\","
+        "\"new_cbzz\":\"new_cbzz,ASCII-Sector,8,13.79,-0.13857142857143,"
+        "-0.99487179487179,228667729,3609609554,sz300123,2.500,4.510,0.110,LeadStock\"};";
+    auto page = EastMoneySectorProvider::parseSinaPage(body);
+    ASSERT_EQ(page.boards.size(), 2u);
+
+    const auto& b0 = page.boards[0];
+    EXPECT_EQ(b0.code, "new_blhy");
+    EXPECT_EQ(b0.name, "玻璃行业");            // GBK → UTF-8 转码
+    EXPECT_NEAR(b0.index, 16.35, 1e-6);
+    EXPECT_NEAR(b0.changePct, 1.4632393768168, 1e-9);
+    EXPECT_NEAR(b0.amount, 21632449097.0, 1.0);
+    EXPECT_EQ(b0.turnover, 0.0);               // 新浪无换手率
+    EXPECT_EQ(b0.upCount, 0);                  // 新浪无涨跌平家数
+    EXPECT_EQ(b0.downCount, 0);
+    EXPECT_EQ(b0.flatCount, 0);
+    EXPECT_EQ(b0.leadingStock, "再升科技");    // 领涨股名称（GBK 转码）
+    EXPECT_NEAR(b0.leadingChangePct, 0.540, 1e-9);
+
+    const auto& b1 = page.boards[1];
+    EXPECT_EQ(b1.code, "new_cbzz");
+    EXPECT_EQ(b1.name, "ASCII-Sector");
+    EXPECT_NEAR(b1.changePct, -0.99487179487179, 1e-9);
+    EXPECT_EQ(b1.leadingStock, "LeadStock");
+}
+
+TEST(SectorProviderTest, ParseSinaTooFewFieldsSkipped) {
+    // 字段不足 8 个（拿不到涨跌幅/成交额）→ 跳过
+    const char* body = "var x = {\"a\":\"a,只有名字\"};";
+    EXPECT_TRUE(EastMoneySectorProvider::parseSinaPage(body).boards.empty());
+}
+
+TEST(SectorProviderTest, ParseSinaMalformedReturnsEmpty) {
+    EXPECT_TRUE(EastMoneySectorProvider::parseSinaPage("").boards.empty());
+    EXPECT_TRUE(EastMoneySectorProvider::parseSinaPage("not json").boards.empty());
+    EXPECT_TRUE(EastMoneySectorProvider::parseSinaPage("var x = notjson;").boards.empty());
+    EXPECT_TRUE(EastMoneySectorProvider::parseSinaPage("var x = {\"a\":123};").boards.empty());
+}

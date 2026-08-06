@@ -1,4 +1,5 @@
 #include "data/eastmoney_sector_provider.h"
+#include "data/cn_encoding.h"
 #include "core/log_manager.h"
 #include <nlohmann/json.hpp>
 #include <QEventLoop>
@@ -8,6 +9,7 @@
 #include <QNetworkRequest>
 #include <QTimer>
 #include <QUrl>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <thread>
@@ -17,6 +19,11 @@ namespace st {
 namespace {
 
 constexpr int kTimeoutMs = 10000;
+
+/// 东财 clist 连续全败次数阈值 — 达到后本轮进程内跳过东财直接新浪，
+/// 避免东财被封期间每次刷新都等 4 主机 × 3 重试的超时；重启自动复测东财。
+constexpr int kEastMoneyMaxStrikes = 2;
+std::atomic<int> g_eastMoneyStrikes{0};
 
 /// 板块列表字段：f2最新价 f3涨跌幅 f6成交额 f8换手率 f12代码 f14名称
 ///             f104上涨家数 f105下跌家数 f106平盘家数 f128领涨股 f136领涨股涨跌幅
@@ -41,6 +48,23 @@ std::string EastMoneySectorProvider::fsFor(SectorType type) {
 }
 
 std::vector<SectorBoard> EastMoneySectorProvider::fetchBoards(SectorType type) {
+    // 东财 clist 被 IP 级封锁/限流时（HTTP 000 空回复），连续全败达阈值后暂时跳过，
+    // 直接降级新浪，避免每次刷新都等 4 主机 × 3 重试。东财恢复即自动回切富数据源。
+    if (g_eastMoneyStrikes.load() < kEastMoneyMaxStrikes) {
+        auto boards = fetchEastMoneyBoards(type);
+        if (!boards.empty()) {
+            g_eastMoneyStrikes = 0;
+            return boards;
+        }
+        g_eastMoneyStrikes.fetch_add(1);
+        LogManager::instance()->log(LogLevel::Warn,
+            "东财板块 clist 不可用（连续 {} 次全败），降级新浪板块行情",
+            g_eastMoneyStrikes.load());
+    }
+    return fetchSinaBoards(type);
+}
+
+std::vector<SectorBoard> EastMoneySectorProvider::fetchEastMoneyBoards(SectorType type) {
     // 主域偶发限流（返回空），回退编号子域（东财负载均衡节点，ulist.np 同主机群）
     static const char* kHosts[] = {
         "push2.eastmoney.com",
@@ -57,7 +81,9 @@ std::vector<SectorBoard> EastMoneySectorProvider::fetchBoards(SectorType type) {
                 "/api/qt/clist/get?po=1&np=1&fltt=2&invt=2&fid=f3&pn=" +
                 std::to_string(pn) + "&pz=" + std::to_string(kPageSize) +
                 "&fs=" + fsFor(type) + "&fields=" + kFields;
-            const std::string body = fetch(url);
+            // 有新浪兜底 → 东财只试 1 次/主机：硬封锁时失败瞬时（空回复），
+            // 降低首刷等待；真限流时 4 主机里总有机会命中可用节点。
+            const std::string body = fetch(url, /*maxRetries=*/1);
             if (body.empty()) break;
             auto page = parsePage(body);
             if (page.boards.empty()) break;
@@ -70,6 +96,71 @@ std::vector<SectorBoard> EastMoneySectorProvider::fetchBoards(SectorType type) {
         if (!all.empty()) return all;
     }
     return {};
+}
+
+std::string EastMoneySectorProvider::sinaUrlFor(SectorType type) {
+    return type == SectorType::Industry
+        ? "http://vip.stock.finance.sina.com.cn/q/view/newSinaHy.php"
+        : "http://money.finance.sina.com.cn/q/view/newFLJK.php?param=class";
+}
+
+std::vector<SectorBoard> EastMoneySectorProvider::fetchSinaBoards(SectorType type) {
+    const std::string body = fetch(sinaUrlFor(type));
+    if (body.empty()) return {};
+    return parseSinaPage(body).boards;
+}
+
+SectorBoardPage EastMoneySectorProvider::parseSinaPage(const std::string& gbkBody) {
+    SectorBoardPage page;
+    try {
+        // 新浪返回 GBK；整体先转 UTF-8（GBK 第二字节可能含 0x22/0x5C，先转码再解析 JSON 才安全）
+        std::string body = gbkToUtf8(gbkBody);
+        const auto eq = body.find('=');
+        if (eq == std::string::npos) return page;
+        std::string jsonText = body.substr(eq + 1);
+        const auto first = jsonText.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos) return page;
+        jsonText = jsonText.substr(first);
+        while (!jsonText.empty() && (jsonText.back() == ';' || jsonText.back() == ' ' ||
+                                     jsonText.back() == '\r' || jsonText.back() == '\n')) {
+            jsonText.pop_back();
+        }
+        const auto json = nlohmann::json::parse(jsonText);
+        if (!json.is_object()) return page;
+
+        auto toNum = [](const std::string& s) -> double {
+            if (s.empty()) return 0.0;
+            try { return std::stod(s); } catch (...) { return 0.0; }
+        };
+        for (auto it = json.begin(); it != json.end(); ++it) {
+            if (!it.value().is_string()) continue;
+            const std::string val = it.value().get<std::string>();
+            // 逗号分隔：代码,名称,公司家数,平均价,涨跌额,涨跌幅,量,额,领涨代码,?,?,领涨涨跌幅,领涨名称
+            std::vector<std::string> f;
+            f.reserve(13);
+            size_t start = 0;
+            for (size_t i = 0; i <= val.size(); ++i) {
+                if (i == val.size() || val[i] == ',') {
+                    f.push_back(val.substr(start, i - start));
+                    start = i + 1;
+                }
+            }
+            if (f.size() < 8) continue;  // 至少 代码/名称/涨跌幅/成交额
+            SectorBoard b;
+            b.code = f[0];
+            b.name = f[1];
+            if (b.code.empty() || b.name.empty()) continue;
+            if (f.size() > 3) b.index = toNum(f[3]);        // 平均价（新浪无真实板块指数）
+            if (f.size() > 5) b.changePct = toNum(f[5]);
+            if (f.size() > 7) b.amount = toNum(f[7]);
+            if (f.size() > 11) b.leadingChangePct = toNum(f[11]);
+            if (f.size() > 12) b.leadingStock = f[12];      // 领涨股名称
+            page.boards.push_back(std::move(b));
+        }
+    } catch (...) {
+        return {};
+    }
+    return page;
 }
 
 SectorBoardPage EastMoneySectorProvider::parsePage(const std::string& body) {
@@ -158,7 +249,7 @@ std::string EastMoneySectorProvider::fetch(const std::string& url, int maxRetrie
             if (!body.isEmpty()) return body.toStdString();
         } else {
             LogManager::instance()->log(LogLevel::Warn,
-                "东财板块 fetch 失败 (第 {} 次) {}: {}", attempt + 1,
+                "板块 fetch 失败 (第 {} 次) {}: {}", attempt + 1,
                 reply->errorString().toStdString(), url);
         }
         reply->deleteLater();

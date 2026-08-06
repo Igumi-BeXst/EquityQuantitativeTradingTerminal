@@ -1,19 +1,18 @@
 #include "ui/panels/sector_panel.h"
 #include "core/thread_pool.h"
-#include <QLabel>
-#include <QPushButton>
-#include <QTimer>
 #include <QButtonGroup>
-#include <QVBoxLayout>
+#include <QColor>
 #include <QHBoxLayout>
+#include <QHeaderView>
+#include <QLabel>
 #include <QMetaObject>
 #include <QPointer>
-#include <QPainter>
-#include <QPaintEvent>
-#include <QMouseEvent>
-#include <QResizeEvent>
+#include <QPushButton>
+#include <QStackedWidget>
+#include <QTableWidget>
 #include <QTime>
-#include <cmath>
+#include <QTimer>
+#include <QVBoxLayout>
 #include <algorithm>
 #include <utility>
 
@@ -21,17 +20,8 @@ namespace st {
 
 namespace {
 
-constexpr char kAxisColor[] = "#6b6b6b";
 constexpr char kUpColor[] = "#e54648";    // 红涨
 constexpr char kDownColor[] = "#2e9e5b";  // 绿跌
-
-/// 按比例插值两色
-QColor lerpColor(const QColor& a, const QColor& b, double t) {
-    return QColor(
-        static_cast<int>(a.red() + (b.red() - a.red()) * t),
-        static_cast<int>(a.green() + (b.green() - a.green()) * t),
-        static_cast<int>(a.blue() + (b.blue() - a.blue()) * t));
-}
 
 /// 成交额（元）→ 亿/万
 QString amountText(double yuan) {
@@ -42,137 +32,6 @@ QString amountText(double yuan) {
 
 }  // namespace
 
-// ============================================================
-// SectorHeatmap — Squarified Treemap 热力图自绘
-// ============================================================
-class SectorPanel::SectorHeatmap : public QWidget {
-public:
-    explicit SectorHeatmap(SectorPanel* host, QWidget* parent = nullptr)
-        : QWidget(parent), host_(host) {
-        setMouseTracking(true);
-    }
-
-    void setBoards(std::vector<SectorBoard> boards) {
-        boards_ = std::move(boards);
-        hoverIndex_ = -1;
-        layoutRects();
-        update();
-    }
-
-protected:
-    void paintEvent(QPaintEvent*) override {
-        QPainter p(this);
-        p.fillRect(rect(), QColor("#18181a"));
-        if (boards_.empty()) {
-            p.setPen(QColor("#666666"));
-            p.drawText(rect(), Qt::AlignCenter, tr("暂无板块数据"));
-            return;
-        }
-
-        double maxAbs = 0.0;
-        for (const auto& b : boards_) maxAbs = std::max(maxAbs, std::abs(b.changePct));
-        const double scaleMax = std::max(maxAbs, 0.5);  // 至少 0.5% 才有色
-
-        for (size_t i = 0; i < boards_.size() && i < rects_.size(); ++i) {
-            const auto& t = rects_[i];
-            const QRectF r(t.x, t.y, t.w, t.h);
-            if (r.width() < 2 || r.height() < 2) continue;
-            p.fillRect(r.adjusted(1, 1, -1, -1),
-                       colorFor(boards_[i].changePct, scaleMax));
-
-            const auto& b = boards_[i];
-            const QString pct = QStringLiteral("%1%").arg(b.changePct, 0, 'f', 2);
-            p.setPen(QColor("#ffffff"));
-            if (r.width() >= 46 && r.height() >= 26) {
-                QFont f = p.font();
-                f.setPointSizeF(std::clamp(r.height() * 0.16, 7.0, 11.0));
-                p.setFont(f);
-                p.drawText(r.adjusted(4, 3, -4, -2), Qt::AlignHCenter | Qt::AlignVCenter,
-                           QString::fromUtf8(b.name.c_str()) + " " + pct);
-            } else if (r.width() >= 24 && r.height() >= 14) {
-                p.setFont(QFont(QStringLiteral("Microsoft YaHei"), 7));
-                p.drawText(r, Qt::AlignCenter, pct);
-            }
-        }
-
-        // 悬停高亮边框
-        if (hoverIndex_ >= 0 && hoverIndex_ < static_cast<int>(rects_.size())) {
-            const auto& t = rects_[static_cast<size_t>(hoverIndex_)];
-            p.setPen(QPen(QColor("#ffffff"), 2));
-            p.setBrush(Qt::NoBrush);
-            p.drawRect(QRectF(t.x, t.y, t.w, t.h).adjusted(1, 1, -1, -1));
-        }
-    }
-
-    void resizeEvent(QResizeEvent*) override {
-        layoutRects();
-        update();
-    }
-
-    void mouseMoveEvent(QMouseEvent* event) override {
-        const int idx = indexAt(event->pos());
-        if (idx != hoverIndex_) {
-            hoverIndex_ = idx;
-            update();
-        }
-        if (host_) host_->onTileHover(idx);
-    }
-
-    void leaveEvent(QEvent*) override {
-        if (hoverIndex_ != -1) {
-            hoverIndex_ = -1;
-            update();
-        }
-        if (host_) host_->onTileHover(-1);
-    }
-
-private:
-    QColor colorFor(double changePct, double scaleMax) const {
-        if (std::abs(changePct) < 0.05) return QColor("#3a3a3c");  // 平盘灰
-        const double t = std::clamp(std::abs(changePct) / scaleMax, 0.0, 1.0);
-        if (changePct > 0.0) {
-            return lerpColor(QColor(0x7a, 0x2b, 0x2b), QColor(kUpColor), t);
-        }
-        return lerpColor(QColor(0x2e, 0x5b, 0x3a), QColor(kDownColor), t);
-    }
-
-    void layoutRects() {
-        rects_.clear();
-        if (boards_.empty() || width() <= 0 || height() <= 0) return;
-        std::vector<double> weights;
-        weights.reserve(boards_.size());
-        double sum = 0.0;
-        for (const auto& b : boards_) {
-            weights.push_back(b.amount > 0.0 ? b.amount : 0.0);
-            sum += b.amount;
-        }
-        if (sum <= 0.0) {  // 无成交额 → 等面积
-            for (auto& w : weights) w = 1.0;
-        }
-        rects_ = Treemap::layout(static_cast<double>(width()),
-                                 static_cast<double>(height()), weights);
-    }
-
-    int indexAt(const QPoint& pos) const {
-        for (size_t i = 0; i < rects_.size(); ++i) {
-            const auto& t = rects_[i];
-            if (pos.x() >= t.x && pos.x() < t.x + t.w &&
-                pos.y() >= t.y && pos.y() < t.y + t.h) {
-                return static_cast<int>(i);
-            }
-        }
-        return -1;
-    }
-
-    SectorPanel* host_ = nullptr;
-    std::vector<SectorBoard> boards_;
-    std::vector<TreemapRect> rects_;
-    int hoverIndex_ = -1;
-};
-
-// ============================================================
-// SectorPanel
-// ============================================================
 SectorPanel::SectorPanel(QWidget* parent)
     : QWidget(parent), provider_(std::make_shared<EastMoneySectorProvider>()) {
     auto* layout = new QVBoxLayout(this);
@@ -209,15 +68,29 @@ SectorPanel::SectorPanel(QWidget* parent)
     layout->addLayout(topRow);
     connect(refreshBtn_, &QPushButton::clicked, this, &SectorPanel::onRefresh);
 
-    // 热力图
-    heatmap_ = new SectorHeatmap(this);
-    heatmap_->setMinimumHeight(200);
-    layout->addWidget(heatmap_, 1);
-
-    // 底部详情
-    detailLabel_ = new QLabel(tr("悬停查看板块详情"));
-    detailLabel_->setStyleSheet(QStringLiteral("color:#888888;"));
-    layout->addWidget(detailLabel_);
+    // 前十榜单（列表，替代全量 treemap 热力图）
+    stack_ = new QStackedWidget(this);
+    table_ = new QTableWidget(0, 4, stack_);
+    table_->setHorizontalHeaderLabels(
+        {QStringLiteral("板块"), QStringLiteral("涨跌幅"),
+         QStringLiteral("领涨股"), QStringLiteral("成交额")});
+    table_->horizontalHeader()->setStretchLastSection(true);
+    table_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    table_->verticalHeader()->setVisible(false);
+    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table_->setSelectionMode(QAbstractItemView::NoSelection);
+    table_->setFocusPolicy(Qt::NoFocus);
+    table_->setShowGrid(false);
+    table_->setStyleSheet(QStringLiteral(
+        "QTableWidget{background:#18181a;border:none;}"
+        "QTableWidget::item{padding:2px 6px;border-bottom:1px solid #242426;}"
+        "QHeaderView::section{background:#222225;color:#bbbbbb;border:none;padding:4px;}"));
+    stack_->addWidget(table_);
+    emptyLabel_ = new QLabel(tr("暂无板块数据"), stack_);
+    emptyLabel_->setAlignment(Qt::AlignCenter);
+    emptyLabel_->setStyleSheet(QStringLiteral("color:#666666;"));
+    stack_->addWidget(emptyLabel_);
+    layout->addWidget(stack_, 1);
 
     // 30s 自动刷新
     timer_ = new QTimer(this);
@@ -268,36 +141,48 @@ void SectorPanel::onRefresh() {
 }
 
 void SectorPanel::applyBoards(std::vector<SectorBoard> boards) {
-    boards_ = std::move(boards);
-    heatmap_->setBoards(boards_);
-    const auto now = QTime::currentTime().toString("HH:mm:ss");
-    if (boards_.empty()) {
-        // 数据源限流/暂不可用 → 明确提示，30s 定时器会自动重试
-        updateLabel_->setText(tr("获取失败 %1").arg(now));
-        detailLabel_->setText(tr("板块数据源暂不可用，将自动重试"));
-    } else {
-        updateLabel_->setText(tr("更新 %1").arg(now));
-        detailLabel_->setText(tr("悬停查看板块详情"));
-    }
-}
+    // 涨跌幅降序 → 仅展示前 10
+    std::sort(boards.begin(), boards.end(),
+              [](const SectorBoard& a, const SectorBoard& b) {
+                  return a.changePct > b.changePct;
+              });
+    boards.resize(std::min<size_t>(boards.size(), 10));
 
-void SectorPanel::onTileHover(int index) {
-    if (index < 0 || index >= static_cast<int>(boards_.size())) {
-        detailLabel_->setText(tr("悬停查看板块详情"));
-        return;
+    table_->setRowCount(static_cast<int>(boards.size()));
+    for (size_t i = 0; i < boards.size(); ++i) {
+        const auto& b = boards[i];
+        const QString color = b.changePct >= 0.0
+            ? QString::fromUtf8(kUpColor) : QString::fromUtf8(kDownColor);
+
+        auto* nameItem = new QTableWidgetItem(QString::fromUtf8(b.name.c_str()));
+        nameItem->setForeground(QColor("#dddddd"));
+
+        auto* pctItem = new QTableWidgetItem(
+            QStringLiteral("%1%").arg(b.changePct, 0, 'f', 2));
+        pctItem->setForeground(QColor(color));
+
+        QString lead = QString::fromUtf8(b.leadingStock.c_str());
+        if (!b.leadingStock.empty() && b.leadingChangePct != 0.0) {
+            lead += QStringLiteral(" %1%").arg(b.leadingChangePct, 0, 'f', 2);
+        }
+        auto* leadItem = new QTableWidgetItem(lead);
+        leadItem->setForeground(QColor("#999999"));
+
+        auto* amountItem = new QTableWidgetItem(amountText(b.amount));
+        amountItem->setForeground(QColor("#999999"));
+
+        table_->setItem(static_cast<int>(i), 0, nameItem);
+        table_->setItem(static_cast<int>(i), 1, pctItem);
+        table_->setItem(static_cast<int>(i), 2, leadItem);
+        table_->setItem(static_cast<int>(i), 3, amountItem);
     }
-    const auto& b = boards_[static_cast<size_t>(index)];
-    const QString color = b.changePct >= 0.0 ? kUpColor : kDownColor;
-    detailLabel_->setText(QStringLiteral(
-        "%1 %2%  |  领涨 %3 %4%  |  涨%5 跌%6 平%7  |  成交 %8")
-        .arg(QString::fromUtf8(b.name.c_str()))
-        .arg(b.changePct, 0, 'f', 2)
-        .arg(QString::fromUtf8(b.leadingStock.c_str()))
-        .arg(b.leadingChangePct, 0, 'f', 2)
-        .arg(b.upCount).arg(b.downCount).arg(b.flatCount)
-        .arg(amountText(b.amount)));
-    detailLabel_->setStyleSheet(color.isEmpty()
-        ? QString() : QStringLiteral("color:%1;").arg(color));
+
+    stack_->setCurrentWidget(boards.empty()
+        ? static_cast<QWidget*>(emptyLabel_)
+        : static_cast<QWidget*>(table_));
+    const auto now = QTime::currentTime().toString("HH:mm:ss");
+    updateLabel_->setText(boards.empty() ? tr("获取失败 %1").arg(now)
+                                         : tr("更新 %1").arg(now));
 }
 
 } // namespace st

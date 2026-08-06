@@ -29,26 +29,44 @@ struct SectorBoardPage {
     int total = 0;  // 服务端总数
 };
 
-/// 东方财富板块行情源 — 行业/概念板块列表（akshare stock_board_industry_name_em 同款）
+/// 板块行情源 — 东财 clist 优先，封锁/限流时自动降级新浪板块行情
 ///
-/// fetchBoards 可任意线程调用（IO 池）；复用 thread_local QNAM + QEventLoop 同步模式，
-/// Referer 用东财域名。解析为纯静态函数可单测。
+/// 东财 clist/get 对本机偶发 IP 级封锁（HTTP 000 空回复，curl 可复现，非代码问题）。
+/// fetchBoards 先试东财 clist（akshare stock_board_industry_name_em 同款）；连续全败
+/// 达阈值后暂时跳过东财（避免每次刷新等 4 主机×3 重试超时），直接走新浪板块行情
+/// （akshare stock_sector_spot 同款）。进程重启自动复测东财，封锁解除即恢复富数据
+/// （新浪不提供换手率/涨跌平家数 → 对应字段为 0）。
+///
+/// fetchBoards 可任意线程调用（IO 池）；复用 thread_local QNAM + QEventLoop 同步模式。
+/// 两类解析均为纯静态函数可单测。
 class EastMoneySectorProvider {
 public:
-    /// 拉取板块列表（按涨跌幅降序，自动分页直到 total；失败返回空）
+    /// 拉取板块列表（按涨跌幅降序；东财分页，新浪单请求）。全失败返回空。
     std::vector<SectorBoard> fetchBoards(SectorType type);
 
     /// 板块类型 → clist 的 fs 过滤串（行业 m:90+t:2 / 概念 m:90+t:3）
     static std::string fsFor(SectorType type);
 
+    /// 板块类型 → 新浪板块行情 URL（行业 newSinaHy.php / 概念 newFLJK.php?param=class）
+    static std::string sinaUrlFor(SectorType type);
+
     /// 纯静态解析单页（可单测，无网络）：解析 clist/get 响应 body → 板块列表 + total。
     /// 兼容 data.diff 为数组或对象两种形态；字段缺失取默认值；畸形返回空。
     static SectorBoardPage parsePage(const std::string& body);
+
+    /// 纯静态解析新浪板块行情（可单测，无网络）：入参为原始 GBK 响应体，
+    /// 内部先整体 GBK→UTF-8 再解析。每条逗号分隔：
+    ///   代码,名称,公司家数,平均价,涨跌额,涨跌幅,总成交量,总成交额,
+    ///   领涨股代码,?,?,领涨股涨跌幅,领涨股名称
+    /// 新浪无换手率/涨跌平家数 → turnover/up/down/flat 均为 0。
+    static SectorBoardPage parseSinaPage(const std::string& gbkBody);
 
     /// 兼容便捷接口：只取解析结果的 boards
     static std::vector<SectorBoard> parseBoards(const std::string& body);
 
 private:
+    std::vector<SectorBoard> fetchEastMoneyBoards(SectorType type);
+    std::vector<SectorBoard> fetchSinaBoards(SectorType type);
     std::string fetch(const std::string& url, int maxRetries = 3);
 };
 
