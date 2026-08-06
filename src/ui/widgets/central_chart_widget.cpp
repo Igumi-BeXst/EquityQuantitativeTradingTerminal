@@ -54,6 +54,12 @@ CentralChartWidget::CentralChartWidget(IDataProvider* provider, QWidget* parent)
     stack_->addWidget(timeline_);   // index 0
     stack_->addWidget(kline_);      // index 1
     layout->addWidget(stack_, 1);
+
+    // 转发 K线十字光标日期（分时不发；筹码面板按日期查询）
+    connect(kline_, &KLineChart::crosshairDateChanged, this,
+            [this](const std::optional<DateTime>& date) {
+                emit crosshairDateChanged(date);
+            });
 }
 
 void CentralChartWidget::loadStock(const StockCode& code, const QString& name) {

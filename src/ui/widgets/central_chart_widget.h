@@ -3,6 +3,7 @@
 #include "foundation/stock_code.h"
 #include "foundation/types.h"
 #include <QWidget>
+#include <optional>
 
 class QStackedWidget;
 class QToolButton;
@@ -25,6 +26,10 @@ public:
 
     /// 周期切换: 分时→Timeline，其余→KLine
     void setPeriod(BarPeriod period);
+
+signals:
+    /// 转发 K线十字光标日期（日/周/月；nullopt = 离开/重载回退最新）
+    void crosshairDateChanged(const std::optional<DateTime>& date);
 
 private:
     IDataProvider* provider_ = nullptr;

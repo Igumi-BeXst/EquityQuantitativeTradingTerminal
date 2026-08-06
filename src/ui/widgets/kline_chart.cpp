@@ -143,6 +143,8 @@ void KLineChart::setData(const std::vector<Bar>& bars) {
     loading_ = false;
     firstVisible_ = std::max(0, static_cast<int>(bars_.size()) - visibleCount_);
     mouseIndex_ = -1;
+    lastEmittedDate_.reset();
+    emit crosshairDateChanged(std::nullopt);  // 数据重载 → 外部面板回退最新
     recomputeIndicators();
     update();
 }
@@ -762,6 +764,15 @@ void KLineChart::mouseMoveEvent(QMouseEvent* event) {
                                   static_cast<int>(bars_.size()) - 1));
         mouseIndex_ = idx;
     }
+    // 悬停 K 线日期变化 → 通知外部面板（筹码分布等按日期查询）
+    const std::optional<DateTime> date =
+        (mouseIndex_ >= 0 && mouseIndex_ < static_cast<int>(bars_.size()))
+            ? std::optional<DateTime>(bars_[static_cast<size_t>(mouseIndex_)].time)
+            : std::nullopt;
+    if (date != lastEmittedDate_) {
+        lastEmittedDate_ = date;
+        emit crosshairDateChanged(date);
+    }
     update();
 }
 
@@ -799,6 +810,10 @@ void KLineChart::wheelEvent(QWheelEvent* event) {
 
 void KLineChart::leaveEvent(QEvent*) {
     mouseIndex_ = -1;
+    if (lastEmittedDate_) {
+        lastEmittedDate_.reset();
+        emit crosshairDateChanged(std::nullopt);  // 离开图表 → 外部面板回退最新
+    }
     update();
 }
 

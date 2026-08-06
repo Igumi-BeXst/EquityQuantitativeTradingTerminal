@@ -6,6 +6,7 @@
 #include <QWidget>
 #include <QString>
 #include <QColor>
+#include <optional>
 #include <vector>
 
 class QPainterPath;
@@ -40,6 +41,9 @@ public:
 
 signals:
     void periodChanged(BarPeriod period);
+
+    /// 十字光标移动：发出当前悬停 K 线的日期（nullopt = 离开图表/数据重载）
+    void crosshairDateChanged(const std::optional<DateTime>& date);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -98,6 +102,7 @@ private:
     int firstVisible_ = 0;
     int visibleCount_ = 120;
     int mouseIndex_ = -1;
+    std::optional<DateTime> lastEmittedDate_;  // 已发出的十字线日期（避免重复发射）
     double mouseY_ = 0;
     bool dragging_ = false;
     int dragStartX_ = 0;

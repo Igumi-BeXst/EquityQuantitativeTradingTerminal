@@ -21,6 +21,7 @@ class ShortcutManager;
 class QuantWindow;
 class MarketDepthWidget;
 class StockKeyDataWidget;
+class ChipPanel;
 
 /// 主窗口 — 菜单栏 + 工具栏(搜索/指数条) + QDockWidget 布局 + 状态栏
 ///
@@ -56,6 +57,7 @@ private:
     QuantWindow* quantWindow_ = nullptr;
     MarketDepthWidget* marketDepth_ = nullptr;
     StockKeyDataWidget* keyData_ = nullptr;
+    ChipPanel* chipPanel_ = nullptr;
     LogPanel* logPanel_ = nullptr;
     MarketIndexStrip* indexStrip_ = nullptr;
     StockSearchBar* searchBar_ = nullptr;

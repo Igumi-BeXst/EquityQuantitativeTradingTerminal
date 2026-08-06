@@ -10,6 +10,7 @@
 #include "ui/panels/quant_window.h"
 #include "ui/widgets/market_depth_widget.h"
 #include "ui/widgets/stock_key_data_widget.h"
+#include "ui/widgets/chip_panel.h"
 #include "data/idata_provider.h"
 #include "data/provider_factory.h"
 #include "core/app_paths.h"
@@ -62,6 +63,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         }
         if (keyData_) {
             keyData_->setStock(info.code, QString::fromStdString(info.name));
+        }
+        if (chipPanel_) {
+            chipPanel_->setStock(info.code, QString::fromStdString(info.name));
         }
         statusBar()->showMessage(
             QStringLiteral("已选择 %1 (%2)")
@@ -155,6 +159,7 @@ void MainWindow::createDocks() {
             ? QString::fromStdString(code.displayCode()) : name);
         if (marketDepth_) marketDepth_->setStock(code, name);
         if (keyData_) keyData_->setStock(code, name);
+        if (chipPanel_) chipPanel_->setStock(code, name);
     });
 
     // 右: 个股关键数据（盘口上方）+ 盘口五档 + 成交明细
@@ -172,6 +177,22 @@ void MainWindow::createDocks() {
     splitDockWidget(keyDataDock, depthDock, Qt::Vertical);  // 关键数据在上，盘口在下
     depthDock->setMinimumWidth(260);
     depthDock->setMaximumWidth(400);
+
+    // 右: 筹码分布（盘口下方；筹码云 + 成交分布 + 区间统计）
+    auto* chipDock = new QDockWidget(tr("筹码分布"), this);
+    chipDock->setObjectName(QStringLiteral("chipDock"));
+    chipPanel_ = new ChipPanel(provider_.get(), chipDock);
+    chipDock->setWidget(chipPanel_);
+    addDockWidget(Qt::RightDockWidgetArea, chipDock);
+    splitDockWidget(depthDock, chipDock, Qt::Vertical);
+    chipDock->setMinimumWidth(260);
+    chipDock->setMaximumWidth(400);
+
+    // K线十字光标日期（日/周/月）→ 筹码面板按日期查询；nullopt 回退最新
+    connect(centralChart_, &CentralChartWidget::crosshairDateChanged, this,
+            [this](const std::optional<DateTime>& date) {
+                if (chipPanel_) chipPanel_->setAsOfDate(date);
+            });
 
     // 底: 日志面板（真实实现）
     logDock_ = new QDockWidget(tr("日志"), this);
@@ -300,6 +321,7 @@ void MainWindow::openQuantWindow() {
             centralChart_->loadStock(code, QString::fromStdString(code.displayCode()));
             if (marketDepth_) marketDepth_->setStock(code, QString());
             if (keyData_) keyData_->setStock(code, QString());
+            if (chipPanel_) chipPanel_->setStock(code, QString());
         });
     }
     quantWindow_->show();

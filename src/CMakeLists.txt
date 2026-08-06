@@ -76,6 +76,7 @@ add_library(st_engine STATIC
     engine/analyzer/strategy_comparator.cpp
     engine/analyzer/stress_test.cpp
     engine/analyzer/monte_carlo.cpp
+    engine/analyzer/chip_distribution.cpp
 )
 target_link_libraries(st_engine PUBLIC st_data st_core st_foundation talib::talib)
 
@@ -117,6 +118,7 @@ add_library(st_ui STATIC
     ui/panels/log_panel.cpp
     ui/widgets/market_depth_widget.cpp
     ui/widgets/stock_key_data_widget.cpp
+    ui/widgets/chip_panel.cpp
     ui/models/stock_list_model.cpp
     ui/models/trade_table_model.cpp
     ui/models/market_rank_model.cpp
@@ -181,6 +183,10 @@ target_link_libraries(fundamental_calib PRIVATE st_data st_core st_foundation Qt
 # 引擎堆压力测试（无头定位越界写）
 add_executable(heap_stress tools_heap_stress.cpp)
 target_link_libraries(heap_stress PRIVATE st_intelligence st_engine st_data st_core st_foundation Qt6::Core)
+
+# 筹码分布实连校准工具（P10 第三轮验证用）
+add_executable(chip_calib tools_chip_calib.cpp)
+target_link_libraries(chip_calib PRIVATE st_engine st_data st_core st_foundation Qt6::Core)
 
 else()
 # Without Qt: just build the Foundation CLI test runner
