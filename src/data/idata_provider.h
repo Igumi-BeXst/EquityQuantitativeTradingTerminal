@@ -30,6 +30,9 @@ public:
     virtual std::optional<StockInfo> getStockInfo(const StockCode& code) = 0;
     virtual std::vector<StockInfo> getStockList(Market market) = 0;
 
+    /// 板块指数列表（通达信 880xxx 行业 / 885xxx 概念），默认不支持返回空
+    virtual std::vector<StockInfo> getSectorIndices() { return {}; }
+
     /// K线数据 (返回升序 bar 序列)
     virtual std::vector<Bar> getBars(const StockCode& code,
                                      BarPeriod period,

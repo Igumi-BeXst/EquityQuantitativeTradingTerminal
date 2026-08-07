@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "data/eastmoney_sector_provider.h"
+#include "foundation/utils/datetime.h"
 
 using namespace st;
 
@@ -137,4 +138,145 @@ TEST(SectorProviderTest, ParseSinaMalformedReturnsEmpty) {
     EXPECT_TRUE(EastMoneySectorProvider::parseSinaPage("not json").boards.empty());
     EXPECT_TRUE(EastMoneySectorProvider::parseSinaPage("var x = notjson;").boards.empty());
     EXPECT_TRUE(EastMoneySectorProvider::parseSinaPage("var x = {\"a\":123};").boards.empty());
+}
+
+// ============================================================
+// 板块历史 K 线（叠加对比用，东财 push2his kline/get）
+// ============================================================
+
+TEST(SectorKlineTest, ParseValidKlines) {
+    // klines 行格式: 日期,开,收,高,低,量,额,振幅,涨跌幅,涨跌额,换手率
+    const char* body = R"({"data":{"code":"BK0475","klines":[
+        "2024-01-15,3020.5,3021.5,3030.0,3010.0,12935400,391234567.0,0.66,0.53,16.0,1.08",
+        "2024-01-16,3022.0,3015.2,3025.0,3010.5,11000000,330000000.0,0.50,-0.21,-6.3,0.95"
+    ]}})";
+    auto bars = EastMoneySectorProvider::parseSectorKline(body, "BK0475");
+    ASSERT_EQ(bars.size(), 2u);
+
+    const auto& b0 = bars[0];
+    EXPECT_EQ(b0.code.code(), "BK0475");
+    EXPECT_EQ(utils::toDateString(b0.time), "2024-01-15");
+    EXPECT_NEAR(b0.open, 3020.5, 1e-6);
+    EXPECT_NEAR(b0.close, 3021.5, 1e-6);
+    EXPECT_NEAR(b0.high, 3030.0, 1e-6);
+    EXPECT_NEAR(b0.low, 3010.0, 1e-6);
+    EXPECT_EQ(b0.volume, 12935400ll);
+    EXPECT_NEAR(b0.amount, 391234567.0, 1.0);
+    EXPECT_NEAR(b0.turnoverRate, 0.0108, 1e-6);  // 1.08% → 0.0108
+
+    EXPECT_NEAR(bars[1].close, 3015.2, 1e-6);
+}
+
+TEST(SectorKlineTest, EmptyOrNoDataReturnsEmpty) {
+    EXPECT_TRUE(EastMoneySectorProvider::parseSectorKline("not json", "BK1").empty());
+    EXPECT_TRUE(EastMoneySectorProvider::parseSectorKline("", "BK1").empty());
+    EXPECT_TRUE(EastMoneySectorProvider::parseSectorKline(R"({"data":{}})", "BK1").empty());
+    EXPECT_TRUE(EastMoneySectorProvider::parseSectorKline(R"({"data":{"klines":[]}})", "BK1").empty());
+}
+
+TEST(SectorKlineTest, MalformedRowsSkipped) {
+    // 字段不足 7 个的行跳过；数字异常的行跳过（stod 抛异常 → 整个 try 捕获）
+    const char* body = R"({"data":{"klines":[
+        "2024-01-15,3020.5",
+        "2024-01-16,3022.0,3015.2,3025.0,3010.5,11000000,330000000.0"
+    ]}})";
+    auto bars = EastMoneySectorProvider::parseSectorKline(body, "BK1");
+    ASSERT_EQ(bars.size(), 1u);
+    EXPECT_NEAR(bars[0].close, 3015.2, 1e-6);
+}
+
+TEST(SectorKlineTest, UrlContainsSecidAndKlt) {
+    const std::string url = EastMoneySectorProvider::klineUrlFor(
+        SectorType::Industry, "BK0475", BarPeriod::Daily);
+    EXPECT_NE(url.find("secid=90.BK0475"), std::string::npos);
+    EXPECT_NE(url.find("klt=101"), std::string::npos);
+    EXPECT_NE(url.find("beg=0&end=20500101"), std::string::npos);
+}
+
+TEST(SectorKlineTest, WeeklyAndMonthlyKltMapping) {
+    EXPECT_NE(EastMoneySectorProvider::klineUrlFor(
+                  SectorType::Concept, "BK1", BarPeriod::Weekly).find("klt=102"),
+              std::string::npos);
+    EXPECT_NE(EastMoneySectorProvider::klineUrlFor(
+                  SectorType::Concept, "BK1", BarPeriod::Monthly).find("klt=103"),
+              std::string::npos);
+}
+
+// ============================================================
+// 板块分时（叠加对比用，东财 trends2）
+// ============================================================
+
+TEST(SectorTrendsTest, ParseValidTrends) {
+    // trends 行格式: 时间,最新价,均价,涨跌额,涨跌幅,累计量,累计额,…
+    const char* body = R"({"data":{"code":"BK0475","trends":[
+        "2024-01-15 09:30,3021.52,3021.52,0.00,0.00,129354,102310581.00",
+        "2024-01-15 09:31,3022.10,3021.80,0.58,0.019,139200,110123456.00"
+    ]}})";
+    auto data = EastMoneySectorProvider::parseSectorTrends(body, "BK0475");
+    ASSERT_TRUE(data.has_value());
+    ASSERT_EQ(data->points.size(), 2u);
+
+    const auto& p0 = data->points[0];
+    EXPECT_NEAR(p0.price, 3021.52, 1e-6);
+    EXPECT_EQ(utils::toDateTimeString(p0.time), "2024-01-15 09:30:00");
+    EXPECT_EQ(p0.volume, 129354ll);
+    EXPECT_NEAR(p0.amount, 102310581.0, 1.0);
+
+    EXPECT_NEAR(data->points[1].price, 3022.10, 1e-6);
+    EXPECT_EQ(data->code.code(), "BK0475");
+}
+
+TEST(SectorTrendsTest, EmptyOrNoDataReturnsNullopt) {
+    EXPECT_FALSE(EastMoneySectorProvider::parseSectorTrends("not json", "BK1").has_value());
+    EXPECT_FALSE(EastMoneySectorProvider::parseSectorTrends("", "BK1").has_value());
+    EXPECT_FALSE(EastMoneySectorProvider::parseSectorTrends(R"({"data":{}})", "BK1").has_value());
+    EXPECT_FALSE(EastMoneySectorProvider::parseSectorTrends(R"({"data":{"trends":[]}})", "BK1").has_value());
+}
+
+TEST(SectorTrendsTest, MalformedRowsSkipped) {
+    const char* body = R"({"data":{"trends":[
+        "2024-01-15 09:30,3021.52",
+        "bad-row"
+    ]}})";
+    auto data = EastMoneySectorProvider::parseSectorTrends(body, "BK1");
+    ASSERT_TRUE(data.has_value());
+    ASSERT_EQ(data->points.size(), 1u);
+    EXPECT_NEAR(data->points[0].price, 3021.52, 1e-6);
+}
+
+TEST(SectorTrendsTest, UrlContainsSecidAndNdays) {
+    const std::string url = EastMoneySectorProvider::trendsUrlFor(
+        SectorType::Concept, "BK0001");
+    EXPECT_NE(url.find("secid=90.BK0001"), std::string::npos);
+    EXPECT_NE(url.find("ndays=1"), std::string::npos);
+}
+
+// ============================================================
+// 板块名称 → 东财 BK 代码（新浪降级列表的 new_xxx 需转 BKxxxx 才能用东财接口）
+// ============================================================
+
+TEST(SectorSuggestTest, ParseBkCodeFirstBkMatch) {
+    // 取第一个 Classify=="BK" 的 Code（个股排前面也能跳过）
+    const char* body = R"({"QuotationCodeTable":{"Data":[
+        {"Code":"600519","Name":"贵州茅台","Classify":"AStock"},
+        {"Code":"BK0475","Name":"银行Ⅱ","Classify":"BK","QuoteID":"90.BK0475"},
+        {"Code":"600036","Name":"招商银行","Classify":"AStock"}
+    ]}})";
+    EXPECT_EQ(EastMoneySectorProvider::parseSuggestBkCode(body), "BK0475");
+}
+
+TEST(SectorSuggestTest, ParseBkCodeNoBkReturnsEmpty) {
+    const char* body = R"({"QuotationCodeTable":{"Data":[
+        {"Code":"600519","Name":"贵州茅台","Classify":"AStock"}
+    ]}})";
+    EXPECT_TRUE(EastMoneySectorProvider::parseSuggestBkCode(body).empty());
+    EXPECT_TRUE(EastMoneySectorProvider::parseSuggestBkCode("").empty());
+    EXPECT_TRUE(EastMoneySectorProvider::parseSuggestBkCode("not json").empty());
+}
+
+TEST(SectorSuggestTest, SuggestUrlEncodesNameAndType14) {
+    const std::string url = EastMoneySectorProvider::suggestUrlFor("银行");
+    EXPECT_NE(url.find("type=14"), std::string::npos);
+    // "银行" UTF-8 百分号编码后应出现在 URL 中
+    EXPECT_NE(url.find("%E9%93%B6%E8%A1%8C"), std::string::npos);
 }

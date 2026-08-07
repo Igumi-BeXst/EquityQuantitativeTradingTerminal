@@ -23,6 +23,8 @@
 #include <QTextStream>
 #include <algorithm>
 #include <cmath>
+#include <optional>
+#include <utility>
 
 namespace st {
 
@@ -61,7 +63,8 @@ QString periodLabel(BarPeriod p) {
 }  // namespace
 
 KLineChart::KLineChart(IDataProvider* provider, QWidget* parent)
-    : QWidget(parent), provider_(provider) {
+    : QWidget(parent), provider_(provider),
+      sectorProvider_(std::make_shared<EastMoneySectorProvider>()) {
     setMouseTracking(true);
     setMinimumSize(400, 300);
 
@@ -147,6 +150,7 @@ void KLineChart::setIndicatorVisible(Indicator ind, bool visible) {
         case Indicator::Boll: showBoll_ = visible; break;
         case Indicator::Macd: showMacd_ = visible; break;
         case Indicator::Rsi:  showRsi_ = visible; break;
+        case Indicator::RelativeStrength: showRelativeStrength_ = visible; break;
     }
     update();
 }
@@ -158,6 +162,7 @@ bool KLineChart::isIndicatorVisible(Indicator ind) const {
         case Indicator::Boll: return showBoll_;
         case Indicator::Macd: return showMacd_;
         case Indicator::Rsi:  return showRsi_;
+        case Indicator::RelativeStrength: return showRelativeStrength_;
     }
     return true;
 }
@@ -239,7 +244,12 @@ void KLineChart::loadStock(const StockCode& code, const QString& name) {
     lines_.clear();   // 切股不带旧标注
     drawMode_ = DrawMode::None;
     drawing_ = false;
+    ++overlayGen_;            // 作废在途叠加请求
+    overlayActive_ = false;   // 切股清叠加（按视图隔离）
+    overlayRows_.clear();
     update();
+    // 外部数据模式（自定义指数等）：由拥有者重算后经 loadBars 喂入
+    if (externalReloader_) { externalReloader_(); return; }
     if (!provider_) { loading_ = false; return; }
 
     // 安全异步：捕获 provider 按值 + QPointer 守卫（widget 销毁后自动跳过，避免悬垂 this）
@@ -258,8 +268,37 @@ void KLineChart::loadStock(const StockCode& code, const QString& name) {
 void KLineChart::setPeriod(BarPeriod period) {
     if (period == period_) return;
     period_ = period;
-    if (code_.isValid()) loadStock(code_, name_);
+    if (code_.isValid()) {
+        // 外部数据模式：由拥有者按新周期重算（不做 provider 拉取，也不保留叠加——重算后重设）
+        if (externalReloader_) {
+            externalReloader_();
+        } else {
+            // 周期切换保留叠加（同图日/周/月）：loadStock 会清叠加，先存后重设重取
+            const bool saved = overlayActive_;
+            const OverlayTarget target = overlayTarget_;
+            const bool showRs = showRelativeStrength_;
+            loadStock(code_, name_);
+            if (saved) setOverlay(target, showRs);
+        }
+    }
     emit periodChanged(period_);
+}
+
+void KLineChart::setExternalReloader(std::function<void()> reloadFn) {
+    externalReloader_ = std::move(reloadFn);
+}
+
+void KLineChart::loadBars(const std::vector<Bar>& bars, const StockCode& code,
+                          const QString& name) {
+    code_ = code;
+    name_ = name;
+    lines_.clear();
+    drawMode_ = DrawMode::None;
+    drawing_ = false;
+    ++overlayGen_;
+    overlayActive_ = false;
+    overlayRows_.clear();
+    setData(bars);
 }
 
 void KLineChart::setData(const std::vector<Bar>& bars) {
@@ -271,6 +310,65 @@ void KLineChart::setData(const std::vector<Bar>& bars) {
     emit crosshairDateChanged(std::nullopt);  // 数据重载 → 外部面板回退最新
     recomputeIndicators();
     update();
+}
+
+// ============================================================
+// 叠加对比（指数/个股/板块/概念；按视图隔离：只叠加本图日/周/月）
+// ============================================================
+void KLineChart::setOverlay(const OverlayTarget& target, bool showRelativeStrength) {
+    if (target.kind == OverlayKind::Security && target.stockCode == code_) return;  // 自我叠加拒绝
+    overlayTarget_ = target;
+    showRelativeStrength_ = showRelativeStrength;
+    fetchOverlayData();
+}
+
+void KLineChart::clearOverlay() {
+    ++overlayGen_;
+    overlayActive_ = false;
+    overlayRows_.clear();
+    showRelativeStrength_ = false;
+    rsHi_ = rsLo_ = 100;
+    update();
+}
+
+void KLineChart::fetchOverlayData() {
+    if (!provider_ || !overlayTarget_.isValid()) return;
+    const int gen = ++overlayGen_;
+    overlayActive_ = true;
+    const BarPeriod period = period_;
+    const OverlayTarget target = overlayTarget_;
+    IDataProvider* provider = provider_;
+    auto sectorProvider = sectorProvider_;
+    QPointer<KLineChart> guard(this);
+    ThreadPool::submitIO([provider, sectorProvider, guard, gen, target, period] {
+        std::vector<Bar> ovBars;
+        if (target.kind == OverlayKind::Sector) {
+            if (isTdxSectorCode(target.sectorCode)) {
+                // 通达信板块指数 → 走 TDX 主源（isIndex 解码已支持 880/885），不受东财封锁影响
+                ovBars = provider->getBars(StockCode(Market::SH, target.sectorCode), period,
+                                           DateTime{}, utils::now());
+            } else {
+                // 东财板块（BKxxxx / 新浪 new_xxx 经 suggest 解析）
+                ovBars = sectorProvider->fetchSectorKline(target.sectorType, target.sectorCode,
+                                                          target.name.toStdString(), period);
+            }
+        } else {
+            ovBars = provider->getBars(target.stockCode, period, DateTime{}, utils::now());
+        }
+        QMetaObject::invokeMethod(guard, [guard, gen, ovBars = std::move(ovBars)]() mutable {
+            if (gen != guard->overlayGen_) return;  // 旧请求回写丢弃
+            auto rows = alignOverlay(guard->bars_, ovBars);
+            int matched = 0;
+            for (const auto& r : rows) if (r.matched) ++matched;
+            LogManager::instance()->log(LogLevel::Info,
+                "叠加 {} ({}): 拉取 {} 根, 对齐 {} 行 / 匹配 {}",
+                guard->overlayTarget_.name.toStdString(),
+                guard->overlayTarget_.sectorCode,
+                ovBars.size(), rows.size(), matched);
+            guard->overlayRows_ = std::move(rows);
+            guard->update();
+        }, Qt::QueuedConnection);
+    });
 }
 
 void KLineChart::recomputeIndicators() {
@@ -320,6 +418,9 @@ void KLineChart::buildLayout() {
     if (showBoll_) panes.push_back({Indicator::Boll, &bollRect_});
     if (showMacd_) panes.push_back({Indicator::Macd, &macdRect_});
     if (showRsi_)  panes.push_back({Indicator::Rsi, &rsiRect_});
+    if (overlayActive_ && showRelativeStrength_) {
+        panes.push_back({Indicator::RelativeStrength, &rsRect_});
+    }
 
     const int paneCount = static_cast<int>(panes.size());
     double mainH, paneH;
@@ -389,6 +490,30 @@ void KLineChart::computeVisibleRange() {
             }
         }
     }
+
+    // 归一化叠加线量程：纳入主图范围，保证叠线可见（锚点 = 可见区首个 matched，每帧重算）
+    overlayAnchor_ = -1;
+    if (overlayActive_ && overlayRows_.size() == bars_.size()) {
+        for (int i = start; i < end; ++i) {
+            if (overlayRows_[static_cast<size_t>(i)].matched) { overlayAnchor_ = i; break; }
+        }
+        if (overlayAnchor_ >= 0) {
+            const double baseClose = bars_[static_cast<size_t>(overlayAnchor_)].close;
+            const double ovAnchor = overlayRows_[static_cast<size_t>(overlayAnchor_)].overlayClose;
+            if (baseClose > 0 && ovAnchor > 0) {
+                for (int i = start; i < end; ++i) {
+                    const auto& row = overlayRows_[static_cast<size_t>(i)];
+                    if (!row.matched) continue;
+                    // 叠加蜡烛的缩放后高低价纳入主图量程，保证蜡烛可见
+                    const double vh = baseClose * row.overlayHigh / ovAnchor;
+                    const double vl = baseClose * row.overlayLow / ovAnchor;
+                    if (std::isfinite(vh)) hi = std::max(hi, vh);
+                    if (std::isfinite(vl)) lo = std::min(lo, vl);
+                }
+            }
+        }
+    }
+
     double pad = (hi - lo) * 0.05;
     if (pad < 1e-9) pad = 1.0;
     priceHi_ = hi + pad;
@@ -433,6 +558,25 @@ void KLineChart::computeVisibleRange() {
         }
     }
     if (macdMaxAbs_ <= 0) macdMaxAbs_ = 1;
+
+    // 相对强弱面板量程（锚点=100；无有效数据时保持 100 范围）
+    rsHi_ = 100, rsLo_ = 100;
+    if (overlayActive_ && showRelativeStrength_ && overlayAnchor_ >= 0 &&
+        overlayRows_.size() == bars_.size()) {
+        const double rsAnchor = overlayRows_[static_cast<size_t>(overlayAnchor_)].relativeStrength;
+        if (rsAnchor > 0) {
+            for (int i = start; i < end; ++i) {
+                const auto& row = overlayRows_[static_cast<size_t>(i)];
+                if (!row.matched || row.relativeStrength <= 0) continue;
+                const double v = row.relativeStrength / rsAnchor * 100.0;
+                if (std::isfinite(v)) { rsHi_ = std::max(rsHi_, v); rsLo_ = std::min(rsLo_, v); }
+            }
+        }
+        double rpad = (rsHi_ - rsLo_) * 0.05;
+        if (rpad < 1e-9) rpad = 1.0;
+        rsHi_ += rpad;
+        rsLo_ -= rpad;
+    }
 }
 
 // ============================================================
@@ -454,6 +598,7 @@ void KLineChart::paintEvent(QPaintEvent*) {
     drawTitle(p);
     drawCandles(p);
     drawOverlayLines(p);  // MA 叠加（主图）
+    if (overlayActive_) drawRebasedOverlay(p);  // 归一化叠加线（独立函数，不受 MA 开关影响）
 
     // 面板背景交替着色 + 分隔
     int paneIdx = 0;
@@ -470,6 +615,7 @@ void KLineChart::paintEvent(QPaintEvent*) {
     if (showBoll_) drawBoll(p);
     if (showMacd_) drawMacd(p);
     if (showRsi_)  drawRsi(p);
+    if (overlayActive_ && showRelativeStrength_) drawRelativeStrength(p);
     drawAxes(p);
     drawAnnotations(p);  // 画线标注（十字线之下）
     drawCrosshair(p);
@@ -754,6 +900,118 @@ void KLineChart::drawOverlayLines(QPainter& p) {
     legend("MA60", ind_.ma60[static_cast<size_t>(idx)], QColor("#90a4ae"));
 }
 
+void KLineChart::drawRebasedOverlay(QPainter& p) {
+    if (!overlayActive_ || overlayAnchor_ < 0) return;
+    if (overlayRows_.size() != bars_.size()) return;
+    const int start = firstVisible_;
+    const int end = std::min(start + visibleCount_, static_cast<int>(bars_.size()));
+    const auto& anchorRow = overlayRows_[static_cast<size_t>(overlayAnchor_)];
+    const double baseClose = bars_[static_cast<size_t>(overlayAnchor_)].close;
+    if (anchorRow.overlayClose <= 0 || baseClose <= 0) return;
+
+    // 叠加 K 线蜡烛：缩放因子使叠加标锚点收盘对齐 base 锚点收盘，OHLC 等比缩放。
+    // 空心蜡烛 + 按涨跌分色（橙涨/青跌，区别于 base 红涨绿跌；空心与 base 实心区分）。
+    const QColor kOverlayUp("#ff9800");    // 叠加涨：橙
+    const QColor kOverlayDown("#00b8d4");  // 叠加跌：青
+    const double scale = baseClose / anchorRow.overlayClose;
+    const double bodyHalf = std::min(0.35 * bodyWidth(), 6.0);
+    QPainterPath upWick, downWick;
+    for (int i = start; i < end; ++i) {
+        const auto& row = overlayRows_[static_cast<size_t>(i)];
+        if (!row.matched) continue;
+        const double o = scale * row.overlayOpen;
+        const double h = scale * row.overlayHigh;
+        const double l = scale * row.overlayLow;
+        const double c = scale * row.overlayClose;
+        if (!std::isfinite(h) || !std::isfinite(l) || h < l || h <= 0) continue;
+        const bool rising = c >= o;
+        const QColor& col = rising ? kOverlayUp : kOverlayDown;
+        const double cx = barCenterX(i);
+        auto& wick = rising ? upWick : downWick;
+        wick.moveTo(cx, priceToY(h));
+        wick.lineTo(cx, priceToY(l));
+        // 空心蜡烛：仅描边，不填充
+        const double top = std::min(priceToY(o), priceToY(c));
+        const double bh = std::max(std::abs(priceToY(c) - priceToY(o)), 1.0);
+        p.setPen(QPen(col, 1));
+        p.setBrush(Qt::NoBrush);
+        p.drawRect(QRectF(cx - bodyHalf, top, 2 * bodyHalf, bh));
+    }
+    p.setPen(QPen(kOverlayUp, 1));
+    p.setBrush(Qt::NoBrush);
+    p.drawPath(upWick);
+    p.setPen(QPen(kOverlayDown, 1));
+    p.setBrush(Qt::NoBrush);
+    p.drawPath(downWick);
+
+    // 图例（MA 图例下方第二行，避开一行重叠；颜色跟随最新叠加蜡烛方向）
+    const int idx = (mouseIndex_ >= 0) ? mouseIndex_ : static_cast<int>(bars_.size()) - 1;
+    double v = 0.0;
+    QColor legendCol = QColor("#ff9800");
+    if (idx >= 0 && idx < static_cast<int>(overlayRows_.size()) &&
+        overlayRows_[static_cast<size_t>(idx)].matched) {
+        v = baseClose * overlayRows_[static_cast<size_t>(idx)].overlayClose /
+            anchorRow.overlayClose;
+        const bool rising = overlayRows_[static_cast<size_t>(idx)].overlayClose >=
+                            overlayRows_[static_cast<size_t>(idx)].overlayOpen;
+        legendCol = rising ? QColor("#ff9800") : QColor("#00b8d4");
+    }
+    QFont lf = p.font();
+    lf.setPixelSize(11);
+    p.setFont(lf);
+    p.setPen(legendCol);
+    p.drawText(QPointF(mainRect_.left() + 6, mainRect_.top() + 26),
+               idx >= 0 ? QStringLiteral("%1  %2")
+                             .arg(overlayTarget_.name, QString::number(v, 'f', 2))
+                        : overlayTarget_.name);
+}
+
+double KLineChart::rsToY(double v) const {
+    if (rsHi_ - rsLo_ < 1e-12) return rsRect_.top();
+    return rsRect_.top() + (rsHi_ - v) / (rsHi_ - rsLo_) * rsRect_.height();
+}
+
+void KLineChart::drawRelativeStrength(QPainter& p) {
+    if (!overlayActive_ || !showRelativeStrength_) return;
+    if (overlayAnchor_ < 0 || overlayRows_.size() != bars_.size()) return;
+    const int start = firstVisible_;
+    const int end = std::min(start + visibleCount_, static_cast<int>(bars_.size()));
+    const double rsAnchor = overlayRows_[static_cast<size_t>(overlayAnchor_)].relativeStrength;
+    if (rsAnchor <= 0) return;
+
+    // 100 参考线（锚点处比值）
+    p.setPen(QPen(QColor("#555555"), 1, Qt::DashLine));
+    p.drawLine(QPointF(rsRect_.left(), rsToY(100.0)),
+               QPointF(rsRect_.right(), rsToY(100.0)));
+
+    // 相对强弱曲线（锚点=100）
+    QPainterPath path;
+    bool started = false;
+    for (int i = start; i < end; ++i) {
+        const auto& row = overlayRows_[static_cast<size_t>(i)];
+        if (!row.matched || row.relativeStrength <= 0) { started = false; continue; }
+        const double v = row.relativeStrength / rsAnchor * 100.0;
+        if (!std::isfinite(v)) { started = false; continue; }
+        const double x = barCenterX(i);
+        const double y = rsToY(v);
+        if (!started) { path.moveTo(x, y); started = true; }
+        else { path.lineTo(x, y); }
+    }
+    p.setPen(QPen(QColor("#ff9800"), 1));
+    p.drawPath(path);
+
+    // 图例（当前值）
+    const int idx = (mouseIndex_ >= 0) ? mouseIndex_ : static_cast<int>(bars_.size()) - 1;
+    double v = 0.0;
+    if (idx >= 0 && idx < static_cast<int>(overlayRows_.size()) &&
+        overlayRows_[static_cast<size_t>(idx)].matched &&
+        overlayRows_[static_cast<size_t>(idx)].relativeStrength > 0) {
+        v = overlayRows_[static_cast<size_t>(idx)].relativeStrength / rsAnchor * 100.0;
+    }
+    drawPaneHeader(p, rsRect_,
+                   QStringLiteral("相对强弱 %1").arg(v, 0, 'f', 1), QColor("#ff9800"));
+}
+
 void KLineChart::drawAxes(QPainter& p) {
     p.setPen(QColor("#888888"));
     QFont f = p.font();
@@ -790,6 +1048,10 @@ void KLineChart::drawAxes(QPainter& p) {
         p.drawText(QRectF(rsiRect_.right() + 2, rsiRect_.top() + 2, kRightAxisW - 4, 14),
                    Qt::AlignLeft | Qt::AlignVCenter, "100");
     }
+    if (overlayActive_ && showRelativeStrength_) {
+        p.drawText(QRectF(rsRect_.right() + 2, rsRect_.top() + 2, kRightAxisW - 4, 14),
+                   Qt::AlignLeft | Qt::AlignVCenter, QString::number(rsHi_, 'f', 1));
+    }
 
     // 时间轴
     const int start = firstVisible_;
@@ -815,6 +1077,9 @@ void KLineChart::drawTitle(QPainter& p) {
     p.setFont(f);
 
     QString text = name_ + "  " + QString::fromStdString(code_.displayCode());
+    if (overlayActive_ && !overlayTarget_.name.isEmpty()) {
+        text += QStringLiteral("  对比 ") + overlayTarget_.name;
+    }
     if (!bars_.empty()) {
         const auto& b = bars_.back();
         // 涨跌幅 vs 前一根收盘（Bar 无 preClose 字段，图表用前收作昨收）

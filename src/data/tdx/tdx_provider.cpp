@@ -7,12 +7,14 @@
 #include "foundation/utils/datetime.h"
 #include "foundation/utils/pinyin.h"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <set>
+#include <thread>
 
 namespace st {
 
@@ -225,7 +227,7 @@ std::vector<Bar> TdxProvider::fetchBarsRaw(const StockCode& code, BarPeriod peri
     if (!resp.ok) return {};
 
     const auto recs = tdx::decodeKline(resp.payload, static_cast<uint8_t>(cat),
-                                       tdx::isIndexCode(code));
+                                       tdx::isIndexCode(code) || tdx::isSectorIndexCode(code));
     std::vector<Bar> bars;
     bars.reserve(recs.size());
     for (const auto& r : recs) {
@@ -511,7 +513,12 @@ std::vector<Quote> TdxProvider::batchQuote(const std::vector<StockCode>& codes) 
         const int mkt = tdx::tdxMarket(code.market());
         if (mkt < 0) continue;
         chunk.emplace_back(static_cast<uint8_t>(mkt), code.code());
-        if (chunk.size() >= quoteChunk_) flush();
+        if (chunk.size() >= quoteChunk_) {
+            flush();
+            // 每个 chunk 间让出片刻：TDX 连接为每命令加锁，等待中的交互请求
+            // （选股 getBars / 盘口）得以插入，避免全市场批量报价长时间独占连接。
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
     }
     flush();
     return out;
@@ -641,6 +648,48 @@ std::vector<StockInfo> TdxProvider::loadStockList(Market market) {
 
 std::vector<StockInfo> TdxProvider::getStockList(Market market) {
     return loadStockList(market);
+}
+
+std::vector<StockInfo> TdxProvider::getSectorIndices() {
+    {
+        std::lock_guard<std::mutex> lk(sectorMutex_);
+        if (!sectorIndices_.empty()) return sectorIndices_;
+    }
+    // 通达信板块指数（880xxx）位于 SH 列表开头，定向抓取前几页即可，避免全量 30s。
+    // 一直拉取直到某页不再含 880xxx（板块块结束）。失败返回空且不缓存（下次重试，
+    // 避免连接未就绪时误缓存空列表导致永久空）。
+    const int mkt = tdx::tdxMarket(Market::SH);
+    if (mkt < 0) return {};
+    std::vector<StockInfo> out;
+    out.reserve(256);
+    uint32_t start = 0;
+    while (start <= 65535u) {
+        const auto req = tdx::buildCodeReq(static_cast<uint8_t>(mkt),
+                                           static_cast<uint16_t>(start));
+        const auto resp = executeCommand(tdx::Cmd::Code, req, requestTimeoutMs_);
+        if (!resp.ok) break;
+        const auto recs = tdx::decodeCodeList(resp.payload, Market::SH);
+        if (recs.empty()) break;
+        bool sawSector = false;
+        for (const auto& r : recs) {
+            if (!r.code.isValid() || !tdx::isSectorIndexCode(r.code)) continue;
+            sawSector = true;
+            StockInfo info;
+            info.code = r.code;
+            info.name = r.name;
+            info.pinyinInitials = utils::pinyinInitials(r.name);
+            info.pinyin = utils::pinyinFull(r.name);
+            info.exchange = "SH";
+            info.valid = true;
+            out.push_back(std::move(info));
+        }
+        if (!sawSector) break;  // 880xxx 块已结束
+        if (recs.size() < 1000) break;
+        start += 1000;
+    }
+    std::lock_guard<std::mutex> lk(sectorMutex_);
+    if (!out.empty()) sectorIndices_ = out;  // 空则不缓存，失败可重试
+    return out;
 }
 
 std::optional<StockInfo> TdxProvider::getStockInfo(const StockCode& code) {

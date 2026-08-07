@@ -33,6 +33,7 @@ public:
 
     std::optional<StockInfo> getStockInfo(const StockCode& code) override;
     std::vector<StockInfo> getStockList(Market market) override;
+    std::vector<StockInfo> getSectorIndices() override;  // 通达信板块指数（880行业/885概念）
     std::vector<Bar> getBars(const StockCode& code, BarPeriod period,
                              DateTime start, DateTime end) override;
     std::optional<IntradayData> getIntraday(const StockCode& code) override;
@@ -99,6 +100,8 @@ private:
     std::unordered_map<std::string, std::vector<tdx::TdxGbbqRec>> gbbqCache_;
     std::mutex listMutex_;
     std::unordered_map<int, std::vector<StockInfo>> stockListCache_;
+    std::mutex sectorMutex_;
+    std::vector<StockInfo> sectorIndices_;  // 板块指数缓存（880/885 过滤）
 
     std::thread pollThread_, heartbeatThread_;
     std::atomic<bool> stopThreads_ = false;

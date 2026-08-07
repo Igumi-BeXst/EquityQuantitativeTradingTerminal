@@ -303,6 +303,16 @@ TEST(TdxModels, DecodeCodeListNormalizesName) {
     EXPECT_EQ(recs[0].name, "万科A");
 }
 
+TEST(TdxModels, IsSectorIndexCode) {
+    // 通达信板块指数：880xxx 行业 / 885xxx 概念
+    EXPECT_TRUE(tdx::isSectorIndexCode(StockCode(Market::SH, "880301")));
+    EXPECT_TRUE(tdx::isSectorIndexCode(StockCode(Market::SH, "885001")));
+    EXPECT_FALSE(tdx::isSectorIndexCode(StockCode(Market::SH, "600519")));
+    EXPECT_FALSE(tdx::isSectorIndexCode(StockCode(Market::SH, "000001")));  // 普通指数不算板块指数
+    EXPECT_FALSE(tdx::isSectorIndexCode(StockCode(Market::SH, "BK0475")));
+    EXPECT_FALSE(tdx::isSectorIndexCode(StockCode(Market::SH, "123")));
+}
+
 // ============================================================
 // 模型解码：K线（合成差分）
 // ============================================================

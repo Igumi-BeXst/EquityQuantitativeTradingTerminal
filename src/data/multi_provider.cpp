@@ -55,6 +55,14 @@ std::vector<StockInfo> MultiProvider::getStockList(Market market) {
     return {};
 }
 
+std::vector<StockInfo> MultiProvider::getSectorIndices() {
+    IDataProvider* p = preferred();
+    auto r = p->getSectorIndices();
+    if (!r.empty()) return r;
+    if (IDataProvider* o = other(p)) return o->getSectorIndices();
+    return {};
+}
+
 std::vector<Bar> MultiProvider::getBars(const StockCode& code, BarPeriod period,
                                         DateTime start, DateTime end) {
     IDataProvider* p = preferred();

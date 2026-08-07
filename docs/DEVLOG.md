@@ -1,5 +1,96 @@
 # 开发日志 (Development Log)
 
+## 2026-08-08 — P10 第七轮：自定义指数
+
+### 需求
+用户选定下一轮 = 自定义指数，要求：① 权重支持 手动 + 默认等权；② 管理面板 + 图表加载；③ 历史 + 实时点位。
+
+### 设计（用户已确认）
+- **计算口径**：历史 K 线用「价格加权 + 基点重定基」`指数(t) = 基点 × Σ[wᵢ·Pᵢ(t)] / Σ[wᵢ·Pᵢ(T₀)]`（P 为前复权收盘，T₀ = 首个共同数据日），日线算完聚合出周/月线（与真实指数一致）；分时/实时用「从指数昨收做加权涨跌幅外推」`昨收 × (1 + Σ wᵢ·(Pᵢ(t)/昨收ᵢ − 1))`——绕开复权价与实时裸价的衔接断裂
+- **图表集成**（方案 A 中央图表外部数据模式）：KLineChart/TimelineChart 各加 `setExternalReloader(fn)` + `loadBars/loadIntraday`；CentralChartWidget::loadCustomIndex 编排，切日/周/月/分时都异步重算喂数据；切回普通股票退出该模式
+
+### 实施
+- `engine/analyzer/custom_index.{h,cpp}`：数据模型 + computeIndexBars/computeIndexIntraday/computeIndexLive/lastCompletedClose/normalizeWeights（fetch 回调注入可单测；内部自行归一化权重）
+- `engine/analyzer/custom_index_store.{h,cpp}`：JSON 持久化（configDir/custom_indexes.json）
+- `ui/widgets/custom_index_editor.{h,cpp}`：编辑器（StockSearchBar 加股、权重默认等权、均分按钮、基点）
+- `ui/widgets/custom_index_panel.{h,cpp}`：左区 dock（与板块 tab 并列）——列表 + 实时点位（订阅成分股行情）+ 新建/编辑/删除/打开图表
+- 图表外部数据模式 + CentralChartWidget 编排
+- `tools_custom_index_live.cpp`：实连校准工具
+
+### 验证
+- 实连: 茅台+平安+招行等权组合日线 2086 根（2018-01-02→2026-08-07），基准日=1000，昨收 3049.54，分时 240 点，实时外推 -0.36%（= 今日三只涨跌幅 +0.05/-0.71/-0.44% 加权，一致）
+- 构建零警告；322/322 通过（+22 引擎：指数公式/周月聚合/停牌 carry-forward/上市晚剔除/分时外推/实时外推/权重归一化 17 + store 5）
+- 已知限制: 实时为「面板点位 + 图表按需加载」，图表最后一根蜡烛不实时刷新；市值加权（③）未做
+
+## 2026-08-07 — 板块/概念叠加改用通达信板块指数（脱离东财封锁）
+
+### 背景
+叠加板块/概念一直失败：东财 clist 被 IP 封锁 → 板块列表降级新浪（new_xxx 代码）→ 东财 K线接口不认；随后东财 push2his（板块 K线/分时源）也被封锁。指数/个股叠加走 TDX 正常，唯独板块无可用数据源。
+
+### 可行性测试（TDX 板块指数）
+- TDX 标准服务器（:7709）返回 880xxx 板块指数 K线，但记录格式同指数（多 4 字节涨跌家数）——用 isIndex=true 解码完美（880301 煤炭 1834→1895 连续日期）
+- SH 股票列表含全部板块指数（652 个 880xxx：大盘 880001-099 / 地域 8802xx / 行业 8803xx-8804xx / 概念 8805xx+），带名称，可自动构建代码列表
+- 分时（getIntraday）对 880xxx 也支持（240 点）
+
+### 实施
+- `IDataProvider::getSectorIndices()`（默认空；TdxProvider 从 SH 列表过滤 880xxx + 缓存；MultiProvider 转发）
+- `tdx::isSectorIndexCode`：880xxx 判为指数格式；getBars/fetchBarsRaw 用它做 isIndex 解码
+- CentralChartWidget 启动后台预热板块指数缓存（与股票搜索/市场面板复用 SH 列表缓存）
+- OverlayDialog 行业/概念 tab 改用 TDX 板块指数（行业 8803xx-8804xx、概念 8805xx+，过滤大盘/地域；每 tab 保留搜索框）
+- fetchOverlayData：880xxx 板块代码走 TDX getBars/getIntraday；非 880 仍走东财（BK/suggest）
+
+### 验证
+- 实连: 652 板块指数列表；煤炭/证券/5G概念/DeepSeek 日K 640 根 + 分时 240 点正常
+- 构建零警告，300/300 通过（isSectorIndexCode + isTdxSectorCode 2 例）
+- 板块/概念叠加现在完全脱离东财，稳定可用
+
+## 2026-08-07 — 行情/K线加载变慢排查与修复（非本轮功能代码）
+
+### 症状
+用户反馈「股票的数据和K线图表等加载速度变慢了很多」。
+
+### 排查（实测取证）
+- chart_render 走真实 app 路径：TDX 连接 + K线 + 分时在 3.5s 固定等待内完成 → **单次 K 线加载并不慢**
+- **tdx_market_probe 实锤**：MarketPanel 同款操作（全 A 股列表 + ~5211 只 batchQuote）耗时 **68.6s**（~87 次串行 TDX 往返，当前每请求 0.4~1.6s）
+- MarketPanel 每 30s 刷新一次，刷新耗时 > 间隔 → 批量报价近乎常驻占用 TDX 连接 + 1 个 IO 线程
+- **IO 池仅 2 线程**：批量报价占 1 线程 + 行情轮询占另 1 线程 → 期间选股 getBars 排队 ~68s
+- 本轮叠加功能**未改动加载路径**（loadStock/getBars 未动，只加了按需触发的叠加）
+
+### 修复
+1. `ThreadPool::ioPool` 2 → **6 线程**（[thread_pool.cpp:18](src/core/thread_pool.cpp#L18)）
+2. `TdxProvider::batchQuote` 每 chunk 间 `sleep_for(5ms)` 让步（[tdx_provider.cpp:510](src/data/tdx/tdx_provider.cpp#L510)）——TDX 连接为每命令加锁（executeCommand 单命令持锁），等待中的交互请求得以插入
+
+### 验证
+- 临时 io_contention 工具实测：批量报价期间 getBars 由「等完整批次 ~68s」降至「~4-6s 完成（日 K = K线+除权 2~3 命令）」
+- 服务器延迟极不稳定（0.4~1.6s 波动），测量受噪声主导；机制成立
+- 构建零警告，295/295 通过
+- **根因主因是 TDX 服务器当前延迟高**；全市场刷新是放大器。服务器恢复后刷新将回到 ~4s，交互加载不受影响
+
+## 2026-08-07 — P10 第六轮：指数/板块/概念叠加对比（分时与日/周/月各自独立叠加）
+
+### 需求（用户三连追加）
+1. 叠加标的**可自选指数、板块、概念**
+2. **分时图、日线、周线、月线都要能叠加**
+3. **叠加按视图隔离**——在分时叠加就只叠加分时，在日/周/月叠加就只叠加 K 线图，不跨视图同时生效
+
+### 功能
+- 中央周期栏「叠加对比」按钮（作用于当前显示的图）→ 对话框三来源：指数/个股（4 大指数快捷 + StockSearchBar 任意搜索）、行业板块列表、概念板块列表（按 tab 懒加载，IO 池异步）
+- 分时（TimelineChart）：叠对方分时价格线（按分钟对齐，起点与首匹配点重合）
+- 日/周/月（KLineChart）：叠对方对应周期 K 线收盘线（按日期对齐）+ 可选「相对强弱」副图（个股/叠加标比值，锚点=100 + 参考虚线 + 轴标签）
+- 生命周期：切股清叠加（作废在途）；K 线图内切日/周/月**保留叠加并重取**（setPeriod save/restore）；分时 10s auto-refresh 只重对齐缓存分时不重拉
+
+### 引擎（可单测）
+- `overlay_analysis.{h,cpp}`：`OverlayTarget`（Security/Sector 二态）+ `alignOverlay`（K 线按日期对齐）+ `alignIntradayOverlay`（分时按分钟对齐）
+- rebase 锚点 = 可见区第一个 matched，每帧在 computeVisibleRange/computeRanges 重算 → 平移/缩放起点始终与左缘对齐；叠线值纳入主图量程保持可见
+
+### 数据
+- `EastMoneySectorProvider` 扩展东财 push2his：`fetchSectorKline`（kline/get，secid=90.BKxxxx，klt 101/102/103）+ `fetchSectorTrends`（trends2，ndays=1）；3-host 回退；纯静态解析可单测
+- **实连校准通过**：行业 BK0475 日 K 与分时均返回真实数据（该主机群未被 clist 封锁波及，push2his 正常）
+
+### 验证
+- 构建零警告（clean-first，因改了 kline/time_line/central 三处头文件）
+- 测试 274 → **295**（alignOverlay 7 + alignIntradayOverlay 5 + 板块K线解析 5 + 板块分时解析 4）
+
 ## 2026-08-07 — 筹码分布默认收起，视图菜单按需打开
 
 筹码分布 Dock 改为默认隐藏（restoreState 后强制 `chipDock_->hide()`，不随历史布局常驻），视图菜单加 `chipDock_->toggleViewAction()` 勾选开关。隐藏期间面板保留上次计算结果，打开即显示（crosshair 日期联动仍生效）；数据在个股切换/十字光标时照常计算。构建零警告，274/274 通过。

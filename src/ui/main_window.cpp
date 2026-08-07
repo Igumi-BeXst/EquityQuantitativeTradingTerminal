@@ -4,7 +4,6 @@
 #include "ui/preferences_dialog.h"
 #include "ui/widgets/market_index_strip.h"
 #include "ui/widgets/central_chart_widget.h"
-#include "ui/panels/log_panel.h"
 #include "ui/panels/stock_search_bar.h"
 #include "ui/panels/market_panel.h"
 #include "ui/panels/sector_panel.h"
@@ -12,6 +11,7 @@
 #include "ui/widgets/market_depth_widget.h"
 #include "ui/widgets/stock_key_data_widget.h"
 #include "ui/widgets/chip_panel.h"
+#include "ui/widgets/custom_index_panel.h"
 #include "data/idata_provider.h"
 #include "data/provider_factory.h"
 #include "core/app_paths.h"
@@ -109,7 +109,6 @@ void MainWindow::initServices() {
     // 确保默认配置键存在（首启或迁移）
     cfg->set("ui.theme", cfg->get<std::string>("ui.theme", "dark"));
     cfg->set("ui.shortcuts.focusSearch", cfg->get<std::string>("ui.shortcuts.focusSearch", "Ctrl+Space"));
-    cfg->set("ui.shortcuts.focusLog", cfg->get<std::string>("ui.shortcuts.focusLog", "Ctrl+L"));
     cfg->set("ui.shortcuts.refreshQuotes", cfg->get<std::string>("ui.shortcuts.refreshQuotes", "F5"));
     cfg->set("ui.shortcuts.settings", cfg->get<std::string>("ui.shortcuts.settings", "Ctrl+,"));
     cfg->save();
@@ -178,6 +177,20 @@ void MainWindow::createDocks() {
     splitDockWidget(marketDock, sectorDock, Qt::Vertical);
     sectorDock->setMinimumWidth(260);
 
+    // 左: 自定义指数（与板块 tab 并列；建/编/删 + 实时点位 + 打开图表）
+    customIndexDock_ = new QDockWidget(tr("自定义指数"), this);
+    customIndexDock_->setObjectName(QStringLiteral("customIndexDock"));
+    customIndexPanel_ = new CustomIndexPanel(provider_.get(), customIndexDock_);
+    customIndexDock_->setWidget(customIndexPanel_);
+    addDockWidget(Qt::LeftDockWidgetArea, customIndexDock_);
+    tabifyDockWidget(sectorDock, customIndexDock_);  // 与板块同 tab
+    customIndexDock_->setMinimumWidth(260);
+    connect(customIndexPanel_, &CustomIndexPanel::openChart, this,
+            [this](const CustomIndex& idx) {
+                centralStack_->setCurrentWidget(centralChart_);
+                centralChart_->loadCustomIndex(idx);
+            });
+
     // 右: 个股关键数据（盘口上方）+ 盘口五档 + 成交明细
     auto* keyDataDock = new QDockWidget(tr("个股关键数据"), this);
     keyDataDock->setObjectName(QStringLiteral("keyDataDock"));
@@ -205,19 +218,20 @@ void MainWindow::createDocks() {
     chipDock_->setMinimumWidth(260);
     chipDock_->setMaximumWidth(400);
 
+    // 中央图表周期栏「筹码分布」按钮（叠加对比旁）↔ 本 Dock 联动
+    connect(centralChart_, &CentralChartWidget::chipDockToggled, this, [this] {
+        if (chipDock_) chipDock_->toggleViewAction()->trigger();
+    });
+    connect(chipDock_, &QDockWidget::visibilityChanged, this, [this](bool visible) {
+        if (centralChart_) centralChart_->setChipButtonChecked(visible);
+    });
+
     // K线十字光标日期（日/周/月）→ 筹码面板按日期查询；nullopt 回退最新
     connect(centralChart_, &CentralChartWidget::crosshairDateChanged, this,
             [this](const std::optional<DateTime>& date) {
                 if (chipPanel_) chipPanel_->setAsOfDate(date);
             });
 
-    // 底: 日志面板（真实实现）
-    logDock_ = new QDockWidget(tr("日志"), this);
-    logDock_->setObjectName(QStringLiteral("logDock"));
-    logPanel_ = new LogPanel(logDock_);
-    logDock_->setWidget(logPanel_);
-    addDockWidget(Qt::BottomDockWidgetArea, logDock_);
-    logDock_->setMinimumHeight(140);
 }
 
 void MainWindow::createMenus() {
@@ -256,6 +270,7 @@ void MainWindow::createMenus() {
     });
     // 筹码分布默认收起，视图菜单按需打开/关闭（勾选状态联动 dock 可见性）
     if (chipDock_) viewMenu->addAction(chipDock_->toggleViewAction());
+    if (customIndexDock_) viewMenu->addAction(customIndexDock_->toggleViewAction());
     viewMenu->addAction(tr("重置布局(&R)"), this, &MainWindow::resetLayout);
 
     // 量化
@@ -325,13 +340,6 @@ void MainWindow::registerShortcuts() {
     shortcuts_->registerAction(QStringLiteral("focusSearch"),
         QKeySequence(QStringLiteral("Ctrl+Space")),
         this, [this] { if (searchBar_) searchBar_->focusEdit(); });
-
-    shortcuts_->registerAction(QStringLiteral("focusLog"),
-        QKeySequence(QStringLiteral("Ctrl+L")),
-        this, [this] {
-            if (logDock_) { logDock_->raise(); logDock_->activateWindow(); }
-            if (logPanel_) logPanel_->setFocus();
-        });
 
     shortcuts_->registerAction(QStringLiteral("refreshQuotes"),
         QKeySequence(QStringLiteral("F5")),

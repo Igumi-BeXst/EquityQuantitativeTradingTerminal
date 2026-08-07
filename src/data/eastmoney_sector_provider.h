@@ -1,5 +1,8 @@
 #pragma once
 
+#include "foundation/bar.h"
+#include "foundation/tick.h"
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -63,6 +66,45 @@ public:
 
     /// 兼容便捷接口：只取解析结果的 boards
     static std::vector<SectorBoard> parseBoards(const std::string& body);
+
+    // --- 板块历史 K 线 / 分时（叠加对比用，东财 push2his 接口） ---
+
+    /// 板块日/周/月 K 线 URL（secid=90.BKxxxx；host 可换做多主机回退）
+    static std::string klineUrlFor(SectorType type, const std::string& code,
+                                   BarPeriod period,
+                                   const std::string& host = "push2his.eastmoney.com");
+
+    /// 纯静态解析板块 K 线（可单测，无网络）：data.klines 数组 → Bar 升序
+    static std::vector<Bar> parseSectorKline(const std::string& body, const std::string& code);
+
+    /// 拉取板块日/周/月 K 线（多主机回退；全失败返回空）。
+    /// code 为新浪降级列表的 new_xxx 时自动经 resolveSectorCode 转成东财 BKxxxx。
+    std::vector<Bar> fetchSectorKline(SectorType type, const std::string& code,
+                                      const std::string& name, BarPeriod period);
+
+    /// 板块当日分时 URL（trends2 接口）
+    static std::string trendsUrlFor(SectorType type, const std::string& code,
+                                    const std::string& host = "push2his.eastmoney.com");
+
+    /// 纯静态解析板块分时（可单测，无网络）：data.trends 数组 → IntradayData
+    static std::optional<IntradayData> parseSectorTrends(const std::string& body,
+                                                         const std::string& code);
+
+    /// 拉取板块当日分时（多主机回退；全失败返回 nullopt）。
+    /// code 为新浪降级列表的 new_xxx 时自动经 resolveSectorCode 转成东财 BKxxxx。
+    std::optional<IntradayData> fetchSectorTrends(SectorType type, const std::string& code,
+                                                  const std::string& name);
+
+    // --- 板块名称 → 东财 BK 代码解析（新浪降级列表的 new_xxx 代码需转 BKxxxx 才能用东财 K线/分时） ---
+
+    /// 东财 suggest 搜索 URL（type=14 返回个股+板块，按名称搜板块代码用）
+    static std::string suggestUrlFor(const std::string& name);
+
+    /// 纯静态解析 suggest 响应：取第一个 Classify=="BK" 的代码（可单测，无网络）
+    static std::string parseSuggestBkCode(const std::string& body);
+
+    /// 板块名称 → 东财 BK 代码（suggest API；失败再尝试去掉"行业/板块"后缀；全失败返回空）
+    std::string resolveSectorCode(const std::string& name);
 
 private:
     std::vector<SectorBoard> fetchEastMoneyBoards(SectorType type);

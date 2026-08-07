@@ -22,7 +22,6 @@ struct ShortcutRow {
 };
 const ShortcutRow kShortcutRows[] = {
     {"focusSearch", "聚焦搜索", "Ctrl+Space"},
-    {"focusLog", "聚焦日志", "Ctrl+L"},
     {"refreshQuotes", "刷新行情", "F5"},
     {"settings", "偏好设置", "Ctrl+,"},
 };

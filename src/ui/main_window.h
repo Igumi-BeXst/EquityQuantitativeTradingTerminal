@@ -12,8 +12,8 @@ class QStackedWidget;
 namespace st {
 
 class IDataProvider;
-class LogPanel;
 class MarketIndexStrip;
+class CustomIndexPanel;
 class StockSearchBar;
 class MarketPanel;
 class CentralChartWidget;
@@ -54,13 +54,13 @@ private:
     std::unique_ptr<ShortcutManager> shortcuts_;
     std::unique_ptr<QSettings> settings_;
 
-    QDockWidget* logDock_ = nullptr;
     QDockWidget* chipDock_ = nullptr;  // 筹码分布（默认收起，视图菜单按需打开）
+    QDockWidget* customIndexDock_ = nullptr;  // 自定义指数（与板块 tab 并列）
     QuantWindow* quantWindow_ = nullptr;
     MarketDepthWidget* marketDepth_ = nullptr;
     StockKeyDataWidget* keyData_ = nullptr;
     ChipPanel* chipPanel_ = nullptr;
-    LogPanel* logPanel_ = nullptr;
+    CustomIndexPanel* customIndexPanel_ = nullptr;
     MarketIndexStrip* indexStrip_ = nullptr;
     StockSearchBar* searchBar_ = nullptr;
     MarketPanel* marketPanel_ = nullptr;

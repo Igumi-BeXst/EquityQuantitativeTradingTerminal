@@ -80,6 +80,9 @@ add_library(st_engine STATIC
     engine/analyzer/monte_carlo.cpp
     engine/analyzer/chip_distribution.cpp
     engine/analyzer/treemap.cpp
+    engine/analyzer/overlay_analysis.cpp
+    engine/analyzer/custom_index.cpp
+    engine/analyzer/custom_index_store.cpp
 )
 target_link_libraries(st_engine PUBLIC st_data st_core st_foundation talib::talib)
 
@@ -101,6 +104,7 @@ add_library(st_ui STATIC
     ui/widgets/kline_chart.cpp
     ui/widgets/time_line_chart.cpp
     ui/widgets/central_chart_widget.cpp
+    ui/widgets/overlay_dialog.cpp
     ui/widgets/equity_curve_widget.cpp
     ui/widgets/chart_layers.cpp
     ui/widgets/market_index_strip.cpp
@@ -122,6 +126,8 @@ add_library(st_ui STATIC
     ui/widgets/market_depth_widget.cpp
     ui/widgets/stock_key_data_widget.cpp
     ui/widgets/chip_panel.cpp
+    ui/widgets/custom_index_editor.cpp
+    ui/widgets/custom_index_panel.cpp
     ui/panels/sector_panel.cpp
     ui/models/stock_list_model.cpp
     ui/models/trade_table_model.cpp
@@ -133,7 +139,8 @@ add_library(st_ui STATIC
 )
 target_link_libraries(st_ui PUBLIC st_engine st_intelligence Qt6::Widgets)
 
-add_executable(StockTerminal main.cpp)
+# GUI 子系统（WIN32）：启动时不弹控制台窗口（日志走 UI 面板 + 文件）
+add_executable(StockTerminal WIN32 main.cpp)
 target_link_libraries(StockTerminal PRIVATE st_ui st_engine st_data st_core st_foundation)
 
 # 数据拉取测试工具（P4 验证用）
@@ -195,6 +202,14 @@ target_link_libraries(chip_calib PRIVATE st_engine st_data st_core st_foundation
 # 东财板块行情实连校准工具（P10 第四轮验证用）
 add_executable(sector_calib tools_sector_calib.cpp)
 target_link_libraries(sector_calib PRIVATE st_data st_core st_foundation Qt6::Core)
+
+# 自定义指数实连校准工具（P10 第七轮验证用）
+add_executable(custom_index_live tools_custom_index_live.cpp)
+target_link_libraries(custom_index_live PRIVATE st_engine st_data st_core st_foundation Qt6::Core)
+
+# 自定义指数图表离屏渲染验证（P10 第七轮开发用）
+add_executable(custom_index_render tools_custom_index_render.cpp)
+target_link_libraries(custom_index_render PRIVATE st_ui st_engine st_data st_core st_foundation Qt6::Core)
 
 else()
 # Without Qt: just build the Foundation CLI test runner

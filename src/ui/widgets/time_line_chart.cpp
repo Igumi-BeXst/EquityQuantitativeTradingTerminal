@@ -2,6 +2,7 @@
 #include "data/idata_provider.h"
 #include "data/tdx/tdx_models.h"
 #include "core/thread_pool.h"
+#include "core/log_manager.h"
 #include "foundation/utils/datetime.h"
 #include "foundation/utils/indicators.h"
 #include <QPainter>
@@ -53,7 +54,8 @@ bool isTradingTime() {
 }  // namespace
 
 TimelineChart::TimelineChart(IDataProvider* provider, QWidget* parent)
-    : QWidget(parent), provider_(provider) {
+    : QWidget(parent), provider_(provider),
+      sectorProvider_(std::make_shared<EastMoneySectorProvider>()) {
     setMouseTracking(true);
     setMinimumSize(400, 300);
     // 实时自动刷新：交易时段每 10s 静默重拉分时数据（新分钟/最新价自动更新）
@@ -72,7 +74,20 @@ void TimelineChart::loadStock(const StockCode& code, const QString& name) {
     code_ = code;
     name_ = name;
     loading_ = true;
+    ++overlayGen_;            // 作废在途叠加请求
+    overlayActive_ = false;   // 切股清叠加（按视图隔离）
+    overlayRows_.clear();
+    overlayData_ = IntradayData{};
     update();
+    // 外部数据模式（自定义指数等）：由拥有者重算后经 loadIntraday 喂入
+    if (externalReloader_) {
+        LogManager::instance()->log(LogLevel::Info,
+            "分时 loadStock 外部模式: code={} name={}",
+            code.fullCode(), name.toStdString());
+        if (refreshTimer_) refreshTimer_->start();
+        externalReloader_();
+        return;
+    }
     if (!provider_) { loading_ = false; return; }
     if (refreshTimer_) refreshTimer_->start();
 
@@ -88,9 +103,30 @@ void TimelineChart::loadStock(const StockCode& code, const QString& name) {
     });
 }
 
+void TimelineChart::setExternalReloader(std::function<void()> reloadFn) {
+    externalReloader_ = std::move(reloadFn);
+}
+
+void TimelineChart::loadIntraday(IntradayData intraday, const StockCode& code,
+                                 const QString& name) {
+    LogManager::instance()->log(LogLevel::Info,
+        "分时 loadIntraday: code={} name={} points={} preClose={:.2f}",
+        code.fullCode(), name.toStdString(), intraday.points.size(),
+        intraday.preClose);
+    code_ = code;
+    name_ = name;
+    ++overlayGen_;
+    overlayActive_ = false;
+    overlayRows_.clear();
+    overlayData_ = IntradayData{};
+    setData(std::move(intraday));
+}
+
 void TimelineChart::refreshData() {
-    if (!provider_ || !code_.isValid()) return;
-    if (!isTradingTime()) return;  // 非交易时段数据静态，跳过
+    if (!code_.isValid()) return;
+    // 外部数据模式：交由拥有者重算分时（指数实时点位）
+    if (externalReloader_) { externalReloader_(); return; }
+    if (!provider_ || !isTradingTime()) return;  // 非交易时段数据静态，跳过
     const int gen = ++loadGen_;
     const int savedMouse = mouseIndex_;
     const StockCode code = code_;
@@ -115,8 +151,65 @@ void TimelineChart::setData(IntradayData newData) {
     mouseIndex_ = -1;
     computeAvgLine();
     computeMacd();
+    // 叠加：auto-refresh 只重对齐缓存的分时数据，不重拉（避免每次 10s 都请求）
+    if (overlayActive_ && !overlayData_.points.empty()) {
+        overlayRows_ = alignIntradayOverlay(data_, overlayData_);
+    }
     computeRanges();
     update();
+}
+
+// ============================================================
+// 叠加对比（指数/个股/板块/概念；按视图隔离：只叠加本图分时）
+// ============================================================
+void TimelineChart::setOverlay(const OverlayTarget& target) {
+    if (target.kind == OverlayKind::Security && target.stockCode == code_) return;  // 自我叠加拒绝
+    overlayTarget_ = target;
+    fetchOverlayData();
+}
+
+void TimelineChart::clearOverlay() {
+    ++overlayGen_;
+    overlayActive_ = false;
+    overlayRows_.clear();
+    overlayData_ = IntradayData{};
+    update();
+}
+
+void TimelineChart::fetchOverlayData() {
+    if (!provider_ || !overlayTarget_.isValid()) return;
+    const int gen = ++overlayGen_;
+    overlayActive_ = true;
+    const OverlayTarget target = overlayTarget_;
+    IDataProvider* provider = provider_;
+    auto sectorProvider = sectorProvider_;
+    QPointer<TimelineChart> guard(this);
+    ThreadPool::submitIO([provider, sectorProvider, guard, gen, target] {
+        std::optional<IntradayData> ov;
+        if (target.kind == OverlayKind::Sector) {
+            if (isTdxSectorCode(target.sectorCode)) {
+                // 通达信板块指数 → 走 TDX 主源；板块指数分时若服务器不支持则空（不崩溃）
+                ov = provider->getIntraday(StockCode(Market::SH, target.sectorCode));
+            } else {
+                // 东财板块（BKxxxx / 新浪 new_xxx 经 suggest 解析）
+                ov = sectorProvider->fetchSectorTrends(target.sectorType, target.sectorCode,
+                                                       target.name.toStdString());
+            }
+        } else {
+            ov = provider->getIntraday(target.stockCode);
+        }
+        QMetaObject::invokeMethod(guard, [guard, gen, ov = std::move(ov)]() mutable {
+            if (gen != guard->overlayGen_) return;  // 旧请求回写丢弃
+            if (!ov) return;
+            guard->overlayData_ = std::move(*ov);
+            if (guard->overlayData_.points.empty()) return;
+            guard->overlayRows_ = alignIntradayOverlay(guard->data_, guard->overlayData_);
+            // 关键：叠加数据是异步到达的，必须重算量程/锚点（computeRanges 只在 setData 里跑），
+            // 否则 overlayAnchor_ 保持 -1 → drawOverlayLine 提前返回、不画线。
+            guard->computeRanges();
+            guard->update();
+        }, Qt::QueuedConnection);
+    });
 }
 
 int TimelineChart::minutesFromOpen(const DateTime& t) const {
@@ -198,6 +291,25 @@ void TimelineChart::computeRanges() {
         hi = std::max(hi, pt.price);
         lo = std::min(lo, pt.price);
     }
+    // 归一化叠加线量程纳入主图，保证叠线可见（锚点 = 首个 matched 分钟，每帧重算）
+    overlayAnchor_ = -1;
+    if (overlayActive_ && overlayRows_.size() == data_.points.size()) {
+        for (size_t i = 0; i < data_.points.size(); ++i) {
+            if (overlayRows_[i].matched) { overlayAnchor_ = static_cast<int>(i); break; }
+        }
+        if (overlayAnchor_ >= 0) {
+            const double basePrice = data_.points[static_cast<size_t>(overlayAnchor_)].price;
+            const double ovAnchor = overlayRows_[static_cast<size_t>(overlayAnchor_)].overlayPrice;
+            if (basePrice > 0 && ovAnchor > 0) {
+                for (size_t i = 0; i < data_.points.size(); ++i) {
+                    const auto& row = overlayRows_[i];
+                    if (!row.matched) continue;
+                    const double v = basePrice * row.overlayPrice / ovAnchor;
+                    if (std::isfinite(v) && v > 0) { hi = std::max(hi, v); lo = std::min(lo, v); }
+                }
+            }
+        }
+    }
     symRange_ = std::max(hi - data_.preClose, data_.preClose - lo);
     if (symRange_ < 1e-9) symRange_ = data_.preClose * 0.01;  // 无波动默认 ±1%
     const double pad = symRange_ * 0.05 + 0.01;
@@ -259,6 +371,7 @@ void TimelineChart::paintEvent(QPaintEvent*) {
     drawTitle(p);
     drawGridAndAxis(p);
     drawPriceLines(p);
+    if (overlayActive_) drawOverlayLine(p);
     drawVolume(p);
     drawMacd(p);
     drawCrosshair(p);
@@ -278,6 +391,9 @@ void TimelineChart::drawTitle(QPainter& p) {
 
     QString text = name_ + "  " + QString::fromStdString(code_.displayCode())
         + tr("  [分时]  ") + QString::number(last.price, 'f', 2);
+    if (overlayActive_ && !overlayTarget_.name.isEmpty()) {
+        text += QStringLiteral("  对比 ") + overlayTarget_.name;
+    }
     p.setPen(c);
     text += QStringLiteral("  %1%").arg(change, 0, 'f', 2);
     p.drawText(QRectF(4, 2, width() - 8, kTitleH - 2),
@@ -384,6 +500,30 @@ void TimelineChart::drawPriceLines(QPainter& p) {
         p.drawText(QRectF(w - 110, kTitleH + 2, 106, 14), Qt::AlignRight,
                    tr("均价 %1").arg(avgLine_.back(), 0, 'f', 2));
     }
+}
+
+void TimelineChart::drawOverlayLine(QPainter& p) {
+    if (!overlayActive_ || overlayAnchor_ < 0) return;
+    if (overlayRows_.size() != data_.points.size()) return;
+    const auto& anchorRow = overlayRows_[static_cast<size_t>(overlayAnchor_)];
+    const double basePrice = data_.points[static_cast<size_t>(overlayAnchor_)].price;
+    if (anchorRow.overlayPrice <= 0 || basePrice <= 0) return;
+
+    // 归一化叠线：起点 = 锚点 base 价格，随相对强弱偏离
+    QPainterPath path;
+    bool started = false;
+    for (size_t i = 0; i < data_.points.size(); ++i) {
+        const auto& row = overlayRows_[i];
+        if (!row.matched || row.overlayPrice <= 0) { started = false; continue; }
+        const double v = basePrice * row.overlayPrice / anchorRow.overlayPrice;
+        if (!std::isfinite(v)) { started = false; continue; }
+        const double x = xFor(minutesFromOpen(data_.points[i].time));
+        const double y = priceToY(v);
+        if (!started) { path.moveTo(x, y); started = true; }
+        else { path.lineTo(x, y); }
+    }
+    p.setPen(QPen(QColor("#ab47bc"), 2));
+    p.drawPath(path);
 }
 
 void TimelineChart::drawVolume(QPainter& p) {

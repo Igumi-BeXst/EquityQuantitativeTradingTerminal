@@ -73,3 +73,6 @@ vcpkg_installed/
 *~
 vcpkg/
 build/
+
+# 根目录验证截图（离屏渲染测试产物）
+/*.png

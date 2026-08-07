@@ -76,6 +76,11 @@ bool isIndexCode(const StockCode& code) {
     return false;
 }
 
+bool isSectorIndexCode(const StockCode& code) {
+    const std::string& c = code.code();
+    return c.size() >= 3 && (c.compare(0, 3, "880") == 0 || c.compare(0, 3, "885") == 0);
+}
+
 std::vector<TdxKlineRec> decodeKline(const std::vector<uint8_t>& payload,
                                      uint8_t klineCategory, bool isIndex) {
     std::vector<TdxKlineRec> out;

@@ -3,9 +3,13 @@
 #include "foundation/bar.h"
 #include "foundation/stock_code.h"
 #include "foundation/types.h"
+#include "engine/analyzer/overlay_analysis.h"
+#include "data/eastmoney_sector_provider.h"
 #include <QWidget>
 #include <QString>
 #include <QColor>
+#include <functional>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -24,7 +28,7 @@ class KLineChart : public QWidget {
     Q_OBJECT
 
 public:
-    enum class Indicator { Ma, Vol, Boll, Macd, Rsi };
+    enum class Indicator { Ma, Vol, Boll, Macd, Rsi, RelativeStrength };
 
     explicit KLineChart(IDataProvider* provider, QWidget* parent = nullptr);
 
@@ -35,6 +39,13 @@ public:
     void setPeriod(BarPeriod period);
     BarPeriod period() const { return period_; }
 
+    /// 直接载入已计算好的 K 线（自定义指数等外部数据源；同 loadStock 的清叠加/清标注语义）
+    void loadBars(const std::vector<Bar>& bars, const StockCode& code, const QString& name);
+
+    /// 外部数据模式：非空时 loadStock/setPeriod 不再向 provider 拉取，改调 reloadFn
+    /// （由拥有者重算数据后经 loadBars 喂入）；置空退出该模式
+    void setExternalReloader(std::function<void()> reloadFn);
+
     /// 指标开关
     void setIndicatorVisible(Indicator ind, bool visible);
     bool isIndicatorVisible(Indicator ind) const;
@@ -43,6 +54,14 @@ public:
     void exportData();
     /// 清除画线标注
     void clearAnnotations();
+
+    /// 设置叠加对比目标（指数/个股/板块/概念）——按视图隔离：只叠加本图（日/周/月）
+    void setOverlay(const OverlayTarget& target, bool showRelativeStrength);
+    /// 清除叠加
+    void clearOverlay();
+    bool overlayActive() const { return overlayActive_; }
+    /// 当前叠加目标名称（未叠加为空）
+    QString overlayName() const { return overlayTarget_.name; }
 
 signals:
     void periodChanged(BarPeriod period);
@@ -90,6 +109,10 @@ private:
     void drawMacd(QPainter& p);
     void drawRsi(QPainter& p);
     void drawOverlayLines(QPainter& p);
+    void drawRebasedOverlay(QPainter& p);
+    void drawRelativeStrength(QPainter& p);
+    double rsToY(double v) const;
+    void fetchOverlayData();
     void drawAxes(QPainter& p);
     void drawTitle(QPainter& p);
     void drawCrosshair(QPainter& p);
@@ -111,6 +134,7 @@ private:
     double priceFromY(double y) const;
 
     IDataProvider* provider_ = nullptr;
+    std::function<void()> externalReloader_;  // 外部数据模式（自定义指数等）
     std::vector<Bar> bars_;
     StockCode code_;
     QString name_;
@@ -146,6 +170,17 @@ private:
     int dragStartIdx_ = -1;
     double dragStartPrice_ = 0.0;
     std::vector<ChartLine> lines_;  // 画线标注（锚定 bar 索引+价格，随平移缩放稳定）
+
+    // 叠加对比（指数/个股/板块/概念）——按视图隔离：只叠加本图（日/周/月）
+    bool overlayActive_ = false;
+    OverlayTarget overlayTarget_;
+    std::vector<OverlayRow> overlayRows_;   // 已按 bars_ 日期对齐
+    bool showRelativeStrength_ = false;
+    int overlayGen_ = 0;                    // 叠加数据异步拉取世代守卫
+    int overlayAnchor_ = -1;                // 可见区首个 matched 索引（每帧重算）
+    QRectF rsRect_;                         // 相对强弱面板
+    double rsHi_ = 100, rsLo_ = 100;        // RS 面板 y 范围（锚点=100）
+    std::shared_ptr<EastMoneySectorProvider> sectorProvider_;
 };
 
 } // namespace st

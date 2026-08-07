@@ -1,6 +1,7 @@
 #include "data/eastmoney_sector_provider.h"
 #include "data/cn_encoding.h"
 #include "core/log_manager.h"
+#include "foundation/utils/datetime.h"
 #include <nlohmann/json.hpp>
 #include <QEventLoop>
 #include <QNetworkAccessManager>
@@ -40,6 +41,26 @@ QNetworkAccessManager& threadLocalHttp() {
     }
     return qnam;
 }
+
+/// 逗号分隔拆分（板块 K 线 / 分时行共用）
+std::vector<std::string> splitCsv(const std::string& line) {
+    std::vector<std::string> parts;
+    size_t start = 0;
+    for (size_t i = 0; i <= line.size(); ++i) {
+        if (i == line.size() || line[i] == ',') {
+            parts.push_back(line.substr(start, i - start));
+            start = i + 1;
+        }
+    }
+    return parts;
+}
+
+/// 东财 push2his 多主机回退主机表
+const char* kPush2HisHosts[] = {
+    "push2his.eastmoney.com",
+    "1.push2his.eastmoney.com",
+    "2.push2his.eastmoney.com",
+};
 
 }  // namespace
 
@@ -219,6 +240,178 @@ SectorBoardPage EastMoneySectorProvider::parsePage(const std::string& body) {
 
 std::vector<SectorBoard> EastMoneySectorProvider::parseBoards(const std::string& body) {
     return parsePage(body).boards;
+}
+
+// --- 板块历史 K 线 / 分时（叠加对比用） ---
+
+std::string EastMoneySectorProvider::klineUrlFor(SectorType type, const std::string& code,
+                                                 BarPeriod period, const std::string& host) {
+    (void)type;  // 行业/概念均为 90 市场
+    int klt = 101;  // Daily
+    if (period == BarPeriod::Weekly) klt = 102;
+    else if (period == BarPeriod::Monthly) klt = 103;
+    return "http://" + host + "/api/qt/stock/kline/get?secid=90." + code +
+           "&fields1=f1,f2,f3,f4,f5,f6"
+           "&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
+           "&klt=" + std::to_string(klt) + "&fqt=1&beg=0&end=20500101";
+}
+
+std::vector<Bar> EastMoneySectorProvider::parseSectorKline(const std::string& body,
+                                                           const std::string& code) {
+    std::vector<Bar> result;
+    try {
+        const auto json = nlohmann::json::parse(body);
+        const auto& data = json.value("data", nlohmann::json());
+        if (!data.is_object() || !data.contains("klines")) return result;
+        const StockCode sc("SH" + code);  // 板块代码占位（仅记录用，不查询真实行情）
+        for (const auto& kline : data["klines"]) {
+            if (!kline.is_string()) continue;
+            const auto parts = splitCsv(kline.get<std::string>());
+            // 日期,开,收,高,低,量,额,振幅,涨跌幅,涨跌额,换手率
+            if (parts.size() < 7) continue;
+            Bar bar;
+            bar.code = sc;
+            bar.period = BarPeriod::Daily;
+            bar.time = utils::parseDate(parts[0]);
+            bar.open = std::stod(parts[1]);
+            bar.close = std::stod(parts[2]);
+            bar.high = std::stod(parts[3]);
+            bar.low = std::stod(parts[4]);
+            bar.volume = std::stoll(parts[5]);
+            bar.amount = std::stod(parts[6]);
+            if (parts.size() > 10) bar.turnoverRate = std::stod(parts[10]) / 100.0;
+            result.push_back(std::move(bar));
+        }
+    } catch (...) {
+        return {};
+    }
+    return result;
+}
+
+std::vector<Bar> EastMoneySectorProvider::fetchSectorKline(SectorType type,
+                                                           const std::string& code,
+                                                           const std::string& name,
+                                                           BarPeriod period) {
+    std::string realCode = code;
+    if (realCode.rfind("BK", 0) != 0) {
+        realCode = resolveSectorCode(name);
+        if (realCode.empty()) {
+            LogManager::instance()->log(LogLevel::Warn,
+                "板块K线：新浪代码 {} (名称 {}) 无法解析为东财 BK 代码，跳过", code, name);
+            return {};
+        }
+    }
+    for (const char* host : kPush2HisHosts) {
+        const std::string url = klineUrlFor(type, realCode, period, host);
+        const std::string body = fetch(url, 1);
+        auto bars = parseSectorKline(body, realCode);
+        if (!bars.empty()) return bars;
+    }
+    return {};
+}
+
+std::string EastMoneySectorProvider::trendsUrlFor(SectorType type, const std::string& code,
+                                                  const std::string& host) {
+    (void)type;
+    return "http://" + host + "/api/qt/stock/trends2/get?secid=90." + code +
+           "&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13"
+           "&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ndays=1&iscr=0";
+}
+
+std::optional<IntradayData> EastMoneySectorProvider::parseSectorTrends(const std::string& body,
+                                                                       const std::string& code) {
+    IntradayData data;
+    data.code = StockCode("SH" + code);
+    try {
+        const auto json = nlohmann::json::parse(body);
+        const auto& d = json.value("data", nlohmann::json());
+        if (!d.is_object() || !d.contains("trends")) return std::nullopt;
+        if (d.contains("preClose") && d["preClose"].is_number()) {
+            data.preClose = d["preClose"].get<double>();
+        }
+        for (const auto& t : d["trends"]) {
+            if (!t.is_string()) continue;
+            const auto parts = splitCsv(t.get<std::string>());
+            // 时间,最新价,均价,涨跌额,涨跌幅,累计量,累计额,…
+            if (parts.size() < 2) continue;
+            IntradayPoint pt;
+            std::string ts = parts[0];
+            if (ts.size() == 16) ts += ":00";  // "YYYY-MM-DD HH:MM" → 补秒
+            pt.time = utils::parseDateTime(ts);
+            pt.price = std::stod(parts[1]);
+            if (parts.size() > 5) pt.volume = std::stoll(parts[5]);
+            if (parts.size() > 6) pt.amount = std::stod(parts[6]);
+            data.points.push_back(std::move(pt));
+        }
+    } catch (...) {
+        return std::nullopt;
+    }
+    if (data.points.empty()) return std::nullopt;
+    return data;
+}
+
+std::optional<IntradayData> EastMoneySectorProvider::fetchSectorTrends(SectorType type,
+                                                                       const std::string& code,
+                                                                       const std::string& name) {
+    std::string realCode = code;
+    if (realCode.rfind("BK", 0) != 0) {
+        realCode = resolveSectorCode(name);
+        if (realCode.empty()) {
+            LogManager::instance()->log(LogLevel::Warn,
+                "板块分时：新浪代码 {} (名称 {}) 无法解析为东财 BK 代码，跳过", code, name);
+            return std::nullopt;
+        }
+    }
+    for (const char* host : kPush2HisHosts) {
+        const std::string url = trendsUrlFor(type, realCode, host);
+        const std::string body = fetch(url, 1);
+        auto data = parseSectorTrends(body, realCode);
+        if (data && !data->points.empty()) return data;
+    }
+    return std::nullopt;
+}
+
+// --- 板块名称 → 东财 BK 代码解析 ---
+
+std::string EastMoneySectorProvider::suggestUrlFor(const std::string& name) {
+    const QByteArray enc = QUrl::toPercentEncoding(QString::fromUtf8(name.c_str()));
+    return "https://searchapi.eastmoney.com/api/suggest/get?input=" + enc.toStdString() +
+           "&type=14&token=D43BF722C8E33BDC906FB84D85E326E8&count=10";
+}
+
+std::string EastMoneySectorProvider::parseSuggestBkCode(const std::string& body) {
+    try {
+        const auto json = nlohmann::json::parse(body);
+        const auto& table = json.value("QuotationCodeTable", nlohmann::json());
+        const auto& data = table.value("Data", nlohmann::json());
+        if (!data.is_array()) return {};
+        for (const auto& it : data) {
+            if (!it.is_object()) continue;
+            if (it.value("Classify", std::string{}) == "BK") {
+                return it.value("Code", std::string{});
+            }
+        }
+    } catch (...) {
+        return {};
+    }
+    return {};
+}
+
+std::string EastMoneySectorProvider::resolveSectorCode(const std::string& name) {
+    auto tryName = [this](const std::string& n) {
+        return parseSuggestBkCode(fetch(suggestUrlFor(n), 1));
+    };
+    auto code = tryName(name);
+    if (!code.empty()) return code;
+    // 宽松匹配：新浪名称与东财常有差异（如 "玻璃行业" vs "玻璃玻纤"），剥常见后缀再试
+    const QString q = QString::fromUtf8(name.c_str());
+    for (const QString& suffix : {QStringLiteral("行业"), QStringLiteral("板块")}) {
+        if (q.endsWith(suffix)) {
+            code = tryName(q.left(q.size() - suffix.size()).toStdString());
+            if (!code.empty()) return code;
+        }
+    }
+    return {};
 }
 
 std::string EastMoneySectorProvider::fetch(const std::string& url, int maxRetries) {
