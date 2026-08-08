@@ -1,7 +1,6 @@
 #pragma once
 
 #include "foundation/stock_code.h"
-#include <functional>
 #include <string>
 #include <vector>
 

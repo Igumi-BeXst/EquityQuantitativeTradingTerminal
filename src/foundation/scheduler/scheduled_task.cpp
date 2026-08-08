@@ -15,8 +15,7 @@ nlohmann::json ScheduledTask::toJson() const {
         {"intervalSeconds", intervalSeconds},
         {"target", target},
         {"enabled", enabled},
-        {"lastResult", lastResult},
-        {"running", running}
+        {"lastResult", lastResult}
     };
 }
 

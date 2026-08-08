@@ -542,6 +542,8 @@ void MainWindow::runScheduledTask(ScheduledTask& t) {
         t.lastResult = "任务已提交执行…";
         break;
     }
+    default:
+        break;
     }
 }
 
