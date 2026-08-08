@@ -127,6 +127,7 @@ add_library(st_ui STATIC
     ui/panels/quant_window.cpp
     ui/panels/funds_window.cpp
     ui/panels/journal_window.cpp
+    ui/panels/task_window.cpp
     ui/panels/pattern_panel.cpp
     ui/panels/advisor_panel.cpp
     ui/panels/sentiment_panel.cpp
