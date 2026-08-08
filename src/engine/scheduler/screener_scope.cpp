@@ -22,9 +22,11 @@ std::vector<StockCode> ScopeResolver::allAShares(IDataProvider* provider) {
 }
 
 std::vector<StockCode> ScopeResolver::sectorStocks(IDataProvider*, const std::string& code) {
-    // v1：板块指数自身作为池（TDX 板块指数代码，如 BK0475 → StockCode("SH"+code)）
-    if (code.empty()) return {};
-    return { StockCode("SH" + code) };
+    // 板块成分股解析：v1 无数据源接口（IDataProvider 仅提供板块指数列表，无成分股接口），
+    // 无法解析成分 → 返回空池。调用方（runScheduledTask）应检测空池并提示"暂不支持"，
+    // 而不是返回非法代码（如 SHBK0475）导致选股/抓数据静默无效。
+    (void)code;
+    return {};
 }
 
 std::vector<StockCode> ScopeResolver::resolve(const std::string& targetJson,

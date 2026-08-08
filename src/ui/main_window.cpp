@@ -140,15 +140,21 @@ void MainWindow::initServices() {
     journal_->setFees(feeCfg);
 
     // 4. 定时任务调度器 + 持久化加载
-    scheduler_ = std::make_shared<TaskScheduler>(this);
+    // 注意：scheduler_ 无 QObject parent（由 shared_ptr 管理生命周期）。
+    // TaskWindow 独立窗口（WA_DeleteOnClose）可能比 MainWindow 活得久，
+    // 若加 parent，MainWindow 析构会级联删除 scheduler_，而 TaskWindow 仍持有
+    // shared_ptr 引用半销毁对象 → 悬空。无 parent + shared_ptr 保证存活到最后持有者。
+    scheduler_ = std::make_shared<TaskScheduler>();
     ScheduledTaskStore taskStore;
     std::vector<ScheduledTask> tasks;
     taskStore.load(AppPaths::configDir() + "/scheduled_tasks.json", tasks);
     scheduler_->setTasks(std::move(tasks));
     scheduler_->setExecutor([this](ScheduledTask& t) { runScheduledTask(t); });
-    scheduler_->setOnTasksChanged([this] {
+    // 持久化回调捕获 scheduler_ 的 shared_ptr 拷贝（不依赖 this），MainWindow 析构后仍安全
+    auto scheduler = scheduler_;
+    scheduler_->setOnTasksChanged([scheduler] {
         ScheduledTaskStore s;
-        s.save(AppPaths::configDir() + "/scheduled_tasks.json", scheduler_->tasks());
+        s.save(AppPaths::configDir() + "/scheduled_tasks.json", scheduler->tasks());
     });
     scheduler_->start();
 }
@@ -508,6 +514,25 @@ void MainWindow::runScheduledTask(ScheduledTask& t) {
             // 解析股票池
             auto pool = ScopeResolver::resolve(target, provider, lastConfig);
             std::string result;
+
+            if (pool.empty()) {
+                // 板块成分解析 v1 暂不支持（无数据源）→ 明确提示而非静默产空
+                result = "任务范围为空（板块成分解析暂不支持）";
+                QMetaObject::invokeMethod(guard.data(),
+                    [guard, taskId, result]() mutable {
+                        if (!guard || !guard->scheduler_) return;
+                        guard->runningAsync_.erase(taskId);
+                        for (const auto& task : guard->scheduler_->tasks()) {
+                            if (task.id == taskId) {
+                                auto updated = task;
+                                updated.lastResult = result;
+                                guard->scheduler_->updateTask(taskId, updated);
+                                break;
+                            }
+                        }
+                    }, Qt::QueuedConnection);
+                return;
+            }
 
             if (type == ScheduledTaskType::RunScreener) {
                 StockScreener screener;

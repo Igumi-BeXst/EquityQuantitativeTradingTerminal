@@ -2,6 +2,7 @@
 #include "foundation/utils/datetime.h"
 #include <QTimer>
 #include <algorithm>
+#include <cstdlib>
 #include <ctime>
 
 namespace st {
@@ -19,6 +20,20 @@ static DateTime endOfToday() {
     return std::chrono::system_clock::from_time_t(std::mktime(&tm));
 }
 
+/// Daily 任务的本地当前时刻是否已过目标时间（今天不会再触发）
+/// 用于 setTasks 初始化：已错过的 Daily 任务设 lastRun=endOfToday 避免启动后意外触发
+static bool dailyTimePassed(const ScheduledTask& t, DateTime now) {
+    const std::string& hhmm = t.timeOfDay;
+    if (hhmm.size() != 5 || hhmm[2] != ':') return false;   // 非法时间按未错过处理
+    const int targetSec = std::atoi(hhmm.substr(0, 2).c_str()) * 3600
+                        + std::atoi(hhmm.substr(3, 2).c_str()) * 60;
+    std::tm tm{};
+    const std::time_t tt = std::chrono::system_clock::to_time_t(now);
+    localtime_s(&tm, &tt);
+    const int daySec = tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec;
+    return daySec > targetSec;   // 严格大于：恰好到点不算错过（还会触发）
+}
+
 TaskScheduler::TaskScheduler(QObject* parent) : QObject(parent) {
     timer_ = new QTimer(this);
     timer_->setInterval(10000);   // 10 秒 tick
@@ -29,9 +44,17 @@ TaskScheduler::~TaskScheduler() { stop(); }
 
 void TaskScheduler::setTasks(std::vector<ScheduledTask> tasks) {
     tasks_ = std::move(tasks);
-    // 初始化 lastRun_：新建任务不立即触发（Daily 任务建在 15:00 会在 15:05 首次触发前 5 分钟窗口内）
+    // 初始化 lastRun_：新建任务不立即触发
     for (const auto& t : tasks_) {
-        if (!lastRun_.count(t.id)) lastRun_[t.id] = utils::now();
+        if (lastRun_.count(t.id)) continue;
+        const auto now = utils::now();
+        if (t.kind == ScheduleKind::Daily && dailyTimePassed(t, now)) {
+            // Daily 任务今天已过目标时间（启动在目标点之后）：设 lastRun 为当天结束，
+            // 避免启动后 60 秒反抖动窗口一过就意外触发本应明天才执行的任务。
+            lastRun_[t.id] = endOfToday();
+        } else {
+            lastRun_[t.id] = now;
+        }
     }
 }
 
@@ -43,10 +66,17 @@ std::string TaskScheduler::addTask(const ScheduledTask& t) {
 }
 
 bool TaskScheduler::updateTask(const std::string& id, const ScheduledTask& t) {
+    if (t.id != id) return false;   // 不允许修改任务 ID（否则 lastRun_ 索引错乱）
     for (auto& it : tasks_) {
         if (it.id == id) {
+            // I4: 仅调度相关字段变更才重置 lastRun_，否则编辑内容/enabled 等
+            //     会重置计时导致错过当日触发点。
+            const bool scheduleChanged =
+                it.kind != t.kind ||
+                it.timeOfDay != t.timeOfDay ||
+                it.intervalSeconds != t.intervalSeconds;
             it = t;
-            lastRun_[id] = utils::now();   // 重置防重计时（改动后重新计时）
+            if (scheduleChanged) lastRun_[id] = utils::now();
             if (onTasksChanged_) onTasksChanged_();
             return true;
         }

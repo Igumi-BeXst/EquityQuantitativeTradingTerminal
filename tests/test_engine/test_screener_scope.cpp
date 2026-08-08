@@ -9,9 +9,9 @@ TEST(ScopeResolverTest, ParseAllScope) {
 }
 
 TEST(ScopeResolverTest, ParseSectorScope) {
+    // v1：板块成分解析无数据源接口 → 返回空池（调用方提示"暂不支持"）
     auto v = ScopeResolver::resolve(R"({"scope":"sector","sector":"BK0475"})", nullptr, {});
-    ASSERT_EQ(v.size(), 1u);
-    EXPECT_EQ(v[0].code(), "BK0475");
+    EXPECT_TRUE(v.empty());
 }
 
 TEST(ScopeResolverTest, ParseLastScopeFallsBackAll) {

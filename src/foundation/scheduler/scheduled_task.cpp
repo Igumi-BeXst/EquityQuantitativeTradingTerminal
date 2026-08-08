@@ -47,7 +47,7 @@ bool shouldFire(const ScheduledTask& task, DateTime now, DateTime lastRun) {
 
     // Daily：解析 "HH:MM"，转当天秒数，比较是否到点且距上次 > 防重窗口
     const std::string& hhmm = task.timeOfDay;
-    if (hhmm.size() < 5 || hhmm[2] != ':') return false;
+    if (hhmm.size() != 5 || hhmm[2] != ':') return false;   // 严格 "HH:MM"，拒绝 "HH:MM:SS" 等
     const int hour = std::atoi(hhmm.substr(0, 2).c_str());
     const int min  = std::atoi(hhmm.substr(3, 2).c_str());
     if (hour < 0 || hour > 23 || min < 0 || min > 59) return false;

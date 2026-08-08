@@ -9,8 +9,6 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
-#include <windows.h>   // MessageBeep
-
 namespace st {
 
 ReminderPopup::ReminderPopup(const QString& title, const QString& message,
@@ -53,8 +51,8 @@ ReminderPopup::ReminderPopup(const QString& title, const QString& message,
 }
 
 void ReminderPopup::showReminder(const QString& title, const QString& message) {
-    // 系统提示音
-    MessageBeep(MB_ICONASTERISK);
+    // 系统提示音（Qt 跨平台实现，Windows 下即系统"叮"声）
+    QApplication::beep();
 
     auto* popup = new ReminderPopup(title, message);
     popup->show();
@@ -78,7 +76,12 @@ void ReminderPopup::paintEvent(QPaintEvent* event) {
 }
 
 void ReminderPopup::positionBottomRight() {
-    QScreen* screen = QGuiApplication::screenAt(QCursor::pos());
+    // 用活动窗口所在屏幕定位（而非鼠标位置）：多屏下提醒出现在用户正在操作的屏幕，
+    // 避免鼠标在副屏时提醒弹到副屏看不到。
+    QScreen* screen = nullptr;
+    if (QWidget* active = QApplication::activeWindow()) {
+        screen = QGuiApplication::screenAt(active->geometry().center());
+    }
     if (!screen) screen = QGuiApplication::primaryScreen();
     if (!screen) return;
     const QRect area = screen->availableGeometry();

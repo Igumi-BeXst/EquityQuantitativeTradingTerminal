@@ -32,10 +32,22 @@ bool ScheduledTaskStore::save(const std::string& path, const std::vector<Schedul
         for (const auto& t : tasks) {
             arr.push_back(t.toJson());
         }
-        std::ofstream ofs(path, std::ios::trunc);
-        if (!ofs.is_open()) return false;
-        ofs << arr.dump(2);
-        return static_cast<bool>(ofs);
+        // 原子写入：先写临时文件，成功后再 rename 覆盖正式文件。
+        // 崩溃/断电时磁盘上是完整的旧文件或临时文件，不会留下截断的正式文件。
+        const auto tmpPath = p.string() + ".tmp";
+        {
+            std::ofstream ofs(tmpPath, std::ios::trunc);
+            if (!ofs.is_open()) return false;
+            ofs << arr.dump(2);
+            if (!ofs) return false;
+        }
+        std::error_code ec;
+        std::filesystem::rename(tmpPath, p, ec);
+        if (ec) {
+            std::filesystem::remove(tmpPath, ec);   // 尽力清理临时文件
+            return false;
+        }
+        return true;
     } catch (const std::exception&) {
         return false;
     }
