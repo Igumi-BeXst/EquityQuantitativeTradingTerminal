@@ -90,9 +90,17 @@ public:
 private:
     std::vector<JournalEntry> entries_;
     std::set<std::string> fingerprints_;   // 已入库指纹（防重）
-    FeeConfig fees_ = FeeConfig::defaultAShare();
+    FeeConfig fees_ = standardFees();
     int nextId_ = 1;
     mutable std::mutex mutex_;
+
+    /// 日志标准 A 股费率 — 佣金万2.5/最低5 + 印花税卖出0.0005(2023减半后) + 过户费双向0.00002
+    /// 不用 FeeConfig::defaultAShare()（其印花税仍为 0.001 旧默认，见设计文档）
+    static FeeConfig standardFees() {
+        FeeConfig cfg;                       // 继承默认：佣金0.00025/最低5/过户0.00002
+        cfg.stampTaxRate = 0.0005;           // 修正印花税为 2023 减半后标准
+        return cfg;
+    }
 };
 
 } // namespace st
