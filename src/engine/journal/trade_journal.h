@@ -8,6 +8,7 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace st {
@@ -39,9 +40,9 @@ public:
     void clear();
     const std::vector<JournalEntry>& entries() const { return entries_; }
 
-    /// 费率（手动录入自动算费用用）
-    void setFees(const FeeConfig& cfg) { fees_ = cfg; }
-    const FeeConfig& fees() const { return fees_; }
+    /// 费率（手动录入自动算费用用）— 线程安全（Task 9 运行时改费率）
+    void setFees(const FeeConfig& cfg) { std::lock_guard<std::mutex> lock(mutex_); fees_ = cfg; }
+    FeeConfig fees() const { std::lock_guard<std::mutex> lock(mutex_); return fees_; }
 
     /// 模拟成交自动落库 — 供 PaperTradeEngine.onTrade 回调（线程安全）
     /// strategy 为当前模拟策略名；内部指纹去重，重复则跳过返回空 id
