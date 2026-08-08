@@ -133,3 +133,39 @@ TEST(PaperTradeEngineTest, TrendStrategyTradesWithSeededHistory) {
     EXPECT_EQ(trades.front().direction, Direction::Buy);
     engine.stop();
 }
+
+TEST(PaperTradeEngineTest, OnTradeCallbackFires) {
+    PaperTradeEngine e;
+    PaperTradeConfig cfg;
+    cfg.initialCapital = 100000;
+    cfg.slippage = 0.0;
+    e.setConfig(cfg);
+
+    int fired = 0;
+    Trade captured;
+    e.setOnTrade([&](const Trade& t) { ++fired; captured = t; });
+
+    auto s = std::make_shared<BuyOnceStrategy>();
+    e.addStrategy(s);
+    e.start();
+    e.onQuote(StockCode("SH600519"), 10.0, utils::parseDateTime("2026-08-01 09:30:00"));
+    EXPECT_GE(fired, 1);
+    EXPECT_EQ(captured.code.fullCode(), "SH600519");
+    EXPECT_EQ(captured.direction, Direction::Buy);
+    e.stop();
+}
+
+TEST(PaperTradeEngineTest, NoCallbackIsSafe) {
+    PaperTradeEngine e;
+    PaperTradeConfig cfg;
+    cfg.initialCapital = 100000;
+    cfg.slippage = 0.0;
+    e.setConfig(cfg);
+
+    auto s = std::make_shared<BuyOnceStrategy>();
+    e.addStrategy(s);
+    e.start();
+    e.onQuote(StockCode("SH600519"), 10.0, utils::parseDateTime("2026-08-01 09:30:00"));
+    EXPECT_EQ(e.trades().size(), 1u);
+    e.stop();
+}

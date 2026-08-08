@@ -56,6 +56,10 @@ public:
     /// 累计成交
     const std::vector<Trade>& trades() const { return trades_; }
 
+    /// 成交回调 — 每笔成交落库（供交易日志自动记录），可空
+    using TradeCallback = std::function<void(const Trade&)>;
+    void setOnTrade(TradeCallback cb) { onTrade_ = std::move(cb); }
+
     /// 今日盈亏
     double todayPnl() const { return todayPnl_; }
 
@@ -68,6 +72,7 @@ private:
     bool running_ = false;
     Portfolio portfolio_;
     std::vector<Trade> trades_;
+    TradeCallback onTrade_;
     double todayPnl_ = 0.0;
     int nextOrderId_ = 1;
 

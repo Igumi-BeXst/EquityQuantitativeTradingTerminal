@@ -187,6 +187,7 @@ void PaperTradeEngine::executeTrade(StockCode code, Direction dir, Volume vol,
     portfolio_.snapshotTime = time;
 
     trades_.push_back(trade);
+    if (onTrade_) onTrade_(trade);
     LogManager::instance()->log(LogLevel::Info, "PaperTrade: {} {} x{} @ {}",
                                 dir == Direction::Buy ? "BUY" : "SELL",
                                 code.fullCode(), vol, execPrice);
