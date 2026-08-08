@@ -420,7 +420,7 @@ void MainWindow::openFundsWindow() {
 
 void MainWindow::openJournalWindow() {
     if (!journalWindow_) {
-        journalWindow_ = new JournalWindow(journal_);
+        journalWindow_ = new JournalWindow(journal_, provider_.get());
         journalWindow_->setAttribute(Qt::WA_DeleteOnClose);
         connect(journalWindow_, &QObject::destroyed, this,
                 [this] { journalWindow_ = nullptr; });

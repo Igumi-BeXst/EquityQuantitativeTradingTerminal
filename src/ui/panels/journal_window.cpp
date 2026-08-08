@@ -288,8 +288,9 @@ QString dirText(Direction d) {
 }  // namespace
 
 JournalWindow::JournalWindow(std::shared_ptr<TradeJournalEngine> journal,
+                             IDataProvider* provider,
                              QWidget* parent)
-    : QMainWindow(parent), journal_(std::move(journal)) {
+    : QMainWindow(parent), journal_(std::move(journal)), provider_(provider) {
     setWindowTitle(tr("交易日志"));
     resize(1000, 620);
 
@@ -429,7 +430,7 @@ JournalWindow::JournalWindow(std::shared_ptr<TradeJournalEngine> journal,
 
     // 新建
     connect(newBtn, &QPushButton::clicked, this, [this]() {
-        JournalEntryDialog dlg(journal_->fees(), nullptr, this);
+        JournalEntryDialog dlg(journal_->fees(), provider_, this);
         if (dlg.exec() == QDialog::Accepted) {
             const auto e = dlg.entry();
             const auto id = journal_->addEntry(e);
@@ -456,7 +457,7 @@ JournalWindow::JournalWindow(std::shared_ptr<TradeJournalEngine> journal,
         if (it == allEntries.end()) {
             return;
         }
-        JournalEntryDialog dlg(journal_->fees(), nullptr, this);
+        JournalEntryDialog dlg(journal_->fees(), provider_, this);
         dlg.setEntry(*it);
         if (dlg.exec() == QDialog::Accepted) {
             const auto updated = dlg.entry();

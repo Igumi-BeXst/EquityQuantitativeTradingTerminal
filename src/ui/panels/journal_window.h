@@ -24,8 +24,8 @@ class EquityCurveWidget;
 namespace st {
 
 class TradeJournalEngine;
-struct JournalEntry;
 class IDataProvider;
+struct JournalEntry;
 class StockSearchBar;
 struct StockInfo;
 
@@ -84,6 +84,7 @@ class JournalWindow : public QMainWindow {
     Q_OBJECT
 public:
     explicit JournalWindow(std::shared_ptr<TradeJournalEngine> journal,
+                           IDataProvider* provider,
                            QWidget* parent = nullptr);
     ~JournalWindow() override;
 
@@ -95,6 +96,7 @@ private:
     void refreshStats();        // computeStats → 填对比回顾 tab
 
     std::shared_ptr<TradeJournalEngine> journal_;
+    IDataProvider* provider_ = nullptr;   // 供录入对话框的股票搜索栏使用
     QTabWidget* tabs_ = nullptr;
     QTableWidget* recordsTable_ = nullptr;
     QLineEdit* filter_ = nullptr;
