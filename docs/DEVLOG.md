@@ -10,10 +10,10 @@
 - `engine/journal/trade_journal_store.{h,cpp}`：JSON 持久化（configDir/trade_journal.json + journal_config.json），条目数组 + 费率独立读写
 - `ui/panels/journal_window.{h,cpp}`：JournalWindow 独立窗口（top-level QMainWindow，仿资金窗口）；两 tab——「交易记录」（CRUD + 筛选 + 类型徽标）+「对比回顾」（统计卡片 + 双序列收益曲线 EquityCurveWidget + 逐笔配对表 + 月度收益表 + 持仓已实现表 + 按策略表）；JournalEntryDialog 新建/编辑（StockSearchBar + 方向/价格/数量/费用自动算/策略/注解）；JournalFeeDialog 费率设置（佣金/最低佣金/印花税/过户费四行 QDoubleSpinBox + 保存到 journal_config.json）
 - UI 装配：MainWindow 顶部「日志」菜单 + PaperTradePanel 自动落库回调（QPointer + QueuedConnection 安全异步）
-- 测试：TradeJournalTest (11) + TradeJournalStoreTest (14) + JournalComputeTest (13) = 共 28 例
+- 测试：TradeJournalTest (5) + TradeJournalStatsTest (12) + TradeJournalPairTest (6) + TradeJournalStoreTest (5) = 共 28 例（全在 test_engine）
 
 ### 验证
-- 构建零警告；358/358 全部通过（引擎 112 → 142，+30 交易日志相关单测）
+- 构建零警告；358/358 全部通过（引擎 112 → 142，+28 交易日志相关单测）
 - 手动：交易记录 CRUD + 筛选 + 模拟成交自动落库 + 对比回顾统计正确 + 费率设置保存/加载
 - 已知限制: 已存日志条目不因费率变更重算费用（费率仅影响后续新建/编辑）；StockSearchBar 当前传 nullptr（无下拉建议）；JournalWindow 双击开图需 IDataProvider（当前通过 openChart 信号 → 主窗口中央图表）
 

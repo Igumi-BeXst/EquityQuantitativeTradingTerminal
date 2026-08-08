@@ -6,7 +6,7 @@
 - 费率设置: 独立 JournalFeeDialog——佣金费率/最低佣金/印花税率/过户费率可编辑 + 保存到 configDir/journal_config.json（影响后续新建/编辑自动算费用，已存条目不重算）
 - 装配: MainWindow 顶部「日志」菜单 → 独立 JournalWindow；PaperTradePanel 模拟成交自动落库（QPointer + QueuedConnection 安全异步）
 - 引擎: TradeJournalEngine 内存存储 + TradeJournalStore JSON 持久化 + computeStats 统计；线程安全（mutex）+ 指纹去重
-- 测试 328 → 358：TestEngine 112 → 142（+30 交易日志: TradeJournalTest 11 + StoreTest 14 + JournalComputeTest 13；其他层不变）
+- 测试 328 → 358：Engine 112 → 142（净增 30，其中交易日志新增 28：TradeJournalTest 5 + TradeJournalStatsTest 12 + TradeJournalPairTest 6 + TradeJournalStoreTest 5；其他层不变）
 - 已知限制: 已存条目不因费率变更重算；StockSearchBar 暂无下拉建议；对比回顾 v1 不做模拟/实盘时间窗口滑动
 
 ## 2026-08-08 — 移除北向资金（2024 披露调整致数据不可得）

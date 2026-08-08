@@ -520,8 +520,9 @@ JournalWindow::JournalWindow(std::shared_ptr<TradeJournalEngine> journal,
             if (!TradeJournalStore::saveFeeConfig(configPath, cfg)) {
                 LogManager::instance()->log(LogLevel::Warn,
                     "交易日志 费率保存失败: {}", configPath);
+            } else {
+                LogManager::instance()->log(LogLevel::Info, "交易日志 费率已更新并保存");
             }
-            LogManager::instance()->log(LogLevel::Info, "交易日志 费率已更新并保存");
         }
     });
 
