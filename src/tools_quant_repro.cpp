@@ -16,7 +16,7 @@ int main(int argc, char* argv[]) {
     setvbuf(stdout, nullptr, _IONBF, 0);
     auto provider = makeDataProvider();
     provider->connect();
-    QuantWindow w(provider.get());
+    QuantWindow w(provider.get(), nullptr);
     w.show();
 
     QTimer::singleShot(2000, &app, [&] {
