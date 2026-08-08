@@ -84,6 +84,7 @@ add_library(st_engine STATIC
     engine/analyzer/overlay_analysis.cpp
     engine/analyzer/custom_index.cpp
     engine/analyzer/custom_index_store.cpp
+    engine/journal/trade_journal.cpp
 )
 target_link_libraries(st_engine PUBLIC st_data st_core st_foundation talib::talib)
 
