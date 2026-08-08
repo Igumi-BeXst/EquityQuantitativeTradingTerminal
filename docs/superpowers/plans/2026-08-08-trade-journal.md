@@ -31,7 +31,7 @@
 
 **Interfaces:**
 - Consumes: `JournalType`（[foundation/enums.h:59](src/foundation/enums.h#L59)）、`Direction`、`StockCode`、`DateTime` + `utils::toDateTimeString`/`now`、`foundation/order.h` 的 `Trade`、`engine/backtest/fee_calculator.h` 的 `FeeConfig`/`FeeCalculator`/`Trade`
-- Produces: `st::JournalEntry`、`st::TradeJournalEngine`（`addEntry/updateEntry/removeEntry/clear/entries/setFees/fees/appendAuto/entryFingerprint`）
+- Produces: `st::JournalEntry`、`st::TradeJournalEngine`（`addEntry/updateEntry/removeEntry/clear/entries/setFees/fees/appendAuto/entryFingerprint/restoreEntries`）
 
 - [ ] **Step 1: 写数据模型头文件 `trade_journal.h`**
 
@@ -86,6 +86,9 @@ public:
 
     /// 指纹 = FNV-1a(代码|时间|方向|数量) — 进程内去重
     std::string entryFingerprint(const JournalEntry& e) const;
+
+    /// 载入恢复 — 保留原 id + 重建指纹集 + 更新 nextId_（供 Store::load）
+    void restoreEntries(const std::vector<JournalEntry>& entries);
 
 private:
     std::vector<JournalEntry> entries_;
@@ -199,10 +202,25 @@ std::string TradeJournalEngine::appendAuto(const Trade& t, const std::string& st
     return entries_.back().id;
 }
 
+void TradeJournalEngine::restoreEntries(const std::vector<JournalEntry>& entries) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    entries_ = entries;                          // 保留原 id
+    fingerprints_.clear();
+    int maxId = 0;
+    for (const auto& e : entries_) {
+        fingerprints_.insert(entryFingerprint(e));
+        if (!e.id.empty() && e.id[0] == 'J') {
+            const int n = std::atoi(e.id.c_str() + 1);
+            if (n >= maxId) maxId = n;
+        }
+    }
+    nextId_ = maxId + 1;                          // 后续新 id 不冲突
+}
+
 } // namespace st
 ```
 
-需 `#include <cstdio>`（snprintf）与 `#include <cstdint>`。
+需 `#include <cstdio>`（snprintf）、`#include <cstdint>` 与 `#include <cstdlib>`（atoi）。
 
 - [ ] **Step 3: 写测试 `test_trade_journal.cpp`（CRUD/指纹/费率默认）**
 
@@ -780,7 +798,7 @@ public:
 
 `trade_journal_store.cpp` 要点：
 - **JournalEntry ↔ JSON 映射**（nlohmann `to_json`/`from_json`）：id/code.code()/name/type(数字)/direction(数字)/price/volume/fees/strategy/note/time(toDateString)
-- `load`：读文件 → parse → 对每条 `engine.addEntry(e)`（addEntry 会重建指纹）→ 空文件/异常 → 返回 false（engine 空）
+- `load`：读文件 → parse → `engine.restoreEntries(parsed)`（**保留原 id** + 重建指纹集 + 更新 nextId_，见 Task 1 接口）→ 空文件/异常 → 返回 false（engine 空）
 - `save`：`engine.entries()` → 序列化数组 → 写文件（`std::filesystem::create_directories` 父目录，仿 [custom_index_store.cpp:79-85](src/engine/analyzer/custom_index_store.cpp#L79)）
 - `loadFeeConfig`：读 `journal_config.json` 的 4 个 double；缺省回退默认 A 股（佣金万2.5/最低5/印花万五/过户十万分之二）
 
