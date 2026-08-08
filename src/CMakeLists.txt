@@ -74,6 +74,7 @@ add_library(st_engine STATIC
     engine/screener/factor_library.cpp
     engine/screener/condition_filter.cpp
     engine/screener/ranker.cpp
+    engine/scheduler/screener_scope.cpp
     engine/market/market_engine.cpp
     engine/market/market_scanner.cpp
     engine/market/market_breadth.cpp
