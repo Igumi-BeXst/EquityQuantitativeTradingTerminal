@@ -84,6 +84,50 @@ QString runningStatus(const ScheduledTask& t) {
     return t.running ? QStringLiteral("运行中") : QStringLiteral("空闲");
 }
 
+// ---- 枚举 ↔ 下拉映射（防枚举重排静默断裂） ----
+
+/// 类型下拉顺序（与 combo addItem 顺序一一对应）
+constexpr ScheduledTaskType kTypeComboOrder[] = {
+    ScheduledTaskType::RefreshQuotes,  // index 0
+    ScheduledTaskType::RunScreener,    // index 1
+    ScheduledTaskType::FetchData,      // index 2
+    ScheduledTaskType::Remind,         // index 3
+};
+static_assert(std::size(kTypeComboOrder) == 4,
+    "Type combo item count must be 4 — update kTypeComboOrder if enum changes");
+
+/// 触发方式下拉顺序
+constexpr ScheduleKind kKindComboOrder[] = {
+    ScheduleKind::Daily,     // index 0
+    ScheduleKind::Interval,  // index 1
+};
+static_assert(std::size(kKindComboOrder) == 2,
+    "Kind combo item count must be 2 — update kKindComboOrder if enum changes");
+
+int typeToComboIndex(ScheduledTaskType t) {
+    for (int i = 0; i < static_cast<int>(std::size(kTypeComboOrder)); ++i)
+        if (kTypeComboOrder[i] == t) return i;
+    return 0;  // fallback
+}
+
+ScheduledTaskType comboIndexToType(int idx) {
+    if (idx >= 0 && idx < static_cast<int>(std::size(kTypeComboOrder)))
+        return kTypeComboOrder[idx];
+    return ScheduledTaskType::RefreshQuotes;  // fallback
+}
+
+int kindToComboIndex(ScheduleKind k) {
+    for (int i = 0; i < static_cast<int>(std::size(kKindComboOrder)); ++i)
+        if (kKindComboOrder[i] == k) return i;
+    return 0;
+}
+
+ScheduleKind comboIndexToKind(int idx) {
+    if (idx >= 0 && idx < static_cast<int>(std::size(kKindComboOrder)))
+        return kKindComboOrder[idx];
+    return ScheduleKind::Daily;  // fallback
+}
+
 } // anonymous namespace
 
 // ============================================================
@@ -192,16 +236,18 @@ TaskEditDialog::TaskEditDialog(IDataProvider* provider,
 
     // 确定 → 校验 + accept
     connect(buttons, &QDialogButtonBox::accepted, this, [this]() {
-        const int typeIdx = typeCombo_->currentIndex();
+        auto selType = comboIndexToType(typeCombo_->currentIndex());
         // 选股/抓数据 + 板块范围 → 必须实际选择板块（data 非空）
-        if ((typeIdx == 1 || typeIdx == 2) && scopeCombo_->currentIndex() == 1) {
+        if ((selType == ScheduledTaskType::RunScreener ||
+             selType == ScheduledTaskType::FetchData) &&
+            scopeCombo_->currentIndex() == 1) {
             if (sectorCombo_->currentData().toString().isEmpty()) {
                 QMessageBox::warning(this, tr("校验失败"), tr("请选择板块"));
                 return;
             }
         }
         // 提醒 → 内容非空
-        if (typeIdx == 3) {
+        if (selType == ScheduledTaskType::Remind) {
             if (remindEdit_->text().trimmed().isEmpty()) {
                 QMessageBox::warning(this, tr("校验失败"), tr("请输入提醒内容"));
                 return;
@@ -214,8 +260,8 @@ TaskEditDialog::TaskEditDialog(IDataProvider* provider,
     // ---- 回填（编辑模式） ----
     if (existing) {
         editId_ = existing->id;
-        typeCombo_->setCurrentIndex(static_cast<int>(existing->type));
-        kindCombo_->setCurrentIndex(static_cast<int>(existing->kind));
+        typeCombo_->setCurrentIndex(typeToComboIndex(existing->type));
+        kindCombo_->setCurrentIndex(kindToComboIndex(existing->kind));
 
         if (existing->kind == ScheduleKind::Daily) {
             QTime preset = QTime::fromString(
@@ -301,17 +347,17 @@ void TaskEditDialog::loadBoards() {
 }
 
 void TaskEditDialog::onTypeChanged() {
-    int idx = typeCombo_->currentIndex();
-    // idx: 0=RefreshQuotes, 1=RunScreener, 2=FetchData, 3=Remind
-    bool showScope = (idx == 1 || idx == 2);
-    bool showRemind = (idx == 3);
+    auto selType = comboIndexToType(typeCombo_->currentIndex());
+    bool showScope = (selType == ScheduledTaskType::RunScreener ||
+                      selType == ScheduledTaskType::FetchData);
+    bool showRemind = (selType == ScheduledTaskType::Remind);
 
     scopeRow_->setVisible(showScope);
     remindRow_->setVisible(showRemind);
 }
 
 void TaskEditDialog::onKindChanged() {
-    auto k = static_cast<ScheduleKind>(kindCombo_->currentIndex());
+    auto k = comboIndexToKind(kindCombo_->currentIndex());
     dailyRow_->setVisible(k == ScheduleKind::Daily);
     intervalRow_->setVisible(k == ScheduleKind::Interval);
 }
@@ -319,12 +365,13 @@ void TaskEditDialog::onKindChanged() {
 ScheduledTask TaskEditDialog::task() const {
     ScheduledTask t;
     if (!editId_.empty()) t.id = editId_;
-    t.type = static_cast<ScheduledTaskType>(typeCombo_->currentIndex());
-    t.kind = static_cast<ScheduleKind>(kindCombo_->currentIndex());
+    t.type = comboIndexToType(typeCombo_->currentIndex());
+    t.kind = comboIndexToKind(kindCombo_->currentIndex());
     t.enabled = enabledCheck_->isChecked();
 
     if (t.kind == ScheduleKind::Daily) {
         t.timeOfDay = timeEdit_->time().toString("HH:mm").toStdString();
+        t.intervalSeconds = 0;   // Daily 不使用 interval
     } else {
         t.intervalSeconds = intervalSpin_->value() * 60;   // 分钟 → 秒
     }
