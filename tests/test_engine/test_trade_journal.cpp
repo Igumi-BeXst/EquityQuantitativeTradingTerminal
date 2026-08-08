@@ -248,3 +248,95 @@ TEST(TradeJournalStatsTest, ByStrategyGroups) {
     EXPECT_EQ(stats.byStrategy[0].second.count, 1);
     EXPECT_NEAR(stats.byStrategy[0].second.totalPnl, 200.0, 1e-6);
 }
+
+TEST(TradeJournalStatsTest, ComputeStatsFillsPairs) {
+    std::vector<JournalEntry> v;
+    v.push_back(mkManual("SH600519", Direction::Buy, 10.2, 100, "2026-08-02 09:30:00"));
+    auto s = mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-01 09:30:00");
+    s.type = JournalType::AutoTrade;
+    v.push_back(s);
+    auto stats = computeStats(v);
+    ASSERT_EQ(stats.pairs.size(), 1u);
+    EXPECT_NEAR(stats.pairs[0].priceDiff, 0.2, 1e-6);
+}
+
+// =============================================================================
+// TradeJournalPairTest — pairManualVsSim 逐笔精确配对
+// =============================================================================
+
+TEST(TradeJournalPairTest, OneToOne) {
+    std::vector<JournalEntry> manual = {
+        mkManual("SH600519", Direction::Buy, 10.2, 100, "2026-08-02 09:30:00")};
+    std::vector<JournalEntry> sim = {
+        mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-01 09:30:00")};
+    sim[0].type = JournalType::AutoTrade;
+    auto rows = pairManualVsSim(manual, sim);
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_NEAR(rows[0].priceDiff, 0.2, 1e-6);
+    EXPECT_NEAR(rows[0].diffPct, 2.0, 1e-6);
+    EXPECT_EQ(rows[0].matchedVol, 100);
+    EXPECT_EQ(rows[0].direction, Direction::Buy);
+}
+
+TEST(TradeJournalPairTest, OneToManyQuantitySplit) {
+    // 实盘 3000 股，模拟 1000+2000 → 2 条 PairRow
+    std::vector<JournalEntry> manual = {
+        mkManual("SH600519", Direction::Buy, 10.2, 3000, "2026-08-02 09:30:00")};
+    std::vector<JournalEntry> sim = {
+        mkManual("SH600519", Direction::Buy, 10.0, 1000, "2026-08-01 09:30:00"),
+        mkManual("SH600519", Direction::Buy, 10.1, 2000, "2026-08-01 10:00:00")};
+    sim[0].type = JournalType::AutoTrade;
+    sim[1].type = JournalType::AutoTrade;
+    auto rows = pairManualVsSim(manual, sim);
+    ASSERT_EQ(rows.size(), 2u);
+    EXPECT_EQ(rows[0].matchedVol, 1000);
+    EXPECT_NEAR(rows[0].priceDiff, 0.2, 1e-6);
+    EXPECT_EQ(rows[1].matchedVol, 2000);
+    EXPECT_NEAR(rows[1].priceDiff, 0.1, 1e-6);
+}
+
+TEST(TradeJournalPairTest, DirectionIndependent) {
+    std::vector<JournalEntry> manual = {
+        mkManual("SH600519", Direction::Buy, 10.2, 100, "2026-08-02 09:30:00"),
+        mkManual("SH600519", Direction::Sell, 12.1, 100, "2026-08-05 09:30:00")};
+    std::vector<JournalEntry> sim = {
+        mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-01 09:30:00"),
+        mkManual("SH600519", Direction::Sell, 12.0, 100, "2026-08-04 09:30:00")};
+    sim[0].type = JournalType::AutoTrade;
+    sim[1].type = JournalType::AutoTrade;
+    auto rows = pairManualVsSim(manual, sim);
+    ASSERT_EQ(rows.size(), 2u);
+    EXPECT_EQ(rows[0].direction, Direction::Buy);
+    EXPECT_EQ(rows[1].direction, Direction::Sell);
+    EXPECT_NEAR(rows[1].priceDiff, 0.1, 1e-6);
+}
+
+TEST(TradeJournalPairTest, ShortSideMatchedOnly) {
+    std::vector<JournalEntry> manual = {
+        mkManual("SH600519", Direction::Buy, 10.2, 3000, "2026-08-02 09:30:00")};
+    std::vector<JournalEntry> sim = {
+        mkManual("SH600519", Direction::Buy, 10.0, 1000, "2026-08-01 09:30:00")};
+    sim[0].type = JournalType::AutoTrade;
+    auto rows = pairManualVsSim(manual, sim);
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_EQ(rows[0].matchedVol, 1000);   // 只配到短侧 1000
+}
+
+TEST(TradeJournalPairTest, NoMatchReturnsEmpty) {
+    std::vector<JournalEntry> manual = {
+        mkManual("SH600519", Direction::Buy, 10.2, 100, "2026-08-02 09:30:00")};
+    std::vector<JournalEntry> sim;   // 模拟无成交
+    EXPECT_TRUE(pairManualVsSim(manual, sim).empty());
+}
+
+TEST(TradeJournalPairTest, MultipleStocksIsolated) {
+    std::vector<JournalEntry> manual = {
+        mkManual("SH600519", Direction::Buy, 10.2, 100, "2026-08-02 09:30:00"),
+        mkManual("SZ000001", Direction::Buy, 5.2, 200, "2026-08-02 09:31:00")};
+    std::vector<JournalEntry> sim = {
+        mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-01 09:30:00")};
+    sim[0].type = JournalType::AutoTrade;
+    auto rows = pairManualVsSim(manual, sim);
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_EQ(rows[0].code.fullCode(), "SH600519");   // SZ000001 无对应模拟 → 不产生
+}

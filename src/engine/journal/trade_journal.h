@@ -81,6 +81,11 @@ struct JournalStats {
 /// 纯函数统计 — 不依赖 UI/线程，可单测
 JournalStats computeStats(const std::vector<JournalEntry>& entries);
 
+/// 精确配对 — 按 code 分组 + 买卖方向各自 FIFO + 数量分解对齐
+/// manual = 实盘成交（ManualNote），sim = 模拟成交（AutoTrade），均按时间升序
+std::vector<PairRow> pairManualVsSim(const std::vector<JournalEntry>& manual,
+                                     const std::vector<JournalEntry>& sim);
+
 /// 交易日志引擎 — 增删改查 + 持久化入口 + 模拟成交自动落库
 class TradeJournalEngine {
 public:

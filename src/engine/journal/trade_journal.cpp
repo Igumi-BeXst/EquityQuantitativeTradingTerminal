@@ -305,8 +305,65 @@ JournalStats computeStats(const std::vector<JournalEntry>& entries) {
         out.byStrategy.push_back({name, groupStatsFor(vec)});
     }
 
-    // pairs 留空，Task 3 填充
+    // --- 精确配对（模拟 vs 实盘）---
+    // 内部按 type 拆两组：AutoTrade → sim，其余（ManualNote/Signal）→ manual
+    std::vector<JournalEntry> manualEntries, simEntries;
+    for (const auto& e : entries)
+        (e.type == JournalType::AutoTrade ? simEntries : manualEntries).push_back(e);
+    out.pairs = pairManualVsSim(manualEntries, simEntries);
+
     return out;
+}
+
+// =============================================================================
+// pairManualVsSim — 模拟 vs 实盘逐笔精确配对（FIFO 数量分解）
+// =============================================================================
+
+std::vector<PairRow> pairManualVsSim(const std::vector<JournalEntry>& manual,
+                                     const std::vector<JournalEntry>& sim) {
+    // 1. 分组：code -> {manual, sim}
+    std::map<std::string, std::pair<std::vector<JournalEntry>,
+                                    std::vector<JournalEntry>>> byCode;
+    for (const auto& e : manual)
+        byCode[e.code.code()].first.push_back(e);
+    for (const auto& e : sim)
+        byCode[e.code.code()].second.push_back(e);
+
+    std::vector<PairRow> rows;
+    for (auto& [code, both] : byCode) {
+        const auto& ms = both.first;
+        const auto& ss = both.second;
+        // 每个方向单独 FIFO
+        for (Direction dir : {Direction::Buy, Direction::Sell}) {
+            std::vector<const JournalEntry*> mSide, sSide;
+            for (const auto& e : ms) if (e.direction == dir) mSide.push_back(&e);
+            for (const auto& e : ss) if (e.direction == dir) sSide.push_back(&e);
+            size_t i = 0, j = 0;
+            Volume usedM = 0, usedS = 0;
+            while (i < mSide.size() && j < sSide.size()) {
+                const Volume rm = mSide[i]->volume - usedM;
+                const Volume rs = sSide[j]->volume - usedS;
+                const Volume take = std::min(rm, rs);
+                PairRow r;
+                r.code = mSide[i]->code;
+                r.direction = dir;
+                r.simPrice = sSide[j]->price;
+                r.manualPrice = mSide[i]->price;
+                r.priceDiff = mSide[i]->price - sSide[j]->price;
+                r.diffPct = sSide[j]->price > 0
+                    ? r.priceDiff / sSide[j]->price * 100.0 : 0.0;
+                r.matchedVol = take;
+                r.simTime = sSide[j]->time;
+                r.manualTime = mSide[i]->time;
+                rows.push_back(std::move(r));
+                usedM += take;
+                usedS += take;
+                if (usedM >= mSide[i]->volume) { usedM = 0; ++i; }
+                if (usedS >= sSide[j]->volume) { usedS = 0; ++j; }
+            }
+        }
+    }
+    return rows;
 }
 
 } // namespace st
