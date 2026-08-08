@@ -8,6 +8,7 @@ class QCloseEvent;
 namespace st {
 
 class IDataProvider;
+class TradeJournalEngine;
 class PatternPanel;
 class AdvisorPanel;
 class SentimentPanel;
@@ -29,7 +30,9 @@ class QuantWindow : public QMainWindow {
     Q_OBJECT
 
 public:
-    explicit QuantWindow(IDataProvider* provider, QWidget* parent = nullptr);
+    explicit QuantWindow(IDataProvider* provider,
+                          std::shared_ptr<TradeJournalEngine> journal = nullptr,
+                          QWidget* parent = nullptr);
 
 protected:
     void closeEvent(QCloseEvent* event) override;  // 调试：关闭前检查堆完整性
@@ -39,6 +42,7 @@ signals:
     void openChart(const StockCode& code);
 
 private:
+    std::shared_ptr<TradeJournalEngine> journal_;  // 传给 PaperTradePanel 自动落库
     PatternPanel* patternPanel_ = nullptr;
     AdvisorPanel* advisorPanel_ = nullptr;
     SentimentPanel* sentimentPanel_ = nullptr;

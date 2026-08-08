@@ -15,6 +15,8 @@ class IDataProvider;
 class MarketIndexStrip;
 class CustomIndexPanel;
 class FundsWindow;
+class JournalWindow;
+class TradeJournalEngine;
 class StockSearchBar;
 class MarketPanel;
 class CentralChartWidget;
@@ -50,6 +52,7 @@ private:
     void openPreferences();
     void openQuantWindow();
     void openFundsWindow();
+    void openJournalWindow();
     void resetLayout();
 
     std::unique_ptr<IDataProvider> provider_;
@@ -60,6 +63,8 @@ private:
     QDockWidget* customIndexDock_ = nullptr;  // 自定义指数（与板块 tab 并列）
     QuantWindow* quantWindow_ = nullptr;
     FundsWindow* fundsWindow_ = nullptr;  // 资金数据（顶部「资金」菜单打开）
+    JournalWindow* journalWindow_ = nullptr;  // 交易日志（顶部「日志」菜单打开）
+    std::shared_ptr<TradeJournalEngine> journal_;  // 交易日志引擎（共享给 JournalWindow/QuantWindow/PaperTradePanel）
     MarketDepthWidget* marketDepth_ = nullptr;
     StockKeyDataWidget* keyData_ = nullptr;
     ChipPanel* chipPanel_ = nullptr;

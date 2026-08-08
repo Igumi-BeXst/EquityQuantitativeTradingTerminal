@@ -19,6 +19,7 @@ class IDataProvider;
 class PaperTradeEngine;
 class TradeTableModel;
 class IStrategy;
+class TradeJournalEngine;
 
 /// 模拟交易面板 — 单股票 + 策略 → 实时行情驱动 PaperTradeEngine
 class PaperTradePanel : public QWidget {
@@ -27,6 +28,9 @@ class PaperTradePanel : public QWidget {
 public:
     explicit PaperTradePanel(IDataProvider* provider, QWidget* parent = nullptr);
     ~PaperTradePanel() override;  // 停止轮询定时器，避免关闭窗口时触发异步任务
+
+    /// 注入交易日志引擎（供 MainWindow 装配后，模拟成交自动落库）
+    void setJournal(std::shared_ptr<TradeJournalEngine> journal);
 
 private slots:
     void onToggleClicked();
@@ -42,6 +46,7 @@ private:
 
     IDataProvider* provider_ = nullptr;
     std::unique_ptr<PaperTradeEngine> engine_;
+    std::shared_ptr<TradeJournalEngine> journal_;  // 模拟成交自动落库
     QTimer* timer_ = nullptr;
 
     QComboBox* stockCombo_ = nullptr;

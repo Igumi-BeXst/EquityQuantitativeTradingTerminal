@@ -3,6 +3,7 @@
 #include "data/idata_provider.h"
 #include "data/curated_stocks.h"
 #include "engine/paper_trade/paper_trade_engine.h"
+#include "engine/journal/trade_journal.h"
 #include "engine/strategy/istrategy.h"
 #include "engine/strategy/templates/ma_cross_strategy.h"
 #include "engine/strategy/templates/turtle_strategy.h"
@@ -138,6 +139,10 @@ PaperTradePanel::~PaperTradePanel() {
     if (engine_) engine_->stop();
 }
 
+void PaperTradePanel::setJournal(std::shared_ptr<TradeJournalEngine> journal) {
+    journal_ = std::move(journal);
+}
+
 StockCode PaperTradePanel::selectedCode() const {
     const QString full = stockCombo_->currentData().toString();
     return full.isEmpty() ? StockCode{} : StockCode(full.toStdString());
@@ -205,6 +210,18 @@ void PaperTradePanel::onToggleClicked() {
                                              capital, slippage]() mutable {
                 // 重建引擎（清状态）
                 guard->engine_ = std::make_unique<PaperTradeEngine>();
+                // 模拟成交自动落库（安全异步：回调可能在 IO 线程，转主线程落库）
+                const QString strategyName = guard->strategyCombo_->currentText();
+                if (guard->journal_) {
+                    auto j = guard->journal_;
+                    QPointer<PaperTradePanel> pGuard(guard);
+                    guard->engine_->setOnTrade([j, pGuard, strategyName](const Trade& t) {
+                        // 回调在 IO 线程执行 → invokeMethod 转主线程（appendAuto 内部有锁线程安全）
+                        QMetaObject::invokeMethod(pGuard, [j, t, strategyName] {
+                            j->appendAuto(t, strategyName.toStdString());
+                        }, Qt::QueuedConnection);
+                    });
+                }
                 PaperTradeConfig cfg;
                 cfg.initialCapital = capital;
                 cfg.slippage = slippage;

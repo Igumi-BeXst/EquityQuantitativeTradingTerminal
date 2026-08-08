@@ -17,8 +17,10 @@
 
 namespace st {
 
-QuantWindow::QuantWindow(IDataProvider* provider, QWidget* parent)
-    : QMainWindow(parent) {
+QuantWindow::QuantWindow(IDataProvider* provider,
+                         std::shared_ptr<TradeJournalEngine> journal,
+                         QWidget* parent)
+    : QMainWindow(parent), journal_(std::move(journal)) {
     setWindowTitle(tr("量化工作台"));
     resize(1280, 820);
 
@@ -38,6 +40,9 @@ QuantWindow::QuantWindow(IDataProvider* provider, QWidget* parent)
     strategyComparePanel_ = new StrategyComparePanel(provider, tabs);
     stressTestPanel_ = new StressTestPanel(provider, tabs);
     paperTradePanel_ = new PaperTradePanel(provider, tabs);
+    if (journal_) {
+        paperTradePanel_->setJournal(journal_);
+    }
 
     tabs->addTab(patternPanel_, tr("形态识别"));
     tabs->addTab(optimizationPanel_, tr("参数优化"));

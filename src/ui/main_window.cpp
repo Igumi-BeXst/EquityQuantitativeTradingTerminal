@@ -9,6 +9,9 @@
 #include "ui/panels/sector_panel.h"
 #include "ui/panels/quant_window.h"
 #include "ui/panels/funds_window.h"
+#include "ui/panels/journal_window.h"
+#include "engine/journal/trade_journal.h"
+#include "engine/journal/trade_journal_store.h"
 #include "ui/widgets/market_depth_widget.h"
 #include "ui/widgets/stock_key_data_widget.h"
 #include "ui/widgets/chip_panel.h"
@@ -119,6 +122,14 @@ void MainWindow::initServices() {
     provider_->connect();
 
     shortcuts_ = std::make_unique<ShortcutManager>();
+
+    // 3. 交易日志引擎 + 持久化加载
+    journal_ = std::make_shared<TradeJournalEngine>();
+    TradeJournalStore store;
+    store.load(AppPaths::configDir() + "/trade_journal.json", *journal_);
+    // 费率配置（独立文件，Task 9 费率设置对话框读写此文件）
+    auto feeCfg = TradeJournalStore::loadFeeConfig(AppPaths::configDir() + "/journal_config.json");
+    journal_->setFees(feeCfg);
 }
 
 void MainWindow::createCentral() {
@@ -281,6 +292,10 @@ void MainWindow::createMenus() {
     auto* fundsMenu = menuBar()->addMenu(tr("资金(&F)"));
     fundsMenu->addAction(tr("资金数据(&D)…"), this, &MainWindow::openFundsWindow);
 
+    // 日志（交易日志窗口）
+    auto* journalMenu = menuBar()->addMenu(tr("日志(&L)"));
+    journalMenu->addAction(tr("交易日志(&J)…"), this, &MainWindow::openJournalWindow);
+
     // 设置
     auto* settingsMenu = menuBar()->addMenu(tr("设置(&S)"));
     settingsMenu->addAction(tr("偏好设置(&P)…"), this, &MainWindow::openPreferences);
@@ -361,7 +376,7 @@ void MainWindow::openPreferences() {
 
 void MainWindow::openQuantWindow() {
     if (!quantWindow_) {
-        quantWindow_ = new QuantWindow(provider_.get());
+        quantWindow_ = new QuantWindow(provider_.get(), journal_);
         quantWindow_->setAttribute(Qt::WA_DeleteOnClose);
         // 关闭即置空，避免悬垂
         connect(quantWindow_, &QObject::destroyed, this,
@@ -403,6 +418,27 @@ void MainWindow::openFundsWindow() {
     fundsWindow_->activateWindow();
 }
 
+void MainWindow::openJournalWindow() {
+    if (!journalWindow_) {
+        journalWindow_ = new JournalWindow(journal_);
+        journalWindow_->setAttribute(Qt::WA_DeleteOnClose);
+        connect(journalWindow_, &QObject::destroyed, this,
+                [this] { journalWindow_ = nullptr; });
+        // 双击记录行 → 主窗口中央图
+        connect(journalWindow_, &JournalWindow::openChart, this,
+                [this](const StockCode& code, const QString& name) {
+            centralStack_->setCurrentWidget(centralChart_);
+            centralChart_->loadStock(code, name);
+            if (marketDepth_) marketDepth_->setStock(code, name);
+            if (keyData_) keyData_->setStock(code, name);
+            if (chipPanel_) chipPanel_->setStock(code, name);
+        });
+    }
+    journalWindow_->show();
+    journalWindow_->raise();
+    journalWindow_->activateWindow();
+}
+
 void MainWindow::resetLayout() {
     settings_->remove(QStringLiteral("ui/state"));
     restoreState(QByteArray());
@@ -416,6 +452,12 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     settings_->setValue(QStringLiteral("ui/geometry"), saveGeometry());
     settings_->setValue(QStringLiteral("ui/state"), saveState());
     settings_->sync();
+
+    // 交易日志持久化（在 provider 清理前保存，确保关闭时不丢数据）
+    if (journal_) {
+        TradeJournalStore store;
+        store.save(AppPaths::configDir() + "/trade_journal.json", *journal_);
+    }
 
     ConfigManager::instance()->save();
     LogManager::instance()->flush();
