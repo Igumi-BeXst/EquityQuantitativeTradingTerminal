@@ -15,6 +15,11 @@ class QLineEdit;
 class QComboBox;
 class QDoubleSpinBox;
 class QSpinBox;
+class QLabel;
+
+namespace st {
+class EquityCurveWidget;
+}
 
 namespace st {
 
@@ -73,13 +78,21 @@ signals:
 
 private:
     void rebuildAll();          // 重读引擎 → 刷两个 tab
+    void refreshStats();        // computeStats → 填对比回顾 tab
 
     std::shared_ptr<TradeJournalEngine> journal_;
     QTabWidget* tabs_ = nullptr;
     QTableWidget* recordsTable_ = nullptr;
     QLineEdit* filter_ = nullptr;
-    // tab2 控件（Task 7）
-    QWidget* statsPage_ = nullptr;
+    // tab2「对比回顾」控件
+    QLabel* overallLabel_ = nullptr;
+    QLabel* simLabel_ = nullptr;
+    QLabel* manualLabel_ = nullptr;
+    EquityCurveWidget* curve_ = nullptr;
+    QTableWidget* pairTable_ = nullptr;
+    QTableWidget* monthlyTable_ = nullptr;
+    QTableWidget* realizedTable_ = nullptr;
+    QTableWidget* strategyTable_ = nullptr;
 };
 
 } // namespace st

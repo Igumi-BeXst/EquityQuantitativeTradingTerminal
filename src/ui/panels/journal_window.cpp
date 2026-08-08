@@ -1,5 +1,6 @@
 #include "ui/panels/journal_window.h"
 #include "ui/panels/stock_search_bar.h"
+#include "ui/widgets/equity_curve_widget.h"
 #include "data/idata_provider.h"
 #include "engine/journal/trade_journal.h"
 #include "engine/backtest/fee_calculator.h"
@@ -274,13 +275,87 @@ JournalWindow::JournalWindow(std::shared_ptr<TradeJournalEngine> journal,
 
     tabs_->addTab(recordsPage, tr("交易记录"));
 
-    // ---- 对比回顾 tab（占位，Task 7 填充）---------------------------------
-    statsPage_ = new QWidget(tabs_);
-    auto* statsLayout = new QVBoxLayout(statsPage_);
-    auto* placeholderLabel = new QLabel(tr("对比回顾（即将推出）"), statsPage_);
-    placeholderLabel->setAlignment(Qt::AlignCenter);
-    statsLayout->addWidget(placeholderLabel);
-    tabs_->addTab(statsPage_, tr("对比回顾"));
+    // ---- 对比回顾 tab ---------------------------------------------------
+    auto* statsPage = new QWidget(tabs_);
+    auto* statsLayout = new QVBoxLayout(statsPage);
+    statsLayout->setContentsMargins(6, 6, 6, 6);
+    statsLayout->setSpacing(4);
+
+    // 1) 统计卡行（3 个 QLabel 并排）
+    auto* statCardRow = new QHBoxLayout;
+    auto makeCard = [&](QLabel*& label, const QString& title) {
+        auto* card = new QWidget(statsPage);
+        card->setStyleSheet(
+            "QWidget { background: #1e1e20; border: 1px solid #3a3a3d; "
+            "border-radius: 4px; }");
+        auto* cardLayout = new QVBoxLayout(card);
+        cardLayout->setContentsMargins(8, 4, 8, 4);
+        auto* titleLabel = new QLabel(title, card);
+        titleLabel->setStyleSheet("color: #888; font-size: 11px;");
+        cardLayout->addWidget(titleLabel);
+        label = new QLabel(card);
+        label->setStyleSheet("color: #d4d4d4; font-size: 13px; font-weight: bold;");
+        label->setTextFormat(Qt::RichText);
+        cardLayout->addWidget(label);
+        statCardRow->addWidget(card, 1);
+    };
+    makeCard(overallLabel_, tr("总体"));
+    makeCard(simLabel_, tr("模拟"));
+    makeCard(manualLabel_, tr("实盘"));
+    statsLayout->addLayout(statCardRow);
+
+    // 2) 双序列收益曲线
+    curve_ = new EquityCurveWidget(statsPage);
+    curve_->setMinimumHeight(150);
+    curve_->setMaximumHeight(220);
+    statsLayout->addWidget(curve_);
+
+    // 3) 逐笔配对表 8 列
+    pairTable_ = new QTableWidget(0, 8, statsPage);
+    pairTable_->setHorizontalHeaderLabels({
+        tr("代码"), tr("方向"), tr("模拟价"), tr("实盘价"),
+        tr("价差"), tr("差距%"), tr("数量"), tr("时间")});
+    pairTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    pairTable_->verticalHeader()->setVisible(false);
+    pairTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    pairTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    pairTable_->setSelectionMode(QAbstractItemView::SingleSelection);
+    statsLayout->addWidget(pairTable_, 1);
+
+    // 4) 月度收益 + 持仓已实现 并排
+    auto* bottomRow = new QHBoxLayout;
+    monthlyTable_ = new QTableWidget(0, 2, statsPage);
+    monthlyTable_->setHorizontalHeaderLabels({tr("月份"), tr("盈亏")});
+    monthlyTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    monthlyTable_->verticalHeader()->setVisible(false);
+    monthlyTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    monthlyTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    monthlyTable_->setSelectionMode(QAbstractItemView::SingleSelection);
+    bottomRow->addWidget(monthlyTable_);
+
+    realizedTable_ = new QTableWidget(0, 4, statsPage);
+    realizedTable_->setHorizontalHeaderLabels({
+        tr("代码"), tr("名称"), tr("已实现盈亏"), tr("回合数")});
+    realizedTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    realizedTable_->verticalHeader()->setVisible(false);
+    realizedTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    realizedTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    realizedTable_->setSelectionMode(QAbstractItemView::SingleSelection);
+    bottomRow->addWidget(realizedTable_);
+    statsLayout->addLayout(bottomRow, 1);
+
+    // 5) 按策略表
+    strategyTable_ = new QTableWidget(0, 4, statsPage);
+    strategyTable_->setHorizontalHeaderLabels({
+        tr("策略"), tr("胜率"), tr("盈亏"), tr("交易数")});
+    strategyTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    strategyTable_->verticalHeader()->setVisible(false);
+    strategyTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    strategyTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    strategyTable_->setSelectionMode(QAbstractItemView::SingleSelection);
+    statsLayout->addWidget(strategyTable_, 1);
+
+    tabs_->addTab(statsPage, tr("对比回顾"));
 
     // ---- 连接信号 -------------------------------------------------------
     // 筛选
@@ -485,6 +560,134 @@ void JournalWindow::rebuildAll() {
 
     LogManager::instance()->log(LogLevel::Debug,
         "交易日志 刷新表格: {} 条（过滤后 {} 条）", journal_->entries().size(), rowIdx);
+
+    // 刷新对比回顾 tab
+    refreshStats();
+}
+
+void JournalWindow::refreshStats() {
+    if (!journal_) return;
+
+    const auto stats = computeStats(journal_->entries());
+
+    // 辅助：格式化盈亏金额（带正负号 + 分隔符）
+    auto fmtPnl = [](double v) -> QString {
+        return QString::number(v, 'f', 2);
+    };
+    // 辅助：格式化百分比
+    auto fmtPct = [](double v) -> QString {
+        return QString::number(v * 100.0, 'f', 1) + "%";
+    };
+    // 辅助：填充 GroupStats 到卡片 QLabel（RichText）
+    auto fillCard = [&](QLabel* label, const GroupStats& g) {
+        const QString text = QStringLiteral(
+            "<span style='color:#d4d4d4;'>胜率 %1</span>"
+            "&nbsp;&nbsp;<span style='color:#%2;'>盈亏 %3</span>"
+            "&nbsp;&nbsp;<span style='color:#888;'>回撤 %4</span>")
+            .arg(fmtPct(g.winRate))
+            .arg(g.totalPnl >= 0 ? "26a69a" : "ef5350")
+            .arg(fmtPnl(g.totalPnl))
+            .arg(fmtPnl(g.maxDrawdown));
+        label->setText(text);
+    };
+
+    fillCard(overallLabel_, stats.overall);
+    fillCard(simLabel_, stats.sim);
+    fillCard(manualLabel_, stats.manual);
+
+    // ---- 收益曲线（双序列）----
+    {
+        auto simCum = stats.sim.cumPnl;
+        auto manCum = stats.manual.cumPnl;
+        if (simCum.empty()) simCum = {0.0};
+        if (manCum.empty()) manCum = {0.0};
+
+        // 若存在负值则统一抬升到 ≥0（EquityCurveWidget 写死 clip lo=0）
+        double globalMin = 0.0;
+        for (double v : simCum) globalMin = std::min(globalMin, v);
+        for (double v : manCum) globalMin = std::min(globalMin, v);
+        if (globalMin < 0.0) {
+            const double offset = -globalMin;
+            for (auto& v : simCum) v += offset;
+            for (auto& v : manCum) v += offset;
+        }
+
+        curve_->setSeries({
+            {tr("模拟"), QColor("#42a5f5"), simCum},
+            {tr("实盘"), QColor("#ef5350"), manCum}});
+    }
+
+    // ---- 逐笔配对表 ----
+    pairTable_->setRowCount(0);
+    for (int i = 0; i < static_cast<int>(stats.pairs.size()); ++i) {
+        const auto& pr = stats.pairs[i];
+        pairTable_->insertRow(i);
+
+        auto setItem = [&](int col, const QString& text, const QColor& fg = QColor()) {
+            auto* item = new QTableWidgetItem(text);
+            if (fg.isValid()) item->setForeground(fg);
+            pairTable_->setItem(i, col, item);
+        };
+
+        setItem(0, QString::fromStdString(pr.code.displayCode()));
+        setItem(1, dirText(pr.direction));
+
+        setItem(2, QString::number(pr.simPrice, 'f', 2));
+        setItem(3, QString::number(pr.manualPrice, 'f', 2));
+
+        // 价差着色：>0 红 #ef5350（实盘价 > 模拟价），<0 绿 #26a69a
+        const QColor diffColor = pr.priceDiff > 0 ? QColor("#ef5350")
+            : (pr.priceDiff < 0 ? QColor("#26a69a") : QColor());
+        setItem(4, QString::number(pr.priceDiff, 'f', 2), diffColor);
+        setItem(5, QString::number(pr.diffPct, 'f', 2) + "%", diffColor);
+
+        setItem(6, QString::number(pr.matchedVol));
+        setItem(7, QString::fromStdString(utils::toDateTimeString(pr.manualTime)));
+    }
+
+    // ---- 月度收益表 ----
+    monthlyTable_->setRowCount(0);
+    for (int i = 0; i < static_cast<int>(stats.monthly.size()); ++i) {
+        const auto& m = stats.monthly[i];
+        monthlyTable_->insertRow(i);
+        monthlyTable_->setItem(i, 0,
+            new QTableWidgetItem(QString::fromStdString(m.ym)));
+        auto* pnlItem = new QTableWidgetItem(fmtPnl(m.pnl));
+        pnlItem->setForeground(m.pnl >= 0 ? QColor("#26a69a") : QColor("#ef5350"));
+        monthlyTable_->setItem(i, 1, pnlItem);
+    }
+
+    // ---- 持仓已实现表 ----
+    realizedTable_->setRowCount(0);
+    for (int i = 0; i < static_cast<int>(stats.realized.size()); ++i) {
+        const auto& r = stats.realized[i];
+        realizedTable_->insertRow(i);
+        realizedTable_->setItem(i, 0,
+            new QTableWidgetItem(QString::fromStdString(r.code.displayCode())));
+        realizedTable_->setItem(i, 1,
+            new QTableWidgetItem(QString::fromStdString(r.name)));
+        auto* pnlItem = new QTableWidgetItem(fmtPnl(r.pnl));
+        pnlItem->setForeground(r.pnl >= 0 ? QColor("#26a69a") : QColor("#ef5350"));
+        realizedTable_->setItem(i, 2, pnlItem);
+        realizedTable_->setItem(i, 3,
+            new QTableWidgetItem(QString::number(r.roundTrips)));
+    }
+
+    // ---- 按策略表 ----
+    strategyTable_->setRowCount(0);
+    for (int i = 0; i < static_cast<int>(stats.byStrategy.size()); ++i) {
+        const auto& [name, gs] = stats.byStrategy[i];
+        strategyTable_->insertRow(i);
+        strategyTable_->setItem(i, 0,
+            new QTableWidgetItem(QString::fromStdString(name)));
+        strategyTable_->setItem(i, 1,
+            new QTableWidgetItem(fmtPct(gs.winRate)));
+        auto* pnlItem = new QTableWidgetItem(fmtPnl(gs.totalPnl));
+        pnlItem->setForeground(gs.totalPnl >= 0 ? QColor("#26a69a") : QColor("#ef5350"));
+        strategyTable_->setItem(i, 2, pnlItem);
+        strategyTable_->setItem(i, 3,
+            new QTableWidgetItem(QString::number(gs.count)));
+    }
 }
 
 } // namespace st
