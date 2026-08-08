@@ -19,7 +19,8 @@ public:
     ~TaskScheduler() override;
 
     /// 任务执行器 — 由 UI 层注入（解耦调度与动作）
-    using Executor = std::function<void(const ScheduledTask&)>;
+    /// 非 const 引用：调度器在调用前后切换 running 防重入
+    using Executor = std::function<void(ScheduledTask&)>;
     void setExecutor(Executor exec) { executor_ = std::move(exec); }
 
     /// 载入任务（启动时）

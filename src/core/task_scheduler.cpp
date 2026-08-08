@@ -65,15 +65,17 @@ bool TaskScheduler::removeTask(const std::string& id) {
 }
 
 void TaskScheduler::runNow(const std::string& id) {
-    for (const auto& t : tasks_) {
+    for (auto& t : tasks_) {
         if (t.id == id && !t.running) {
-            if (executor_) executor_(t);
             // I1: Daily 任务触发后 lastRun_ 置为当天结束，防同日重复触发
             if (t.kind == ScheduleKind::Daily) {
                 lastRun_[id] = endOfToday();
             } else {
                 lastRun_[id] = utils::now();
             }
+            t.running = true;
+            if (executor_) executor_(t);
+            t.running = false;
             return;
         }
     }
@@ -99,7 +101,11 @@ void TaskScheduler::onTick() {
             } else {
                 lastRun_[t.id] = now;
             }
-            if (executor_) executor_(t);
+            if (executor_) {
+                t.running = true;
+                executor_(t);
+                t.running = false;
+            }
         }
     }
 }
