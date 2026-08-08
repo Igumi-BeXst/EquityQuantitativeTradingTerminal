@@ -260,6 +260,19 @@ TEST(TradeJournalStatsTest, ComputeStatsFillsPairs) {
     EXPECT_NEAR(stats.pairs[0].priceDiff, 0.2, 1e-6);
 }
 
+TEST(TradeJournalStatsTest, SignalExcludedFromPairs) {
+    // 仅模拟买入 + 一条 Signal 买入：Signal 不视为实盘 → 不产生虚假配对
+    std::vector<JournalEntry> v;
+    auto s = mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-01 09:30:00");
+    s.type = JournalType::AutoTrade;
+    v.push_back(s);
+    auto sig = mkManual("SH600519", Direction::Buy, 10.2, 100, "2026-08-03 09:30:00");
+    sig.type = JournalType::Signal;
+    v.push_back(sig);
+    auto stats = computeStats(v);
+    EXPECT_TRUE(stats.pairs.empty());   // Signal 不入 manual 组 → 无配对
+}
+
 // =============================================================================
 // TradeJournalPairTest — pairManualVsSim 逐笔精确配对
 // =============================================================================

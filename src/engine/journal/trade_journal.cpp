@@ -241,13 +241,11 @@ GroupStats groupStatsFor(const std::vector<JournalEntry>& entries) {
     return gs;
 }
 
-}  // anonymous namespace
-
-JournalStats computeStats(const std::vector<JournalEntry>& entries) {
-    JournalStats out;
-
-    // 按类型拆分
-    std::vector<JournalEntry> sim, manual;
+/// 按类型拆分 sim/manual 两组 — 统计段与配对段共用同一拆分逻辑
+/// AutoTrade → sim；ManualNote → manual；Signal → 不进任何一组（不参与统计/配对）
+void splitForStats(const std::vector<JournalEntry>& entries,
+                   std::vector<JournalEntry>& sim,
+                   std::vector<JournalEntry>& manual) {
     for (const auto& e : entries) {
         if (e.type == JournalType::AutoTrade) {
             sim.push_back(e);
@@ -256,6 +254,16 @@ JournalStats computeStats(const std::vector<JournalEntry>& entries) {
         }
         // Signal 类型暂时不归入 sim/manual 分组
     }
+}
+
+}  // anonymous namespace
+
+JournalStats computeStats(const std::vector<JournalEntry>& entries) {
+    JournalStats out;
+
+    // 按类型拆分（AutoTrade → sim，ManualNote → manual，Signal → 不进任何一组）
+    std::vector<JournalEntry> sim, manual;
+    splitForStats(entries, sim, manual);
 
     out.sim = groupStatsFor(sim);
     out.manual = groupStatsFor(manual);
@@ -306,11 +314,8 @@ JournalStats computeStats(const std::vector<JournalEntry>& entries) {
     }
 
     // --- 精确配对（模拟 vs 实盘）---
-    // 内部按 type 拆两组：AutoTrade → sim，其余（ManualNote/Signal）→ manual
-    std::vector<JournalEntry> manualEntries, simEntries;
-    for (const auto& e : entries)
-        (e.type == JournalType::AutoTrade ? simEntries : manualEntries).push_back(e);
-    out.pairs = pairManualVsSim(manualEntries, simEntries);
+    // 复用与统计段同一拆分（splitForStats）：Signal 不进入配对，避免虚假配对
+    out.pairs = pairManualVsSim(manual, sim);
 
     return out;
 }
