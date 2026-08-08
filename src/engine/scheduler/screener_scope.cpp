@@ -1,4 +1,5 @@
 #include "engine/scheduler/screener_scope.h"
+#include "data/eastmoney_sector_constituents.h"
 #include "data/idata_provider.h"
 #include "data/tdx/tdx_models.h"
 #include <nlohmann/json.hpp>
@@ -21,12 +22,21 @@ std::vector<StockCode> ScopeResolver::allAShares(IDataProvider* provider) {
     return out;
 }
 
-std::vector<StockCode> ScopeResolver::sectorStocks(IDataProvider*, const std::string& code) {
-    // 板块成分股解析：v1 无数据源接口（IDataProvider 仅提供板块指数列表，无成分股接口），
-    // 无法解析成分 → 返回空池。调用方（runScheduledTask）应检测空池并提示"暂不支持"，
-    // 而不是返回非法代码（如 SHBK0475）导致选股/抓数据静默无效。
-    (void)code;
-    return {};
+std::vector<StockCode> ScopeResolver::sectorStocks(IDataProvider* provider,
+                                                   const std::string& code) {
+    if (!provider || code.empty()) return {};
+    // 1. TDX 板块代码（880xxx）→ 板块名称：从 getSectorIndices 找对应项
+    std::string boardName;
+    for (const auto& info : provider->getSectorIndices()) {
+        if (info.code.code() == code) {
+            boardName = info.name;
+            break;
+        }
+    }
+    if (boardName.empty()) return {};
+    // 2. 按板块名称查东财成分股（datacenter 主机，未被 IP 封锁）
+    EastMoneySectorConstituents constituents;
+    return constituents.fetchConstituents(boardName);
 }
 
 std::vector<StockCode> ScopeResolver::resolve(const std::string& targetJson,

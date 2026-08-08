@@ -9,7 +9,7 @@
 - `foundation/scheduler/scheduled_task.{h,cpp}`：ScheduledTask 数据模型（id / type / kind / timeOfDay / intervalSeconds / target / enabled / lastResult / running）+ `shouldFire` 调度判定纯函数（Daily 固定时间到点、Interval 按间隔；禁用/非法时间/零间隔不触发；Daily 距上次执行 > 60 秒防重窗）——纯 C++17 无 Qt 依赖，可单测
 - `foundation/scheduler/scheduled_task_store.{h,cpp}`：JSON 持久化（configDir/scheduled_tasks.json，nlohmann 读写，目录自动创建，损坏回退空）
 - `core/task_scheduler.{h,cpp}`：TaskScheduler（QTimer 10s tick）——任务容器 + CRUD（add/update/remove，变更即回调 onTasksChanged_ 通知 UI 落盘）+ `runNow` 立即执行 + 执行器注入（`setExecutor`，调度与动作解耦，UI 层注入动作实现）；`running` 标志防重入；Daily 任务触发后 lastRun_ 置当天 23:59:59 同日去重
-- `engine/scheduler/screener_scope.{h,cpp}`：ScopeResolver 选股/抓数据范围解析——target JSON `{"scope":"all"}` 全部 A 股（getStockList + isTradableAShare/isIndexCode 过滤）/ `{"scope":"sector","sector":"BK0475"}` 板块（v1 简化：板块指数自身作为单标的池）/ `{"scope":"last"}` 复用上次手动选股（v1 待接线，空则退化全部 A 股）；畸形 JSON 回退全部
+- `engine/scheduler/screener_scope.{h,cpp}`：ScopeResolver 选股/抓数据范围解析——target JSON `{"scope":"all"}` 全部 A 股（getStockList + isTradableAShare/isIndexCode 过滤）/ `{"scope":"sector","sector":"880xxx"}` 板块（TDX 板块代码 → 名称 → 东财成分接口拉成分股）/ `{"scope":"last"}` 复用上次手动选股（v1 待接线，空则退化全部 A 股）；畸形 JSON 回退全部
 - `ui/panels/task_window.{h,cpp}`：TaskWindow 独立窗口（设置菜单「定时任务(&T)…」，top-level QMainWindow 仿资金窗口）——任务表（类型 / 触发 / 启用 / 上次结果）+ 新建/编辑/删除/立即执行；TaskEditDialog 新建/编辑（类型→动作专属表单：选股范围 / 提醒文本；触发方式 Daily 时间 QTimeEdit 或 Interval 分钟 QSpinBox；板块下拉异步 fetchBoards；启用勾选）
 - UI 装配：MainWindow `runScheduledTask` 动作执行器——RefreshQuotes 调 marketPanel_/sectorPanel_ refresh（SectorPanel/MarketPanel 公开刷新方法）、Remind 走 NotificationService 通知、RunScreener/FetchData 走 IO 池异步（QPointer 守卫 + runningAsync_ 防重入 + QueuedConnection 回主线程更新 lastResult）；scheduled_tasks.json 启动加载 + 变更即保存
 - 测试：ScheduledTaskTest 7 + ScheduledTaskStoreTest 2 = 9 例（test_foundation）；ScopeResolverTest 5 例（test_engine）
@@ -20,9 +20,24 @@
 
 ### 已知限制
 - `scope=last`（复用上次手动选股）为 **v2 待接线**——v1 中 lastScreenerConfig_ 未写入，此范围退化到全部 A 股
-- 板块成分股 v1 简化为板块指数自身（不拉成分明细）
 - 无交易日历感知（周末/节假日不跳过）
 - 任务执行历史只存 lastResult（不存多轮）
+
+## 2026-08-09 — 板块成分数据源（东财 datacenter）+ 定时任务板块选股修复
+
+### 背景
+用户测试定时任务「板块选股/抓数据」发现无效：`ScopeResolver::sectorStocks` 原实现返回 `StockCode("SH"+code)`（如 SHBK0475）——非法代码，选股/抓数据静默产空。审查定位为 I1。
+
+### 数据源可行性实测
+- TDX 网络协议**无板块成分命令**（命令集只有行情/列表/K线等）；TDX 成分在本地板块文件（tdxhy.cfg），用户无通达信安装目录
+- 东财 `datacenter-web.eastmoney.com` **可用**（未被 clist 行情接口的 IP 封锁波及）——按板块名称查成分接口 `RPT_F10_CORETHEME_BOARDTYPE` 实测返回真实成分（煤炭 → BK0437 → 33 只）
+- 板块名称桥接：定时任务存 TDX 880xxx 板块代码 → `getSectorIndices` 找名称（如 880301 → 煤炭）→ 东财按名称查成分
+
+### 实施
+- `data/eastmoney_sector_constituents.{h,cpp}`：`fetchConstituents(boardName)`——thread_local QNAM + 同步 fetch（超时/重试/Referer，仿 EastMoneyFundsProvider）+ 逐页拉全 + 纯静态 `parseConstituents`（可单测）+ URL 名称编码（QUrl::toPercentEncoding）
+- `ScopeResolver::sectorStocks`：TDX 880 代码 → `getSectorIndices` 找名称 → 东财成分接口拉成分；找不到名称/网络失败返回空（runScheduledTask 提示）
+- 测试 372 → **376**（+4：解析字段/空/畸形跳过/URL 编码）
+- 实连验证：煤炭板块 33 只真实成分（甘肃能化/新大洲A/美锦能源/兖矿能源等）
 
 ## 2026-08-08 — P10 第九轮：交易日志（模拟vs实盘对比 + 费率设置）
 
