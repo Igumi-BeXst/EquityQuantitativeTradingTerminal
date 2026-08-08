@@ -18,6 +18,7 @@
 #include <QPushButton>
 #include <QSpinBox>
 #include <QTableWidget>
+#include <QTimer>
 #include <QTimeEdit>
 #include <QToolBar>
 #include <QVBoxLayout>
@@ -545,6 +546,13 @@ TaskWindow::TaskWindow(std::shared_ptr<TaskScheduler> scheduler,
 
     // 初始加载
     rebuildAll();
+
+    // 定时刷新表格：异步任务（跑选股/抓数据）完成后 lastResult 更新，
+    // 仅靠用户操作触发 rebuildAll 会看不到结果；2 秒刷新一次让结果自动显示。
+    refreshTimer_ = new QTimer(this);
+    refreshTimer_->setInterval(2000);
+    connect(refreshTimer_, &QTimer::timeout, this, &TaskWindow::rebuildAll);
+    refreshTimer_->start();
 }
 
 TaskWindow::~TaskWindow() = default;

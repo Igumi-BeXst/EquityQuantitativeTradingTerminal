@@ -34,6 +34,7 @@ private:
     std::shared_ptr<TaskScheduler> scheduler_;
     IDataProvider* provider_ = nullptr;
     QTableWidget* table_ = nullptr;
+    class QTimer* refreshTimer_ = nullptr;   // 定时刷新表格（异步任务结果自动显示）
 };
 
 /// 新建/编辑任务对话框
