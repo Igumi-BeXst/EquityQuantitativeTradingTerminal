@@ -137,6 +137,7 @@ add_library(st_ui STATIC
     ui/widgets/chip_panel.cpp
     ui/widgets/custom_index_editor.cpp
     ui/widgets/custom_index_panel.cpp
+    ui/widgets/reminder_popup.cpp
     ui/panels/sector_panel.cpp
     ui/models/stock_list_model.cpp
     ui/models/trade_table_model.cpp
@@ -235,3 +236,4 @@ target_link_libraries(quant_repro PRIVATE st_ui st_engine st_data st_core st_fou
 # 资金数据实连校准工具（P10 第八轮验证用）
 add_executable(funds_calib tools_funds_calib.cpp)
 target_link_libraries(funds_calib PRIVATE st_data st_core st_foundation Qt6::Core)
+

@@ -19,6 +19,7 @@
 #include "ui/widgets/stock_key_data_widget.h"
 #include "ui/widgets/chip_panel.h"
 #include "ui/widgets/custom_index_panel.h"
+#include "ui/widgets/reminder_popup.h"
 #include "data/idata_provider.h"
 #include "data/provider_factory.h"
 #include "core/app_paths.h"
@@ -482,6 +483,8 @@ void MainWindow::runScheduledTask(ScheduledTask& t) {
 
     case ScheduledTaskType::Remind:
         NotificationService::instance()->info("定时提醒", t.target);
+        // 右下角气泡 + 系统提示音（可移除的轻量提醒）
+        ReminderPopup::showReminder(tr("定时提醒"), QString::fromStdString(t.target));
         t.lastResult = "已提醒";
         break;
 
