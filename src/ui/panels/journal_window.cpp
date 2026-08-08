@@ -5,6 +5,8 @@
 #include "engine/journal/trade_journal.h"
 #include "engine/backtest/fee_calculator.h"
 #include "core/log_manager.h"
+#include "core/app_paths.h"
+#include "engine/journal/trade_journal_store.h"
 #include "foundation/stock_info.h"
 #include "foundation/utils/datetime.h"
 #include <QComboBox>
@@ -201,6 +203,66 @@ JournalEntry JournalEntryDialog::entry() const {
 }
 
 // ============================================================
+// JournalFeeDialog — 费率设置对话框
+// ============================================================
+
+JournalFeeDialog::JournalFeeDialog(const FeeConfig& fees, QWidget* parent)
+    : QDialog(parent) {
+    setWindowTitle(tr("费率设置"));
+    setMinimumWidth(360);
+
+    auto* form = new QFormLayout(this);
+
+    commissionRateSpin_ = new QDoubleSpinBox(this);
+    commissionRateSpin_->setRange(0.0, 0.01);
+    commissionRateSpin_->setDecimals(5);
+    commissionRateSpin_->setSingleStep(0.00001);
+    commissionRateSpin_->setValue(fees.commissionRate);
+    commissionRateSpin_->setToolTip(tr("成交金额比例，万2.5 = 0.00025"));
+    form->addRow(tr("佣金费率："), commissionRateSpin_);
+
+    minCommissionSpin_ = new QDoubleSpinBox(this);
+    minCommissionSpin_->setRange(0.0, 100.0);
+    minCommissionSpin_->setDecimals(2);
+    minCommissionSpin_->setSingleStep(0.5);
+    minCommissionSpin_->setValue(fees.minCommission);
+    minCommissionSpin_->setToolTip(tr("每笔最低佣金（元）"));
+    form->addRow(tr("最低佣金："), minCommissionSpin_);
+
+    stampTaxRateSpin_ = new QDoubleSpinBox(this);
+    stampTaxRateSpin_->setRange(0.0, 0.01);
+    stampTaxRateSpin_->setDecimals(4);
+    stampTaxRateSpin_->setSingleStep(0.0001);
+    stampTaxRateSpin_->setValue(fees.stampTaxRate);
+    stampTaxRateSpin_->setToolTip(tr("仅卖出收取，千一 = 0.001"));
+    form->addRow(tr("印花税率："), stampTaxRateSpin_);
+
+    transferFeeRateSpin_ = new QDoubleSpinBox(this);
+    transferFeeRateSpin_->setRange(0.0, 0.001);
+    transferFeeRateSpin_->setDecimals(5);
+    transferFeeRateSpin_->setSingleStep(0.00001);
+    transferFeeRateSpin_->setValue(fees.transferFeeRate);
+    transferFeeRateSpin_->setToolTip(tr("双向收取，十万分之二 = 0.00002"));
+    form->addRow(tr("过户费率："), transferFeeRateSpin_);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    buttons->button(QDialogButtonBox::Ok)->setText(tr("确定"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(tr("取消"));
+    connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    form->addRow(buttons);
+}
+
+FeeConfig JournalFeeDialog::feeConfig() const {
+    FeeConfig cfg;
+    cfg.commissionRate = commissionRateSpin_->value();
+    cfg.minCommission = minCommissionSpin_->value();
+    cfg.stampTaxRate = stampTaxRateSpin_->value();
+    cfg.transferFeeRate = transferFeeRateSpin_->value();
+    return cfg;
+}
+
+// ============================================================
 // JournalWindow — 交易日志主窗口
 // ============================================================
 
@@ -251,6 +313,10 @@ JournalWindow::JournalWindow(std::shared_ptr<TradeJournalEngine> journal,
     toolRow->addWidget(editBtn);
     toolRow->addWidget(deleteBtn);
     toolRow->addWidget(clearBtn);
+
+    // 费率设置按钮
+    auto* feeBtn = new QPushButton(tr("费率设置"), recordsPage);
+    toolRow->addWidget(feeBtn);
 
     filter_ = new QLineEdit(recordsPage);
     filter_->setPlaceholderText(tr("筛选 代码/名称/策略/注解"));
@@ -441,6 +507,21 @@ JournalWindow::JournalWindow(std::shared_ptr<TradeJournalEngine> journal,
             LogManager::instance()->log(LogLevel::Info,
                 "交易日志 清空全部记录");
             rebuildAll();
+        }
+    });
+
+    // 费率设置
+    connect(feeBtn, &QPushButton::clicked, this, [this]() {
+        JournalFeeDialog dlg(journal_->fees(), this);
+        if (dlg.exec() == QDialog::Accepted) {
+            const auto cfg = dlg.feeConfig();
+            journal_->setFees(cfg);
+            const std::string configPath = AppPaths::configDir() + "/journal_config.json";
+            if (!TradeJournalStore::saveFeeConfig(configPath, cfg)) {
+                LogManager::instance()->log(LogLevel::Warn,
+                    "交易日志 费率保存失败: {}", configPath);
+            }
+            LogManager::instance()->log(LogLevel::Info, "交易日志 费率已更新并保存");
         }
     });
 

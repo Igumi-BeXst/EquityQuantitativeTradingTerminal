@@ -64,6 +64,20 @@ private:
     DateTime editTime_{};    // 编辑模式保 留原时间
 };
 
+/// 费率设置对话框 — 四行 QDoubleSpinBox（佣金/最低佣金/印花税/过户费）
+class JournalFeeDialog : public QDialog {
+    Q_OBJECT
+public:
+    explicit JournalFeeDialog(const FeeConfig& fees, QWidget* parent = nullptr);
+    /// 获取用户设置的费率（accept 后调用）
+    FeeConfig feeConfig() const;
+private:
+    QDoubleSpinBox* commissionRateSpin_ = nullptr;
+    QDoubleSpinBox* minCommissionSpin_ = nullptr;
+    QDoubleSpinBox* stampTaxRateSpin_ = nullptr;
+    QDoubleSpinBox* transferFeeRateSpin_ = nullptr;
+};
+
 /// 交易日志窗口 — 顶部「日志」菜单打开（仿资金窗口独立窗口）
 /// tab1 交易记录（CRUD + 筛选），tab2 对比回顾（Task 7 填）
 class JournalWindow : public QMainWindow {

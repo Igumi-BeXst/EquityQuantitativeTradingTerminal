@@ -1,5 +1,14 @@
 # 变更记录
 
+## 2026-08-08 — P10 第九轮：交易日志（模拟vs实盘对比 + 费率设置）
+- 功能: 交易记录完整 CRUD（新建/编辑/删除/清空）+ 文字筛选（代码/名称/策略/注解）+ 类型徽标（自动交易蓝/手动录入红/策略信号绿）
+- 对比回顾: 模拟vs实盘双序列收益曲线 + 逐笔精确配对（同代码同方向同数量，标价差及百分比）+ 月度收益汇总 + 按代码已实现盈亏 + 按策略胜率/盈亏/交易数
+- 费率设置: 独立 JournalFeeDialog——佣金费率/最低佣金/印花税率/过户费率可编辑 + 保存到 configDir/journal_config.json（影响后续新建/编辑自动算费用，已存条目不重算）
+- 装配: MainWindow 顶部「日志」菜单 → 独立 JournalWindow；PaperTradePanel 模拟成交自动落库（QPointer + QueuedConnection 安全异步）
+- 引擎: TradeJournalEngine 内存存储 + TradeJournalStore JSON 持久化 + computeStats 统计；线程安全（mutex）+ 指纹去重
+- 测试 328 → 358：TestEngine 112 → 142（+30 交易日志: TradeJournalTest 11 + StoreTest 14 + JournalComputeTest 13；其他层不变）
+- 已知限制: 已存条目不因费率变更重算；StockSearchBar 暂无下拉建议；对比回顾 v1 不做模拟/实盘时间窗口滑动
+
 ## 2026-08-08 — 移除北向资金（2024 披露调整致数据不可得）
 - 背景: 自 2024-05-13 起交易所停止披露沪深股通（北向）盘中/盘后实时净买入与成交额（保留仅每日盘后成交总额+十大成交活跃股，但数据中心接口不可用）
 - 尝试: 北向快照/分钟（kamt）、历史成交额（kamt.kline 单位不可解释/陈旧）、十大成交股（报表配置不存在）——全部不可用
