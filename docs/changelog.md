@@ -1,5 +1,15 @@
 # 变更记录
 
+## 2026-08-08 — P10 第十轮：定时任务（刷新行情 / 跑选股 / 抓数据 / 提醒）
+- 功能: 设置菜单 → 独立「定时任务」窗口（TaskWindow）——任务列表 CRUD（新建/编辑/删除/立即执行）+ 类型/触发/启用/上次结果展示
+- 动作: 定时刷新行情（市场+板块）/ 跑选股（ScopeResolver 范围解析）/ 抓数据（范围内全部股票日线）/ 提醒（NotificationService）
+- 触发: 固定时间（Daily "HH:MM"）+ 周期（Interval 每 N 秒）；TaskScheduler QTimer 10s tick，Daily 同日去重 + 60s 防重窗 + running 防重入
+- 数据: ScheduledTask 模型（foundation）+ ScheduledTaskStore JSON 持久化（configDir/scheduled_tasks.json，增删改立即保存）
+- 引擎: ScopeResolver 范围解析（全部 A 股 / 板块指数 / 上次手动选股——last v1 退化全部 A 股）
+- 装配: MainWindow 动作执行器（RefreshQuotes 调市场/板块刷新、RunScreener/FetchData IO 池异步 + QPointer 守卫 + lastResult 回填）
+- 测试 358 → 372：Foundation 38 → 47（ScheduledTaskTest 7 + ScheduledTaskStoreTest 2）；Engine 142 → 147（ScopeResolverTest 5）
+- 已知限制: scope=last 为 v2 待接线；板块成分股 v1 用板块指数自身；无交易日历感知；执行历史只存 lastResult
+
 ## 2026-08-08 — P10 第九轮：交易日志（模拟vs实盘对比 + 费率设置）
 - 功能: 交易记录完整 CRUD（新建/编辑/删除/清空）+ 文字筛选（代码/名称/策略/注解）+ 类型徽标（自动交易蓝/手动录入红/策略信号绿）
 - 对比回顾: 模拟vs实盘双序列收益曲线 + 逐笔精确配对（同代码同方向同数量，标价差及百分比）+ 月度收益汇总 + 按代码已实现盈亏 + 按策略胜率/盈亏/交易数

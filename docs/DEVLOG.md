@@ -1,5 +1,29 @@
 # 开发日志 (Development Log)
 
+## 2026-08-08 — P10 第十轮：定时任务（刷新行情 / 跑选股 / 抓数据 / 提醒）
+
+### 需求
+用户选定下一轮 = 定时任务。设置菜单 → 独立「定时任务」窗口，支持四种动作（定时刷新行情 / 跑选股 / 抓数据 / 提醒）+ 两种触发方式（固定时间 / 周期），任务增删改即时生效并持久化到 `configDir/scheduled_tasks.json`。
+
+### 实施
+- `foundation/scheduler/scheduled_task.{h,cpp}`：ScheduledTask 数据模型（id / type / kind / timeOfDay / intervalSeconds / target / enabled / lastResult / running）+ `shouldFire` 调度判定纯函数（Daily 固定时间到点、Interval 按间隔；禁用/非法时间/零间隔不触发；Daily 距上次执行 > 60 秒防重窗）——纯 C++17 无 Qt 依赖，可单测
+- `foundation/scheduler/scheduled_task_store.{h,cpp}`：JSON 持久化（configDir/scheduled_tasks.json，nlohmann 读写，目录自动创建，损坏回退空）
+- `core/task_scheduler.{h,cpp}`：TaskScheduler（QTimer 10s tick）——任务容器 + CRUD（add/update/remove，变更即回调 onTasksChanged_ 通知 UI 落盘）+ `runNow` 立即执行 + 执行器注入（`setExecutor`，调度与动作解耦，UI 层注入动作实现）；`running` 标志防重入；Daily 任务触发后 lastRun_ 置当天 23:59:59 同日去重
+- `engine/scheduler/screener_scope.{h,cpp}`：ScopeResolver 选股/抓数据范围解析——target JSON `{"scope":"all"}` 全部 A 股（getStockList + isTradableAShare/isIndexCode 过滤）/ `{"scope":"sector","sector":"BK0475"}` 板块（v1 简化：板块指数自身作为单标的池）/ `{"scope":"last"}` 复用上次手动选股（v1 待接线，空则退化全部 A 股）；畸形 JSON 回退全部
+- `ui/panels/task_window.{h,cpp}`：TaskWindow 独立窗口（设置菜单「定时任务(&T)…」，top-level QMainWindow 仿资金窗口）——任务表（类型 / 触发 / 启用 / 上次结果）+ 新建/编辑/删除/立即执行；TaskEditDialog 新建/编辑（类型→动作专属表单：选股范围 / 提醒文本；触发方式 Daily 时间 QTimeEdit 或 Interval 分钟 QSpinBox；板块下拉异步 fetchBoards；启用勾选）
+- UI 装配：MainWindow `runScheduledTask` 动作执行器——RefreshQuotes 调 marketPanel_/sectorPanel_ refresh（SectorPanel/MarketPanel 公开刷新方法）、Remind 走 NotificationService 通知、RunScreener/FetchData 走 IO 池异步（QPointer 守卫 + runningAsync_ 防重入 + QueuedConnection 回主线程更新 lastResult）；scheduled_tasks.json 启动加载 + 变更即保存
+- 测试：ScheduledTaskTest 7 + ScheduledTaskStoreTest 2 = 9 例（test_foundation）；ScopeResolverTest 5 例（test_engine）
+
+### 验证
+- 构建零警告；358 → 372 全部通过（Foundation 38 → 47，+9 任务模型/调度/存储；Engine 142 → 147，+5 范围解析）
+- 手动：任务增删改即时保存到 scheduled_tasks.json、立即执行触发对应动作、lastResult 回填
+
+### 已知限制
+- `scope=last`（复用上次手动选股）为 **v2 待接线**——v1 中 lastScreenerConfig_ 未写入，此范围退化到全部 A 股
+- 板块成分股 v1 简化为板块指数自身（不拉成分明细）
+- 无交易日历感知（周末/节假日不跳过）
+- 任务执行历史只存 lastResult（不存多轮）
+
 ## 2026-08-08 — P10 第九轮：交易日志（模拟vs实盘对比 + 费率设置）
 
 ### 需求
