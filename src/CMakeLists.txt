@@ -12,6 +12,8 @@ add_library(st_foundation STATIC
     foundation/utils/indicators.cpp
     foundation/utils/pinyin.cpp
     foundation/utils/csv.cpp
+    foundation/scheduler/scheduled_task.cpp
+    foundation/scheduler/scheduled_task_store.cpp
 )
 target_include_directories(st_foundation PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(st_foundation PUBLIC nlohmann_json::nlohmann_json)
