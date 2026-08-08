@@ -57,7 +57,8 @@ void EquityCurveWidget::paintEvent(QPaintEvent*) {
     double pad = (hi - lo) * 0.08;
     if (pad < 0.005) pad = 0.01;
     hi += pad;
-    lo = std::max(0.0, lo - pad);
+    // 允许负值序列（累计盈亏/回撤等可为负），pad 已防贴边，无需钳制
+    lo = lo - pad;
 
     const QRectF plot(kPadLeft, kPadTop, width() - kPadLeft - kPadRight,
                       height() - kPadTop - kPadBottom);

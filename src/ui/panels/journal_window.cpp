@@ -595,22 +595,12 @@ void JournalWindow::refreshStats() {
     fillCard(simLabel_, stats.sim);
     fillCard(manualLabel_, stats.manual);
 
-    // ---- 收益曲线（双序列）----
+    // ---- 收益曲线（双序列，负值可渲染 — EquityCurveWidget 已支持）----
     {
         auto simCum = stats.sim.cumPnl;
         auto manCum = stats.manual.cumPnl;
         if (simCum.empty()) simCum = {0.0};
         if (manCum.empty()) manCum = {0.0};
-
-        // 若存在负值则统一抬升到 ≥0（EquityCurveWidget 写死 clip lo=0）
-        double globalMin = 0.0;
-        for (double v : simCum) globalMin = std::min(globalMin, v);
-        for (double v : manCum) globalMin = std::min(globalMin, v);
-        if (globalMin < 0.0) {
-            const double offset = -globalMin;
-            for (auto& v : simCum) v += offset;
-            for (auto& v : manCum) v += offset;
-        }
 
         curve_->setSeries({
             {tr("模拟"), QColor("#42a5f5"), simCum},
