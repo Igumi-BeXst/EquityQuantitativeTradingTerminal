@@ -122,6 +122,7 @@ struct CostLot {
 /// 单笔已实现回合（卖出完成匹配时的盈亏）
 struct RoundTrip {
     double pnl;
+    double totalCost = 0.0;   // 匹配仓位的买入总成本（含买入费），用于计算 pnlPct
     DateTime time;
     std::string codeName;
     StockCode code;
@@ -154,6 +155,7 @@ std::vector<RoundTrip> computeRoundTrips(const std::vector<JournalEntry>& entrie
             auto& queue = queues[key];
             Volume needVol = e.volume;
             double roundPnl = 0.0;
+            double totalBuyCost = 0.0;  // 累计匹配仓位的买入成本
             bool matched = false;
 
             while (needVol > 0 && !queue.empty()) {
@@ -166,6 +168,7 @@ std::vector<RoundTrip> computeRoundTrips(const std::vector<JournalEntry>& entrie
                                  * static_cast<double>(matchedVol)
                              - sellFeePortion;
                 roundPnl += pnl;
+                totalBuyCost += lot.costPerShare * static_cast<double>(matchedVol);
 
                 lot.volume -= matchedVol;
                 needVol -= matchedVol;
@@ -177,7 +180,7 @@ std::vector<RoundTrip> computeRoundTrips(const std::vector<JournalEntry>& entrie
             }
 
             if (matched) {
-                trips.push_back({roundPnl, e.time, e.name, e.code});
+                trips.push_back({roundPnl, totalBuyCost, e.time, e.name, e.code});
             }
         }
     }
@@ -272,16 +275,22 @@ JournalStats computeStats(const std::vector<JournalEntry>& entries) {
 
     // --- 已实现盈亏（per-code） ---
     std::map<std::string, RealizedPnl> realizedMap;
+    std::map<std::string, double> totalCostMap;
     for (const auto& t : allTrips) {
-        auto& r = realizedMap[t.code.fullCode()];
+        const std::string key = t.code.fullCode();
+        auto& r = realizedMap[key];
         r.code = t.code;
         if (!t.codeName.empty() && r.name.empty()) {
             r.name = t.codeName;
         }
         r.pnl += t.pnl;
         r.roundTrips++;
+        totalCostMap[key] += t.totalCost;
     }
-    for (auto& [_, r] : realizedMap) {
+    for (auto& [key, r] : realizedMap) {
+        if (totalCostMap[key] > 0.0) {
+            r.pnlPct = r.pnl / totalCostMap[key] * 100.0;
+        }
         out.realized.push_back(std::move(r));
     }
 

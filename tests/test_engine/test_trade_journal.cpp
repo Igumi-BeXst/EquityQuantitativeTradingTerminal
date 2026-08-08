@@ -122,6 +122,7 @@ TEST(TradeJournalStatsTest, WinRateAndProfitFactor) {
     EXPECT_EQ(stats.overall.wins, 1);
     EXPECT_DOUBLE_EQ(stats.overall.winRate, 1.0);
     EXPECT_NEAR(stats.overall.totalPnl, 200.0, 1e-6);   // (12-10)*100
+    EXPECT_DOUBLE_EQ(stats.overall.profitFactor, 0.0);   // 无亏损回合，factor=0
 }
 
 TEST(TradeJournalStatsTest, LossIsLoss) {
@@ -201,4 +202,49 @@ TEST(TradeJournalStatsTest, CumPnlRises) {
     auto stats = computeStats(v);
     ASSERT_EQ(stats.overall.cumPnl.size(), 2u);
     EXPECT_NEAR(stats.overall.cumPnl.back(), 300.0, 1e-6);
+}
+
+TEST(TradeJournalStatsTest, ProfitFactorMixedWinLoss) {
+    // 两回合：+200（盈）和 -100（亏），profitFactor = 200/100 = 2.0
+    std::vector<JournalEntry> v;
+    v.push_back(mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-01 09:30:00"));
+    v.push_back(mkManual("SH600519", Direction::Sell, 12.0, 100, "2026-08-02 09:30:00"));
+    v.push_back(mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-03 09:30:00"));
+    v.push_back(mkManual("SH600519", Direction::Sell, 9.0, 100, "2026-08-04 09:30:00"));
+    auto stats = computeStats(v);
+    EXPECT_EQ(stats.overall.count, 2);
+    EXPECT_EQ(stats.overall.wins, 1);
+    EXPECT_EQ(stats.overall.losses, 1);
+    EXPECT_DOUBLE_EQ(stats.overall.profitFactor, 2.0);
+}
+
+TEST(TradeJournalStatsTest, MaxDrawdownFromPeak) {
+    // 先盈 +200，后亏 -300 → 峰值200，低点-100，回撤 = 200 - (-100) = 300
+    std::vector<JournalEntry> v;
+    v.push_back(mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-01 09:30:00"));
+    v.push_back(mkManual("SH600519", Direction::Sell, 12.0, 100, "2026-08-01 10:00:00"));
+    v.push_back(mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-02 09:30:00"));
+    v.push_back(mkManual("SH600519", Direction::Sell, 7.0, 100, "2026-08-02 10:00:00"));
+    auto stats = computeStats(v);
+    EXPECT_EQ(stats.overall.count, 2);
+    EXPECT_NEAR(stats.overall.maxDrawdown, 300.0, 1e-6);
+}
+
+TEST(TradeJournalStatsTest, ByStrategyGroups) {
+    // 带 strategy 的回合归入 byStrategy；无 strategy 的不计入
+    std::vector<JournalEntry> v;
+    auto b1 = mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-01 09:30:00");
+    b1.strategy = "MACross";
+    v.push_back(b1);
+    auto s1 = mkManual("SH600519", Direction::Sell, 12.0, 100, "2026-08-02 09:30:00");
+    s1.strategy = "MACross";
+    v.push_back(s1);
+    // 无 strategy 的完整回合（不出现在 byStrategy 中）
+    v.push_back(mkManual("SZ000001", Direction::Buy, 5.0, 200, "2026-08-03 09:30:00"));
+    v.push_back(mkManual("SZ000001", Direction::Sell, 6.0, 200, "2026-08-04 09:30:00"));
+    auto stats = computeStats(v);
+    ASSERT_EQ(stats.byStrategy.size(), 1u);
+    EXPECT_EQ(stats.byStrategy[0].first, "MACross");
+    EXPECT_EQ(stats.byStrategy[0].second.count, 1);
+    EXPECT_NEAR(stats.byStrategy[0].second.totalPnl, 200.0, 1e-6);
 }
