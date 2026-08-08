@@ -21,15 +21,17 @@
 
 ---
 
-### Task 1: 引擎数据模型 + shouldFire 调度判定 + 持久化
+### Task 1: 数据模型 + shouldFire 调度判定 + 持久化
 
 **Files:**
-- Create: `src/engine/scheduler/scheduled_task.h`
-- Create: `src/engine/scheduler/scheduled_task.cpp`
-- Create: `src/engine/scheduler/scheduled_task_store.h`
-- Create: `src/engine/scheduler/scheduled_task_store.cpp`
-- Create: `tests/test_engine/test_scheduled_task.cpp`
+- Create: `src/foundation/scheduler/scheduled_task.h`
+- Create: `src/foundation/scheduler/scheduled_task.cpp`
+- Create: `src/foundation/scheduler/scheduled_task_store.h`
+- Create: `src/foundation/scheduler/scheduled_task_store.cpp`
+- Create: `tests/test_foundation/test_scheduled_task.cpp`
 - Modify: `src/CMakeLists.txt`、`tests/CMakeLists.txt`
+
+> **分层修正**：`ScheduledTask`/`shouldFire`/`Store` 放 **foundation 层**（纯数据结构+纯函数，零依赖），因为 TaskScheduler 在 core 层、core 不能依赖 engine。ScopeResolver 保持引擎层（依赖 data）。
 
 **Interfaces:**
 - Consumes: `StockCode`、`Direction`（已有）、`nlohmann::json`、`utils::parseDateTime/now`
@@ -88,7 +90,7 @@ bool shouldFire(const ScheduledTask& task, DateTime now, DateTime lastRun);
 - [ ] **Step 2: 实现 `scheduled_task.cpp`**
 
 ```cpp
-#include "engine/scheduler/scheduled_task.h"
+#include "foundation/scheduler/scheduled_task.h"
 #include "foundation/utils/datetime.h"
 
 #include <ctime>
@@ -176,8 +178,8 @@ public:
 
 ```cpp
 #include <gtest/gtest.h>
-#include "engine/scheduler/scheduled_task.h"
-#include "engine/scheduler/scheduled_task_store.h"
+#include "foundation/scheduler/scheduled_task.h"
+#include "foundation/scheduler/scheduled_task_store.h"
 #include "foundation/utils/datetime.h"
 
 using namespace st;
@@ -287,14 +289,14 @@ TEST(ScheduledTaskStoreTest, CorruptFallsBackEmpty) {
 
 - [ ] **Step 5: 更新 CMakeLists 两处并跑通**
 
-`src/CMakeLists.txt` st_engine 源列表加：
+`src/CMakeLists.txt` st_foundation 源列表加：
 ```cmake
-    engine/scheduler/scheduled_task.cpp
-    engine/scheduler/scheduled_task_store.cpp
+    foundation/scheduler/scheduled_task.cpp
+    foundation/scheduler/scheduled_task_store.cpp
 ```
-`tests/CMakeLists.txt` test_engine 源列表加：
+`tests/CMakeLists.txt` test_foundation 源列表加：
 ```cmake
-        test_engine/test_scheduled_task.cpp
+    test_foundation/test_scheduled_task.cpp
 ```
 
 Run: `cmake --preset with-qt` → `cmake --build --preset with-qt` → 零警告零错误
@@ -304,7 +306,7 @@ Run: `ctest --preset default` → 全绿
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/engine/scheduler/ tests/test_engine/test_scheduled_task.cpp src/CMakeLists.txt tests/CMakeLists.txt
+git add src/foundation/scheduler/ tests/test_foundation/test_scheduled_task.cpp src/CMakeLists.txt tests/CMakeLists.txt
 git commit -m "feat: 定时任务数据模型 + shouldFire 调度判定 + JSON 持久化"
 ```
 
@@ -325,7 +327,7 @@ git commit -m "feat: 定时任务数据模型 + shouldFire 调度判定 + JSON �
 ```cpp
 #pragma once
 
-#include "engine/scheduler/scheduled_task.h"
+#include "foundation/scheduler/scheduled_task.h"
 #include <QObject>
 #include <functional>
 #include <map>
@@ -662,7 +664,7 @@ git commit -m "feat: 选股/抓数据范围解析器（全部/板块/上次）"
 ```cpp
 #pragma once
 
-#include "engine/scheduler/scheduled_task.h"
+#include "foundation/scheduler/scheduled_task.h"
 #include <QDialog>
 #include <QMainWindow>
 #include <QString>
