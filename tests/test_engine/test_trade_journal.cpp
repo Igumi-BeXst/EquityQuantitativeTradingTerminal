@@ -101,3 +101,104 @@ TEST(TradeJournalTest, DefaultFeesStandardAShare) {
     EXPECT_DOUBLE_EQ(j.fees().stampTaxRate, 0.0005);   // 2023 减半后标准
     EXPECT_DOUBLE_EQ(j.fees().transferFeeRate, 0.00002);
 }
+
+// =============================================================================
+// TradeJournalStatsTest — computeStats 统计核心
+// =============================================================================
+
+namespace {
+/// 买入 100 股 10 元 → 卖出 100 股 12 元（卖出一笔，费用忽略）
+std::vector<JournalEntry> roundTripDone() {
+    std::vector<JournalEntry> v;
+    v.push_back(mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-01 09:30:00"));
+    v.push_back(mkManual("SH600519", Direction::Sell, 12.0, 100, "2026-08-02 09:30:00"));
+    return v;
+}
+}  // namespace
+
+TEST(TradeJournalStatsTest, WinRateAndProfitFactor) {
+    auto stats = computeStats(roundTripDone());
+    EXPECT_EQ(stats.overall.count, 1);        // 1 个回合
+    EXPECT_EQ(stats.overall.wins, 1);
+    EXPECT_DOUBLE_EQ(stats.overall.winRate, 1.0);
+    EXPECT_NEAR(stats.overall.totalPnl, 200.0, 1e-6);   // (12-10)*100
+}
+
+TEST(TradeJournalStatsTest, LossIsLoss) {
+    std::vector<JournalEntry> v;
+    v.push_back(mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-01 09:30:00"));
+    v.push_back(mkManual("SH600519", Direction::Sell, 8.0, 100, "2026-08-02 09:30:00"));
+    auto stats = computeStats(v);
+    EXPECT_EQ(stats.overall.wins, 0);
+    EXPECT_EQ(stats.overall.losses, 1);
+    EXPECT_NEAR(stats.overall.totalPnl, -200.0, 1e-6);
+}
+
+TEST(TradeJournalStatsTest, FeeIncludedInCost) {
+    std::vector<JournalEntry> v;
+    auto b = mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-01 09:30:00");
+    b.fees = 7.5;   // 买入费计入成本
+    v.push_back(b);
+    auto s = mkManual("SH600519", Direction::Sell, 12.0, 100, "2026-08-02 09:30:00");
+    s.fees = 7.5;   // 卖出费从收益扣
+    v.push_back(s);
+    auto stats = computeStats(v);
+    EXPECT_NEAR(stats.overall.totalPnl, 200.0 - 15.0, 1e-6);  // 毛利200 − 费用15
+}
+
+TEST(TradeJournalStatsTest, SimVsManualGroups) {
+    std::vector<JournalEntry> v;
+    // 模拟组内完整回合（买+卖 AutoTrade）
+    auto sb = mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-01 09:30:00");
+    sb.type = JournalType::AutoTrade;
+    auto ss = mkManual("SH600519", Direction::Sell, 12.0, 100, "2026-08-02 09:30:00");
+    ss.type = JournalType::AutoTrade;
+    // 实盘组内完整回合（买+卖 ManualNote）
+    auto mb = mkManual("SZ000001", Direction::Buy, 5.0, 200, "2026-08-01 09:31:00");
+    auto ms = mkManual("SZ000001", Direction::Sell, 6.0, 200, "2026-08-03 09:31:00");
+    v.push_back(sb); v.push_back(ss); v.push_back(mb); v.push_back(ms);
+    auto stats = computeStats(v);
+    EXPECT_EQ(stats.sim.count, 1);
+    EXPECT_EQ(stats.manual.count, 1);
+    EXPECT_EQ(stats.overall.count, 2);
+    EXPECT_NEAR(stats.sim.totalPnl, 200.0, 1e-6);
+    EXPECT_NEAR(stats.manual.totalPnl, 200.0, 1e-6);
+}
+
+TEST(TradeJournalStatsTest, CrossGroupBuySellNotPaired) {
+    // 买入在实盘组、卖出在模拟组 → 两组都不构成回合
+    std::vector<JournalEntry> v;
+    auto b = mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-01 09:30:00");
+    auto s = mkManual("SH600519", Direction::Sell, 12.0, 100, "2026-08-02 09:30:00");
+    s.type = JournalType::AutoTrade;
+    v.push_back(b);
+    v.push_back(s);
+    auto stats = computeStats(v);
+    EXPECT_EQ(stats.sim.count, 0);
+    EXPECT_EQ(stats.manual.count, 0);
+    EXPECT_EQ(stats.overall.count, 0);   // 跨组不配对
+}
+
+TEST(TradeJournalStatsTest, MonthlyGrouping) {
+    std::vector<JournalEntry> v;
+    v.push_back(mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-07-01 09:30:00"));
+    v.push_back(mkManual("SH600519", Direction::Sell, 12.0, 100, "2026-07-02 09:30:00"));
+    v.push_back(mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-01 09:30:00"));
+    v.push_back(mkManual("SH600519", Direction::Sell, 11.0, 100, "2026-08-02 09:30:00"));
+    auto stats = computeStats(v);
+    ASSERT_EQ(stats.monthly.size(), 2u);
+    EXPECT_EQ(stats.monthly[0].ym, "2026-07");
+    EXPECT_NEAR(stats.monthly[0].pnl, 200.0, 1e-6);
+    EXPECT_NEAR(stats.monthly[1].pnl, 100.0, 1e-6);
+}
+
+TEST(TradeJournalStatsTest, CumPnlRises) {
+    std::vector<JournalEntry> v;
+    v.push_back(mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-07-01 09:30:00"));
+    v.push_back(mkManual("SH600519", Direction::Sell, 12.0, 100, "2026-07-02 09:30:00"));
+    v.push_back(mkManual("SH600519", Direction::Buy, 10.0, 100, "2026-08-01 09:30:00"));
+    v.push_back(mkManual("SH600519", Direction::Sell, 11.0, 100, "2026-08-02 09:30:00"));
+    auto stats = computeStats(v);
+    ASSERT_EQ(stats.overall.cumPnl.size(), 2u);
+    EXPECT_NEAR(stats.overall.cumPnl.back(), 300.0, 1e-6);
+}

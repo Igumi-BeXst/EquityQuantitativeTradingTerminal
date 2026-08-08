@@ -28,6 +28,59 @@ struct JournalEntry {
     DateTime     time;
 };
 
+/// 单组交易统计（总体 / 模拟 / 实盘 / 单个策略 通用）
+struct GroupStats {
+    int    count = 0;
+    int    wins = 0;
+    int    losses = 0;
+    double winRate = 0.0;      // 0..1
+    double totalPnl = 0.0;     // 已实现 + 浮动（简化：按买卖配对计算）
+    double profitFactor = 0.0; // 盈利总额/亏损总额
+    double maxDrawdown = 0.0;  // 累计盈亏曲线最大回撤（金额）
+    std::vector<double> cumPnl; // 累计盈亏序列（按时间升序）
+};
+
+/// 一笔已实现盈亏（按 code 买卖 FIFO 配对）
+struct RealizedPnl {
+    StockCode code;
+    std::string name;
+    double pnl = 0.0;           // 已实现盈亏（卖出时结算）
+    double pnlPct = 0.0;        // 相对买入成本的百分比
+    int    roundTrips = 0;      // 完成的买卖回合数
+};
+
+struct MonthlyPnl {
+    std::string ym;             // "2026-08"
+    double pnl = 0.0;
+};
+
+/// 逐笔配对（模拟 ↔ 实盘）
+struct PairRow {
+    StockCode code;
+    Direction direction = Direction::Buy;
+    double    priceDiff = 0.0;   // 实盘价 − 模拟价
+    double    diffPct = 0.0;     // 价差/模拟价 × 100
+    Price     simPrice = 0.0;
+    Price     manualPrice = 0.0;
+    Volume    matchedVol = 0;
+    DateTime  simTime;
+    DateTime  manualTime;
+};
+
+/// 全量统计
+struct JournalStats {
+    GroupStats overall;
+    GroupStats sim;             // 模拟（AutoTrade）
+    GroupStats manual;          // 实盘（ManualNote）
+    std::vector<PairRow> pairs;      // 精确配对结果（§Task 3）
+    std::vector<RealizedPnl> realized; // 持仓/已实现盈亏
+    std::vector<MonthlyPnl> monthly;  // 月度收益
+    std::vector<std::pair<std::string, GroupStats>> byStrategy; // 按策略
+};
+
+/// 纯函数统计 — 不依赖 UI/线程，可单测
+JournalStats computeStats(const std::vector<JournalEntry>& entries);
+
 /// 交易日志引擎 — 增删改查 + 持久化入口 + 模拟成交自动落库
 class TradeJournalEngine {
 public:
