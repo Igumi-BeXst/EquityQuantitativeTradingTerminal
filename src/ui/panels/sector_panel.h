@@ -23,6 +23,9 @@ class SectorPanel : public QWidget {
 public:
     explicit SectorPanel(QWidget* parent = nullptr);
 
+    /// 公开刷新（供定时任务/外部调用）
+    void refresh();
+
 protected:
     void showEvent(QShowEvent* event) override;
     void hideEvent(QHideEvent* event) override;

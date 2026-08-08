@@ -121,6 +121,8 @@ void SectorPanel::setType(SectorType type) {
     onRefresh();
 }
 
+void SectorPanel::refresh() { onRefresh(); }
+
 void SectorPanel::onRefresh() {
     if (busy_ || !provider_) return;
     busy_ = true;

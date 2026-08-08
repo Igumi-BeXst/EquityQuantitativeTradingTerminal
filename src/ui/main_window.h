@@ -2,6 +2,10 @@
 
 #include <QMainWindow>
 #include <memory>
+#include <set>
+#include <string>
+#include <vector>
+#include "foundation/stock_code.h"
 
 class QDockWidget;
 class QToolBar;
@@ -26,6 +30,9 @@ class MarketDepthWidget;
 class StockKeyDataWidget;
 class ChipPanel;
 class SectorPanel;
+class TaskScheduler;
+class TaskWindow;
+struct ScheduledTask;
 
 /// 主窗口 — 菜单栏 + 工具栏(搜索/指数条) + QDockWidget 布局 + 状态栏
 ///
@@ -53,7 +60,9 @@ private:
     void openQuantWindow();
     void openFundsWindow();
     void openJournalWindow();
+    void openTaskWindow();
     void resetLayout();
+    void runScheduledTask(ScheduledTask& t);
 
     std::unique_ptr<IDataProvider> provider_;
     std::unique_ptr<ShortcutManager> shortcuts_;
@@ -64,7 +73,9 @@ private:
     QuantWindow* quantWindow_ = nullptr;
     FundsWindow* fundsWindow_ = nullptr;  // 资金数据（顶部「资金」菜单打开）
     JournalWindow* journalWindow_ = nullptr;  // 交易日志（顶部「日志」菜单打开）
+    TaskWindow* taskWindow_ = nullptr;  // 定时任务（设置→定时任务）
     std::shared_ptr<TradeJournalEngine> journal_;  // 交易日志引擎（共享给 JournalWindow/QuantWindow/PaperTradePanel）
+    std::shared_ptr<TaskScheduler> scheduler_;  // 定时任务调度器
     MarketDepthWidget* marketDepth_ = nullptr;
     StockKeyDataWidget* keyData_ = nullptr;
     ChipPanel* chipPanel_ = nullptr;
@@ -76,6 +87,9 @@ private:
     CentralChartWidget* centralChart_ = nullptr;
     QStackedWidget* centralStack_ = nullptr;
     QLabel* connLabel_ = nullptr;
+
+    std::vector<StockCode> lastScreenerConfig_;   // 上次手动选股池（scope=last 复用）
+    std::set<std::string> runningAsync_;          // 异步任务防重入（id → 执行中）
 };
 
 } // namespace st

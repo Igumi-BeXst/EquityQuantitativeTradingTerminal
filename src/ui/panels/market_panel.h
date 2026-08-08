@@ -31,11 +31,13 @@ class MarketPanel : public QWidget {
 public:
     explicit MarketPanel(IDataProvider* provider, QWidget* parent = nullptr);
 
+    /// 手动刷新行情（供定时任务/外部调用）
+    void refresh();
+
 signals:
     void openChart(const StockCode& code, const QString& name);
 
 private slots:
-    void refresh();
     void onQuotesReady(const std::vector<Quote>& quotes);
 
 private:

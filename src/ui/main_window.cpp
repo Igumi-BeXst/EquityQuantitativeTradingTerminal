@@ -10,8 +10,11 @@
 #include "ui/panels/quant_window.h"
 #include "ui/panels/funds_window.h"
 #include "ui/panels/journal_window.h"
+#include "ui/panels/task_window.h"
 #include "engine/journal/trade_journal.h"
 #include "engine/journal/trade_journal_store.h"
+#include "engine/scheduler/screener_scope.h"
+#include "engine/screener/stock_screener.h"
 #include "ui/widgets/market_depth_widget.h"
 #include "ui/widgets/stock_key_data_widget.h"
 #include "ui/widgets/chip_panel.h"
@@ -23,7 +26,10 @@
 #include "core/config_manager.h"
 #include "core/log_manager.h"
 #include "core/event_bus.h"
+#include "core/task_scheduler.h"
+#include "core/notification_service.h"
 #include "foundation/stock_info.h"
+#include "foundation/scheduler/scheduled_task_store.h"
 #include <QDockWidget>
 #include <QToolBar>
 #include <QStatusBar>
@@ -41,6 +47,7 @@
 #include <QDir>
 #include <QDateTime>
 #include <QFileDialog>
+#include <QPointer>
 
 namespace st {
 
@@ -130,6 +137,19 @@ void MainWindow::initServices() {
     // 费率配置（独立文件，Task 9 费率设置对话框读写此文件）
     auto feeCfg = TradeJournalStore::loadFeeConfig(AppPaths::configDir() + "/journal_config.json");
     journal_->setFees(feeCfg);
+
+    // 4. 定时任务调度器 + 持久化加载
+    scheduler_ = std::make_shared<TaskScheduler>(this);
+    ScheduledTaskStore taskStore;
+    std::vector<ScheduledTask> tasks;
+    taskStore.load(AppPaths::configDir() + "/scheduled_tasks.json", tasks);
+    scheduler_->setTasks(std::move(tasks));
+    scheduler_->setExecutor([this](ScheduledTask& t) { runScheduledTask(t); });
+    scheduler_->setOnTasksChanged([this] {
+        ScheduledTaskStore s;
+        s.save(AppPaths::configDir() + "/scheduled_tasks.json", scheduler_->tasks());
+    });
+    scheduler_->start();
 }
 
 void MainWindow::createCentral() {
@@ -299,6 +319,7 @@ void MainWindow::createMenus() {
     // 设置
     auto* settingsMenu = menuBar()->addMenu(tr("设置(&S)"));
     settingsMenu->addAction(tr("偏好设置(&P)…"), this, &MainWindow::openPreferences);
+    settingsMenu->addAction(tr("定时任务(&T)…"), this, &MainWindow::openTaskWindow);
 
     // 帮助
     auto* helpMenu = menuBar()->addMenu(tr("帮助(&H)"));
@@ -437,6 +458,91 @@ void MainWindow::openJournalWindow() {
     journalWindow_->show();
     journalWindow_->raise();
     journalWindow_->activateWindow();
+}
+
+void MainWindow::openTaskWindow() {
+    if (!taskWindow_) {
+        taskWindow_ = new TaskWindow(scheduler_, provider_.get());
+        taskWindow_->setAttribute(Qt::WA_DeleteOnClose);
+        connect(taskWindow_, &QObject::destroyed, this,
+                [this] { taskWindow_ = nullptr; });
+    }
+    taskWindow_->show();
+    taskWindow_->raise();
+    taskWindow_->activateWindow();
+}
+
+void MainWindow::runScheduledTask(ScheduledTask& t) {
+    switch (t.type) {
+    case ScheduledTaskType::RefreshQuotes:
+        if (marketPanel_) marketPanel_->refresh();
+        if (sectorPanel_) sectorPanel_->refresh();
+        t.lastResult = "刷新行情完成";
+        break;
+
+    case ScheduledTaskType::Remind:
+        NotificationService::instance()->info("定时提醒", t.target);
+        t.lastResult = "已提醒";
+        break;
+
+    case ScheduledTaskType::RunScreener:
+    case ScheduledTaskType::FetchData: {
+        // 防重入：同一任务异步执行中不再重复提交
+        if (runningAsync_.count(t.id)) {
+            t.lastResult = "任务正在执行中，跳过";
+            return;
+        }
+        runningAsync_.insert(t.id);
+
+        auto type = t.type;
+        auto target = t.target;
+        auto taskId = t.id;
+        IDataProvider* provider = provider_.get();
+        auto lastConfig = lastScreenerConfig_;
+
+        QPointer<MainWindow> guard(this);
+        ThreadPool::submitIO([guard, type, target, taskId, provider, lastConfig] {
+            // 解析股票池
+            auto pool = ScopeResolver::resolve(target, provider, lastConfig);
+            std::string result;
+
+            if (type == ScheduledTaskType::RunScreener) {
+                StockScreener screener;
+                auto results = screener.run(pool);
+                result = "选股完成，共 " + std::to_string(results.size()) + " 只";
+            } else {
+                // FetchData：逐只抓取日线数据
+                int success = 0;
+                for (const auto& code : pool) {
+                    auto bars = provider->getBars(code, BarPeriod::Daily,
+                                                  DateTime{}, DateTime{});
+                    if (!bars.empty()) ++success;
+                }
+                result = "数据抓取完成：" + std::to_string(success)
+                       + "/" + std::to_string(pool.size());
+            }
+
+            // 回主线程更新 lastResult
+            QMetaObject::invokeMethod(guard.data(),
+                [guard, taskId, result]() mutable {
+                    if (!guard || !guard->scheduler_) return;
+                    guard->runningAsync_.erase(taskId);
+                    // 从调度器查找任务并更新 lastResult
+                    for (const auto& task : guard->scheduler_->tasks()) {
+                        if (task.id == taskId) {
+                            auto updated = task;
+                            updated.lastResult = result;
+                            guard->scheduler_->updateTask(taskId, updated);
+                            break;
+                        }
+                    }
+                }, Qt::QueuedConnection);
+        });
+
+        t.lastResult = "任务已提交执行…";
+        break;
+    }
+    }
 }
 
 void MainWindow::resetLayout() {
