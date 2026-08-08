@@ -477,20 +477,25 @@ JournalWindow::JournalWindow(std::shared_ptr<TradeJournalEngine> journal,
         }
         const auto idVar = recordsTable_->item(row, 0)->data(Qt::UserRole);
         const auto selId = idVar.toString().toStdString();
-        const auto& allEntries = journal_->entries();
-        auto it = std::find_if(allEntries.begin(), allEntries.end(),
-                               [&](const JournalEntry& e) { return e.id == selId; });
-        if (it == allEntries.end()) {
-            return;
+        // 先拷贝展示字段（entries() 返回内部引用，removeEntry 会使其失效，必须先取副本）
+        std::string dispCode, dispName;
+        {
+            const auto& allEntries = journal_->entries();
+            auto it = std::find_if(allEntries.begin(), allEntries.end(),
+                                   [&](const JournalEntry& e) { return e.id == selId; });
+            if (it == allEntries.end()) {
+                return;
+            }
+            dispCode = it->code.displayCode();
+            dispName = it->name;
         }
         auto reply = QMessageBox::question(this, tr("确认删除"),
             tr("确定要删除记录「%1 %2」吗？")
-                .arg(QString::fromStdString(it->code.displayCode()),
-                     QString::fromStdString(it->name)));
+                .arg(QString::fromStdString(dispCode), QString::fromStdString(dispName)));
         if (reply == QMessageBox::Yes) {
             journal_->removeEntry(selId);
             LogManager::instance()->log(LogLevel::Info,
-                "交易日志 删除记录: {} {} {}", selId, it->code.displayCode(), it->name);
+                "交易日志 删除记录: {} {} {}", selId, dispCode, dispName);
             rebuildAll();
         }
     });

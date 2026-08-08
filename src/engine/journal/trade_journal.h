@@ -96,7 +96,11 @@ public:
     bool updateEntry(const std::string& id, const JournalEntry& e);
     bool removeEntry(const std::string& id);
     void clear();
-    const std::vector<JournalEntry>& entries() const { return entries_; }
+    /// 按值返回（加锁）— 避免调用方持有引用期间被修改导致失效
+    std::vector<JournalEntry> entries() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return entries_;
+    }
 
     /// 费率（手动录入自动算费用用）— 线程安全（Task 9 运行时改费率）
     void setFees(const FeeConfig& cfg) { std::lock_guard<std::mutex> lock(mutex_); fees_ = cfg; }
