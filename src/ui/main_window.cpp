@@ -268,8 +268,7 @@ void MainWindow::createMenus() {
             QStringLiteral("已切换主题: %1")
                 .arg(ThemeManager::themeName(ThemeManager::current())), 3000);
     });
-    // 筹码分布默认收起，视图菜单按需打开/关闭（勾选状态联动 dock 可见性）
-    if (chipDock_) viewMenu->addAction(chipDock_->toggleViewAction());
+    // 筹码分布不进视图菜单（仍可通过图表「筹码分布」按钮开关）
     if (customIndexDock_) viewMenu->addAction(customIndexDock_->toggleViewAction());
     viewMenu->addAction(tr("重置布局(&R)"), this, &MainWindow::resetLayout);
 

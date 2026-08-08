@@ -228,22 +228,27 @@ void ScreenerPanel::onAllDataFetched() {
     cfg.lookbackDays = lookback_->value();
     cfg.topN = topN_->value();
 
-    // ② Worker 池选股
+    // ② Worker 池选股（安全异步：按值捕获 shared_ptr cache + QPointer 守卫，
+    //    面板销毁后任务仍安全；不能用裸 this/裸 cache_ 指针——会 use-after-free）
+    const auto cache = cache_;
+    QPointer<ScreenerPanel> guard(this);
     ThreadPool::submitWorker(
-        [this, selected = std::move(selected), factorNames, symbols, cfg]() mutable {
+        [guard, cache, selected = std::move(selected), factorNames, symbols, cfg]() mutable {
             StockScreener screener;
             screener.setConfig(cfg);
-            screener.setDataCache(cache_.get());
+            screener.setDataCache(cache.get());
             for (auto& [f, w] : selected) screener.addFactor(f, w);
-            screener.setProgressCallback([this](double p) {
-                QMetaObject::invokeMethod(this, [this, p] {
-                    progress_->setValue(50 + static_cast<int>(p * 50));
+            screener.setProgressCallback([guard](double p) {
+                QMetaObject::invokeMethod(guard, [guard, p] {
+                    if (!guard) return;
+                    guard->progress_->setValue(50 + static_cast<int>(p * 50));
                 }, Qt::QueuedConnection);
             });
             auto results = screener.run(symbols);
-            QMetaObject::invokeMethod(this,
-                [this, results = std::move(results), factorNames]() mutable {
-                    onResult(results, factorNames);
+            QMetaObject::invokeMethod(guard,
+                [guard, results = std::move(results), factorNames]() mutable {
+                    if (!guard) return;
+                    guard->onResult(results, factorNames);
                 }, Qt::QueuedConnection);
         });
 }

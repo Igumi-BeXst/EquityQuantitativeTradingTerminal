@@ -11,7 +11,6 @@
 #include "ui/panels/strategy_panel.h"
 #include "ui/panels/backtest_panel.h"
 #include "data/idata_provider.h"
-#include "core/thread_pool.h"
 #include <QTabWidget>
 #include <QVariantMap>
 #include <QCloseEvent>
@@ -70,11 +69,10 @@ QuantWindow::QuantWindow(IDataProvider* provider, QWidget* parent)
 }
 
 void QuantWindow::closeEvent(QCloseEvent* event) {
-    // 排空在途异步任务：面板销毁前确保没有后台任务仍在访问面板/cache，
-    // 避免「关窗瞬间任务在飞」的 use-after-free 竞态（曾导致关闭时堆损坏）。
-    // 正常关闭时无在途任务，waitForDone 立即返回。
-    ThreadPool::ioPool()->waitForDone();
-    ThreadPool::workerPool()->waitForDone();
+    // 注意：不能对共享线程池 waitForDone()——它是全应用共享的（市场面板/图表/自定义指数
+    // 都在用），会阻塞等到所有无关任务跑完（全市场批量报价可达几十秒）→ 关闭卡死。
+    // 面板异步任务均为守卫模式（QPointer + shared_ptr cache），面板销毁后 QueuedConnection
+    // 回调被 Qt 自动丢弃（实测不执行），无 use-after-free 风险。
     QMainWindow::closeEvent(event);
 }
 

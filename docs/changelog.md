@@ -1,5 +1,17 @@
 # 变更记录
 
+## 2026-08-08 — 量化工作台关闭卡顿修复 + 选股面板 use-after-free 加固
+- 关闭卡顿根因: QuantWindow::closeEvent 对**共享线程池** `waitForDone()`（无超时）——线程池全应用共享（市场面板/图表/自定义指数都在用），关闭时等所有无关任务跑完（全市场批量报价可达几十秒）
+- 修复: 移除 closeEvent 的 waitForDone（面板异步任务均为 QPointer 守卫 + shared_ptr cache，面板销毁后回调被 Qt 自动丢弃；provider 归 MainWindow 所有，~MainWindow 仍 waitForDone 后排空再释放——安全）。关闭耗时实测 1460ms → 6ms（在飞 3s 长任务下）
+- 加固: ScreenerPanel 选股 Worker 任务从「裸 this 进度回调 + 裸 cache_.get()」改为「QPointer 守卫 + shared_ptr cache 拷贝 + 判空」——消除面板销毁时选股在跑的 use-after-free（真机场景选股中关窗会崩）
+- 排查工具: quant_repro 量化窗口开/关耗时回归工具（保留）
+- 测试 323 全绿
+
+## 2026-08-08 — 视图菜单移除筹码分布 + 量化工作台崩溃修复（陈旧对象）
+- UI: 视图菜单去掉「筹码分布」（仍可通过图表周期栏「筹码分布」按钮开关）
+- 崩溃修复: 打开量化工作台即崩（Debug 断言 `_CrtIsValidHeapPointer`、事件日志 0xc0000374 堆损坏）——根因是大规模多轮开发改了大量头文件后增量构建残留陈旧对象 → ABI 错位 → 堆损坏；`--clean-first` 全量重建后消失
+- 测试 323 全绿
+
 ## 2026-08-08 — 自定义指数分时修复：时区导致价格线画到屏幕外
 - 根因: computeIndexIntraday 用 `secs % 86400` 取的是 **UTC** 当天分钟数（北京 09:30 = UTC 01:30 → 90 分钟），再 `baseDay + m分钟` 当本地时间用 → 时区偏 8 小时 → 所有分时点 x 坐标为负（首 x=-1464）→ 整条价格线画在主图左侧屏幕外，用户看到"分时没线"
 - 修复: 改用 `localtime_s` 取**本地时区**当天分钟（与分时图 minutesFromOpen 的 localtime 一致）

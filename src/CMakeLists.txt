@@ -216,3 +216,9 @@ else()
 add_executable(StockTerminal main.cpp)
 target_link_libraries(StockTerminal PRIVATE st_foundation)
 endif()
+
+# 量化工作台崩溃复现（调试用）
+add_executable(quant_repro tools_quant_repro.cpp)
+target_link_libraries(quant_repro PRIVATE st_ui st_engine st_data st_core st_foundation Qt6::Core)
+
+
