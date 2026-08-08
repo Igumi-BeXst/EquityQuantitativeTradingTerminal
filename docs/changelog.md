@@ -1,5 +1,23 @@
 # 变更记录
 
+## 2026-08-08 — 移除北向资金（2024 披露调整致数据不可得）
+- 背景: 自 2024-05-13 起交易所停止披露沪深股通（北向）盘中/盘后实时净买入与成交额（保留仅每日盘后成交总额+十大成交活跃股，但数据中心接口不可用）
+- 尝试: 北向快照/分钟（kamt）、历史成交额（kamt.kline 单位不可解释/陈旧）、十大成交股（报表配置不存在）——全部不可用
+- 移除: 资金窗口「北向资金」tab + EastMoneyFundsProvider 北向快照/分钟解析 + 相关单测；保留龙虎榜 + 融资融券
+- 测试 330 → 328
+
+## 2026-08-08 — 资金数据：龙虎榜交易日下拉（只列有数据的交易日）
+- UI: 龙虎榜日期选择从 QDateEdit 改为**交易日下拉框**——用 TDX 上证指数日线提取近 200 天真实交易日历（含节假日休市，周末/不开市日期不可选），最新在前、默认最新交易日
+- 修复: 改头文件（funds_window.h/main_window.h）后增量构建残留陈旧对象 → Run-Time Check Failure #2 栈损坏（"stack around variable window corrupted"）——clean rebuild 后消失（项目记忆已知模式）
+- 测试 330 全绿
+
+## 2026-08-08 — P10 第八轮：资金数据（龙虎榜 / 北向资金 / 融资融券）
+- 数据源可行性实测: 东财 datacenter-web（数据中心）+ kamt（北向）接口未被封锁（封锁的是 clist/K线/分时）——龙虎榜按日期、两融按股票、北向快照/分钟全可用
+- 数据: EastMoneyFundsProvider——龙虎榜（RPT_DAILYBILLBOARD_DETAILSNEW 按日期）、北向快照/分钟（kamt.get / kamt.rtmin）、两融个股（RPTA_WEB_RZRQ_GGMX 按股票）+ 市场总览（RPTA_RZRQ_LSHJ）；URL 构建 + 纯静态解析（可单测）+ thread_local QNAM 同步 fetch
+- UI: 顶部新增「资金」菜单 → 「资金数据」独立窗口（FundsWindow，仿量化工作台）；3 tab——龙虎榜（日期选择+榜单表+双击开图）/ 北向资金（当日快照+分钟折线自绘）/ 融资融券（沪深市场总览+个股两融明细表，经龙虎榜双击联动）
+- 实连验证: 周五龙虎榜 68 条、沪深两融 26398 亿、茅台两融 120 条明细、北向分钟 241 点
+- 测试 323 → 330（资金解析器 7 例：龙虎榜/北向快照/北向分钟/两融个股/两融总览/URL）
+
 ## 2026-08-08 — 量化工作台关闭卡顿修复 + 选股面板 use-after-free 加固
 - 关闭卡顿根因: QuantWindow::closeEvent 对**共享线程池** `waitForDone()`（无超时）——线程池全应用共享（市场面板/图表/自定义指数都在用），关闭时等所有无关任务跑完（全市场批量报价可达几十秒）
 - 修复: 移除 closeEvent 的 waitForDone（面板异步任务均为 QPointer 守卫 + shared_ptr cache，面板销毁后回调被 Qt 自动丢弃；provider 归 MainWindow 所有，~MainWindow 仍 waitForDone 后排空再释放——安全）。关闭耗时实测 1460ms → 6ms（在飞 3s 长任务下）

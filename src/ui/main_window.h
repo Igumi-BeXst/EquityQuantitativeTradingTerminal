@@ -14,6 +14,7 @@ namespace st {
 class IDataProvider;
 class MarketIndexStrip;
 class CustomIndexPanel;
+class FundsWindow;
 class StockSearchBar;
 class MarketPanel;
 class CentralChartWidget;
@@ -48,6 +49,7 @@ private:
     void registerShortcuts();
     void openPreferences();
     void openQuantWindow();
+    void openFundsWindow();
     void resetLayout();
 
     std::unique_ptr<IDataProvider> provider_;
@@ -57,6 +59,7 @@ private:
     QDockWidget* chipDock_ = nullptr;  // 筹码分布（默认收起，视图菜单按需打开）
     QDockWidget* customIndexDock_ = nullptr;  // 自定义指数（与板块 tab 并列）
     QuantWindow* quantWindow_ = nullptr;
+    FundsWindow* fundsWindow_ = nullptr;  // 资金数据（顶部「资金」菜单打开）
     MarketDepthWidget* marketDepth_ = nullptr;
     StockKeyDataWidget* keyData_ = nullptr;
     ChipPanel* chipPanel_ = nullptr;

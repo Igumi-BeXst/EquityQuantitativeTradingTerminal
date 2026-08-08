@@ -8,6 +8,7 @@
 #include "ui/panels/market_panel.h"
 #include "ui/panels/sector_panel.h"
 #include "ui/panels/quant_window.h"
+#include "ui/panels/funds_window.h"
 #include "ui/widgets/market_depth_widget.h"
 #include "ui/widgets/stock_key_data_widget.h"
 #include "ui/widgets/chip_panel.h"
@@ -276,6 +277,10 @@ void MainWindow::createMenus() {
     auto* quantMenu = menuBar()->addMenu(tr("量化(&Q)"));
     quantMenu->addAction(tr("量化工作台(&W)"), this, &MainWindow::openQuantWindow);
 
+    // 资金（龙虎榜/北向资金/融资融券）
+    auto* fundsMenu = menuBar()->addMenu(tr("资金(&F)"));
+    fundsMenu->addAction(tr("资金数据(&D)…"), this, &MainWindow::openFundsWindow);
+
     // 设置
     auto* settingsMenu = menuBar()->addMenu(tr("设置(&S)"));
     settingsMenu->addAction(tr("偏好设置(&P)…"), this, &MainWindow::openPreferences);
@@ -374,6 +379,28 @@ void MainWindow::openQuantWindow() {
     quantWindow_->show();
     quantWindow_->raise();
     quantWindow_->activateWindow();
+}
+
+void MainWindow::openFundsWindow() {
+    if (!fundsWindow_) {
+        fundsWindow_ = new FundsWindow(provider_.get());
+        fundsWindow_->setAttribute(Qt::WA_DeleteOnClose);
+        connect(fundsWindow_, &QObject::destroyed, this,
+                [this] { fundsWindow_ = nullptr; });
+        // 龙虎榜双击 → 主窗口中央图
+        connect(fundsWindow_, &FundsWindow::openChart, this,
+                [this](const StockCode& code, const QString& name) {
+            centralStack_->setCurrentWidget(centralChart_);
+            centralChart_->loadStock(code, name);
+            if (marketDepth_) marketDepth_->setStock(code, name);
+            if (keyData_) keyData_->setStock(code, name);
+            if (chipPanel_) chipPanel_->setStock(code, name);
+            if (fundsWindow_) fundsWindow_->setCurrentStock(code, name);
+        });
+    }
+    fundsWindow_->show();
+    fundsWindow_->raise();
+    fundsWindow_->activateWindow();
 }
 
 void MainWindow::resetLayout() {

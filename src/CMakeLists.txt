@@ -50,6 +50,7 @@ add_library(st_data STATIC
     data/provider_factory.cpp
     data/multi_provider.cpp
     data/eastmoney_sector_provider.cpp
+    data/eastmoney_funds_provider.cpp
 )
 target_link_libraries(st_data PUBLIC st_foundation st_core Qt6::Sql Qt6::Network nlohmann_json::nlohmann_json ZLIB::ZLIB)
 if(WIN32)
@@ -119,6 +120,7 @@ add_library(st_ui STATIC
     ui/panels/strategy_compare_panel.cpp
     ui/panels/stress_test_panel.cpp
     ui/panels/quant_window.cpp
+    ui/panels/funds_window.cpp
     ui/panels/pattern_panel.cpp
     ui/panels/advisor_panel.cpp
     ui/panels/sentiment_panel.cpp
@@ -222,3 +224,7 @@ add_executable(quant_repro tools_quant_repro.cpp)
 target_link_libraries(quant_repro PRIVATE st_ui st_engine st_data st_core st_foundation Qt6::Core)
 
 
+
+# 资金数据实连校准工具（P10 第八轮验证用）
+add_executable(funds_calib tools_funds_calib.cpp)
+target_link_libraries(funds_calib PRIVATE st_data st_core st_foundation Qt6::Core)
