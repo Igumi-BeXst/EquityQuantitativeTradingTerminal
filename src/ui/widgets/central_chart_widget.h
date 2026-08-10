@@ -4,9 +4,11 @@
 #include "foundation/types.h"
 #include "engine/analyzer/overlay_analysis.h"
 #include "engine/analyzer/custom_index.h"
+#include "engine/journal/trade_journal.h"
 #include <QWidget>
 #include <optional>
 #include <string>
+#include <vector>
 
 class QStackedWidget;
 class QToolButton;
@@ -40,6 +42,11 @@ public:
     /// 当前股票代码（截图文件名用）
     StockCode currentCode() const { return currentCode_; }
 
+    /// 设置当前股票的交易标记 + 持仓成本线（转发给分时+K线两图）
+    /// 内部缓存：loadStock/setPeriod 重载图表后自动重新注入
+    void setTradeMarks(const std::vector<TradeMark>& marks,
+                       const std::vector<HoldingLine>& holdings);
+
 signals:
     /// 转发 K线十字光标日期（日/周/月；nullopt = 离开/重载回退最新）
     void crosshairDateChanged(const std::optional<DateTime>& date);
@@ -56,6 +63,8 @@ private:
     void refreshOverlayButton();
     void reloadCustomIndexNow();
     void clearCustomIndexMode();
+    /// 重注入缓存的交易标记（loadStock/setPeriod/指数重算清标记后调用）
+    void reapplyTradeMarks();
 
     std::optional<CustomIndex> customIndex_;   // 非空 = 当前在自定义指数模式
     std::string customIndexCode_;              // 伪代码 "CI"+id（仅占位，不查行情）
@@ -69,6 +78,9 @@ private:
     QPushButton* chipBtn_ = nullptr;   // 筹码分布开关（联动主窗口筹码面板）
     StockCode currentCode_;
     QString currentName_;
+
+    std::vector<TradeMark> marks_;     // 当前股票交易标记缓存（重载后重新注入）
+    std::vector<HoldingLine> holdings_; // 当前股票持仓成本线缓存
 };
 
 } // namespace st

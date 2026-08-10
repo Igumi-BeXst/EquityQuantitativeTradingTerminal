@@ -109,6 +109,19 @@ CentralChartWidget::CentralChartWidget(IDataProvider* provider, QWidget* parent)
     }
 }
 
+void CentralChartWidget::setTradeMarks(const std::vector<TradeMark>& marks,
+                                       const std::vector<HoldingLine>& holdings) {
+    marks_ = marks;
+    holdings_ = holdings;
+    reapplyTradeMarks();
+}
+
+void CentralChartWidget::reapplyTradeMarks() {
+    if (!timeline_ || !kline_) return;   // 构造期未完成时跳过
+    timeline_->setTradeMarks(marks_);
+    kline_->setTradeMarks(marks_, holdings_);
+}
+
 void CentralChartWidget::loadStock(const StockCode& code, const QString& name) {
     clearCustomIndexMode();   // 退出自定义指数模式，图表回到 provider 拉取
     currentCode_ = code;
@@ -119,6 +132,7 @@ void CentralChartWidget::loadStock(const StockCode& code, const QString& name) {
     } else {
         kline_->loadStock(code, name);
     }
+    reapplyTradeMarks();   // loadStock 清标记 → 重注入缓存
     refreshOverlayButton();
 }
 
@@ -141,6 +155,7 @@ void CentralChartWidget::setPeriod(BarPeriod period) {
             if (currentCode_.isValid()) kline_->loadStock(currentCode_, currentName_);
         }
     }
+    reapplyTradeMarks();   // 周期切换重载/分时切换后重注入缓存标记
     refreshOverlayButton();
 }
 
@@ -201,6 +216,7 @@ void CentralChartWidget::reloadCustomIndexNow() {
                                              intraday = std::move(intraday)]() mutable {
                 if (!guard || gen != guard->customIndexGen_) return;  // 过期/已切股丢弃
                 guard->timeline_->loadIntraday(std::move(intraday), code, name);
+                guard->reapplyTradeMarks();   // loadIntraday 清标记 → 重注入缓存
             }, Qt::QueuedConnection);
         } else {
             auto bars = computeIndexBars(idx, fetchDaily, period);
@@ -211,6 +227,7 @@ void CentralChartWidget::reloadCustomIndexNow() {
                                              bars = std::move(bars)]() mutable {
                 if (!guard || gen != guard->customIndexGen_) return;  // 过期/已切股丢弃
                 guard->kline_->loadBars(bars, code, name);
+                guard->reapplyTradeMarks();   // loadBars 切股清标记 → 重注入缓存
             }, Qt::QueuedConnection);
         }
     });

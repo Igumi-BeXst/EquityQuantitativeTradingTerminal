@@ -63,6 +63,8 @@ private:
     void openTaskWindow();
     void resetLayout();
     void runScheduledTask(ScheduledTask& t);
+    /// 交易日志变更 → 重算当前股票交易标记并注入中央图表（可能从 IO 线程触发，需 marshal 主线程）
+    void refreshTradeMarks();
 
     std::unique_ptr<IDataProvider> provider_;
     std::unique_ptr<ShortcutManager> shortcuts_;

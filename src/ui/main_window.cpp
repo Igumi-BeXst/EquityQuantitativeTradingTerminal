@@ -49,6 +49,7 @@
 #include <QDateTime>
 #include <QFileDialog>
 #include <QPointer>
+#include <QThread>
 
 namespace st {
 
@@ -76,6 +77,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             [this](const StockInfo& info) {
         centralStack_->setCurrentWidget(centralChart_);
         centralChart_->loadStock(info.code, QString::fromStdString(info.name));
+        refreshTradeMarks();
         if (marketDepth_) {
             marketDepth_->setStock(info.code, QString::fromStdString(info.name));
         }
@@ -96,6 +98,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             [this](const StockCode& code) {
         centralStack_->setCurrentWidget(centralChart_);
         centralChart_->loadStock(code, QString::fromStdString(code.displayCode()));
+        refreshTradeMarks();
         statusBar()->showMessage(
             QStringLiteral("打开指数 %1 K线图")
                 .arg(QString::fromStdString(code.fullCode())), 5000);
@@ -138,6 +141,8 @@ void MainWindow::initServices() {
     // 费率配置（独立文件，Task 9 费率设置对话框读写此文件）
     auto feeCfg = TradeJournalStore::loadFeeConfig(AppPaths::configDir() + "/journal_config.json");
     journal_->setFees(feeCfg);
+    // 交易日志变更 → 刷新中央图表交易标记（模拟成交落库/手动增删自动更新）
+    journal_->setOnChange([this] { refreshTradeMarks(); });
 
     // 4. 定时任务调度器 + 持久化加载
     // 注意：scheduler_ 无 QObject parent（由 shared_ptr 管理生命周期）。
@@ -157,6 +162,22 @@ void MainWindow::initServices() {
         s.save(AppPaths::configDir() + "/scheduled_tasks.json", scheduler->tasks());
     });
     scheduler_->start();
+}
+
+void MainWindow::refreshTradeMarks() {
+    // onChange 可能在 IO 线程触发（PaperTradeEngine.onTrade → appendAuto），UI 操作必须 marshal 主线程
+    if (QThread::currentThread() != qApp->thread()) {
+        QMetaObject::invokeMethod(this, [this] { refreshTradeMarks(); },
+                                  Qt::QueuedConnection);
+        return;
+    }
+    if (!centralChart_) return;
+    const StockCode code = centralChart_->currentCode();
+    if (!code.isValid()) return;   // 初始无股票跳过
+    const auto entries = journal_->entries();   // 线程安全（内部加锁）
+    const auto marks = collectTradeMarks(entries, code);
+    const auto holdings = deriveHoldings(entries, code);
+    centralChart_->setTradeMarks(marks, holdings);
 }
 
 void MainWindow::createCentral() {
@@ -201,6 +222,7 @@ void MainWindow::createDocks() {
         centralStack_->setCurrentWidget(centralChart_);
         centralChart_->loadStock(code, name.isEmpty()
             ? QString::fromStdString(code.displayCode()) : name);
+        refreshTradeMarks();
         if (marketDepth_) marketDepth_->setStock(code, name);
         if (keyData_) keyData_->setStock(code, name);
         if (chipPanel_) chipPanel_->setStock(code, name);
@@ -228,6 +250,7 @@ void MainWindow::createDocks() {
             [this](const CustomIndex& idx) {
                 centralStack_->setCurrentWidget(centralChart_);
                 centralChart_->loadCustomIndex(idx);
+                refreshTradeMarks();   // CIxxx 伪代码匹配不到日志 → 空标记（指数无标注）
             });
 
     // 右: 个股关键数据（盘口上方）+ 盘口五档 + 成交明细
@@ -414,6 +437,7 @@ void MainWindow::openQuantWindow() {
                 [this](const StockCode& code) {
             centralStack_->setCurrentWidget(centralChart_);
             centralChart_->loadStock(code, QString::fromStdString(code.displayCode()));
+            refreshTradeMarks();
             if (marketDepth_) marketDepth_->setStock(code, QString());
             if (keyData_) keyData_->setStock(code, QString());
             if (chipPanel_) chipPanel_->setStock(code, QString());
@@ -435,6 +459,7 @@ void MainWindow::openFundsWindow() {
                 [this](const StockCode& code, const QString& name) {
             centralStack_->setCurrentWidget(centralChart_);
             centralChart_->loadStock(code, name);
+            refreshTradeMarks();
             if (marketDepth_) marketDepth_->setStock(code, name);
             if (keyData_) keyData_->setStock(code, name);
             if (chipPanel_) chipPanel_->setStock(code, name);
@@ -457,6 +482,7 @@ void MainWindow::openJournalWindow() {
                 [this](const StockCode& code, const QString& name) {
             centralStack_->setCurrentWidget(centralChart_);
             centralChart_->loadStock(code, name);
+            refreshTradeMarks();
             if (marketDepth_) marketDepth_->setStock(code, name);
             if (keyData_) keyData_->setStock(code, name);
             if (chipPanel_) chipPanel_->setStock(code, name);
