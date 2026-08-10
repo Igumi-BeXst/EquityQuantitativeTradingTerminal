@@ -62,6 +62,7 @@ if(BUILD_WITH_QT)
         test_engine/test_custom_index.cpp
         test_engine/test_custom_index_store.cpp
         test_engine/test_trade_journal.cpp
+        test_engine/test_trade_mark.cpp
         test_engine/test_trade_journal_store.cpp
         test_engine/test_screener_scope.cpp
     )

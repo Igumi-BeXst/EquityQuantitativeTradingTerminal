@@ -5,6 +5,7 @@
 #include "foundation/stock_code.h"
 #include "foundation/types.h"
 #include "engine/backtest/fee_calculator.h"
+#include <functional>
 #include <mutex>
 #include <set>
 #include <string>
@@ -86,6 +87,36 @@ JournalStats computeStats(const std::vector<JournalEntry>& entries);
 std::vector<PairRow> pairManualVsSim(const std::vector<JournalEntry>& manual,
                                      const std::vector<JournalEntry>& sim);
 
+/// K线/分时交易标记（模拟/实盘买卖点）
+struct TradeMark {
+    StockCode    code;
+    std::string  name;
+    JournalType  type = JournalType::AutoTrade;
+    Direction    direction = Direction::Buy;
+    Price        price = 0.0;
+    Volume       volume = 0;
+    Amount       fees = 0.0;
+    std::string  strategy;
+    std::string  note;
+    DateTime     time;
+};
+
+/// 当前持仓线（从日志条目按类型 FIFO 推导）
+struct HoldingLine {
+    StockCode    code;
+    JournalType  type = JournalType::AutoTrade;
+    Volume       quantity = 0;
+    Price        avgCost = 0.0;
+};
+
+/// 提取某代码的全部交易标记（按时间升序）
+std::vector<TradeMark> collectTradeMarks(const std::vector<JournalEntry>& entries,
+                                         const StockCode& code);
+
+/// 推导某代码当前持仓线（按 JournalType 各自独立 FIFO，最多 2 条）
+std::vector<HoldingLine> deriveHoldings(const std::vector<JournalEntry>& entries,
+                                        const StockCode& code);
+
 /// 交易日志引擎 — 增删改查 + 持久化入口 + 模拟成交自动落库
 class TradeJournalEngine {
 public:
@@ -116,7 +147,12 @@ public:
     /// 载入恢复 — 保留原 id + 重建指纹集 + 更新 nextId_（供 Store::load）
     void restoreEntries(const std::vector<JournalEntry>& entries);
 
+    /// 变更回调 — entries 增删改/clear/appendAuto 后触发（UI 刷新图表标注用）
+    using ChangeCallback = std::function<void()>;
+    void setOnChange(ChangeCallback cb) { onChange_ = std::move(cb); }
+
 private:
+    ChangeCallback onChange_;        // 无锁：回调仅主线程调用
     std::vector<JournalEntry> entries_;
     std::set<std::string> fingerprints_;   // 已入库指纹（防重）
     FeeConfig fees_ = standardFees();

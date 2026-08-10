@@ -31,44 +31,62 @@ std::string TradeJournalEngine::entryFingerprint(const JournalEntry& e) const {
 }
 
 std::string TradeJournalEngine::addEntry(const JournalEntry& e) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    JournalEntry copy = e;
-    copy.id = "J" + std::to_string(nextId_++);
-    entries_.push_back(std::move(copy));
-    fingerprints_.insert(entryFingerprint(entries_.back()));
-    return entries_.back().id;
+    std::string id;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        JournalEntry copy = e;
+        copy.id = "J" + std::to_string(nextId_++);
+        entries_.push_back(std::move(copy));
+        fingerprints_.insert(entryFingerprint(entries_.back()));
+        id = entries_.back().id;
+    }
+    if (onChange_) onChange_();
+    return id;
 }
 
 bool TradeJournalEngine::updateEntry(const std::string& id, const JournalEntry& e) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (auto& it : entries_) {
-        if (it.id == id) {
-            fingerprints_.erase(entryFingerprint(it));
-            it = e;
-            it.id = id;                 // 保留原 id
-            fingerprints_.insert(entryFingerprint(it));
-            return true;
+    bool updated = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (auto& it : entries_) {
+            if (it.id == id) {
+                fingerprints_.erase(entryFingerprint(it));
+                it = e;
+                it.id = id;                 // 保留原 id
+                fingerprints_.insert(entryFingerprint(it));
+                updated = true;
+                break;
+            }
         }
     }
-    return false;
+    if (updated && onChange_) onChange_();
+    return updated;
 }
 
 bool TradeJournalEngine::removeEntry(const std::string& id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (auto it = entries_.begin(); it != entries_.end(); ++it) {
-        if (it->id == id) {
-            fingerprints_.erase(entryFingerprint(*it));
-            entries_.erase(it);
-            return true;
+    bool removed = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (auto it = entries_.begin(); it != entries_.end(); ++it) {
+            if (it->id == id) {
+                fingerprints_.erase(entryFingerprint(*it));
+                entries_.erase(it);
+                removed = true;
+                break;
+            }
         }
     }
-    return false;
+    if (removed && onChange_) onChange_();
+    return removed;
 }
 
 void TradeJournalEngine::clear() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    entries_.clear();
-    fingerprints_.clear();
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        entries_.clear();
+        fingerprints_.clear();
+    }
+    if (onChange_) onChange_();
 }
 
 std::string TradeJournalEngine::appendAuto(const Trade& t, const std::string& strategy) {
@@ -83,13 +101,18 @@ std::string TradeJournalEngine::appendAuto(const Trade& t, const std::string& st
     e.time = t.time;
     e.name.clear();  // 名称由 UI 侧可选补填
 
-    std::lock_guard<std::mutex> lock(mutex_);
-    const std::string fp = entryFingerprint(e);
-    if (fingerprints_.count(fp)) return {};      // 重复，跳过
-    e.id = "J" + std::to_string(nextId_++);
-    entries_.push_back(std::move(e));
-    fingerprints_.insert(fp);
-    return entries_.back().id;
+    std::string id;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const std::string fp = entryFingerprint(e);
+        if (fingerprints_.count(fp)) return {};   // 重复跳过——不触发回调
+        e.id = "J" + std::to_string(nextId_++);
+        entries_.push_back(std::move(e));
+        fingerprints_.insert(fp);
+        id = entries_.back().id;
+    }
+    if (onChange_ && !id.empty()) onChange_();
+    return id;
 }
 
 void TradeJournalEngine::restoreEntries(const std::vector<JournalEntry>& entries) {
@@ -257,6 +280,96 @@ void splitForStats(const std::vector<JournalEntry>& entries,
 }
 
 }  // anonymous namespace
+
+// =============================================================================
+// collectTradeMarks / deriveHoldings — K线持仓标注数据源（纯函数，可单测）
+// =============================================================================
+
+std::vector<TradeMark> collectTradeMarks(const std::vector<JournalEntry>& entries,
+                                         const StockCode& code) {
+    std::vector<TradeMark> out;
+    for (const auto& e : entries) {
+        if (e.code != code) continue;
+        TradeMark m;
+        m.code = e.code;
+        m.name = e.name;
+        m.type = e.type;
+        m.direction = e.direction;
+        m.price = e.price;
+        m.volume = e.volume;
+        m.fees = e.fees;
+        m.strategy = e.strategy;
+        m.note = e.note;
+        m.time = e.time;
+        out.push_back(std::move(m));
+    }
+    std::sort(out.begin(), out.end(),
+              [](const TradeMark& a, const TradeMark& b) { return a.time < b.time; });
+    return out;
+}
+
+namespace {
+
+/// FIFO 剩余持仓推导（单一类型内）：返回剩余量+加权成本
+struct DerivedLot {
+    Volume quantity = 0;
+    double totalCost = 0.0;  // 剩余批次含费用总成本
+};
+void deriveForType(std::vector<JournalEntry> group, DerivedLot& lot) {
+    std::sort(group.begin(), group.end(),
+              [](const JournalEntry& a, const JournalEntry& b) { return a.time < b.time; });
+    std::vector<std::pair<double, Volume>> queue;  // (含费单位成本, 剩余量)
+    for (const auto& e : group) {
+        if (e.direction == Direction::Buy) {
+            double cps = (e.volume > 0)
+                ? (e.price * static_cast<double>(e.volume) + e.fees)
+                      / static_cast<double>(e.volume)
+                : e.price;
+            queue.push_back({cps, e.volume});
+        } else {
+            Volume need = e.volume;
+            while (need > 0 && !queue.empty()) {
+                auto& lotFront = queue.front();
+                Volume take = std::min(lotFront.second, need);
+                lotFront.second -= take;
+                need -= take;
+                if (lotFront.second == 0) queue.erase(queue.begin());
+            }
+            // 超出部分忽略（不跌负）
+        }
+    }
+    lot.quantity = 0;
+    lot.totalCost = 0.0;
+    for (const auto& [cps, vol] : queue) {
+        lot.quantity += vol;
+        lot.totalCost += cps * static_cast<double>(vol);
+    }
+}
+
+}  // anonymous namespace
+
+std::vector<HoldingLine> deriveHoldings(const std::vector<JournalEntry>& entries,
+                                        const StockCode& code) {
+    std::vector<HoldingLine> out;
+    for (JournalType type : {JournalType::AutoTrade, JournalType::ManualNote}) {
+        std::vector<JournalEntry> group;
+        for (const auto& e : entries) {
+            if (e.code == code && e.type == type) group.push_back(e);
+        }
+        if (group.empty()) continue;
+        DerivedLot lot;
+        deriveForType(std::move(group), lot);
+        if (lot.quantity > 0) {
+            HoldingLine h;
+            h.code = code;
+            h.type = type;
+            h.quantity = lot.quantity;
+            h.avgCost = lot.totalCost / static_cast<double>(lot.quantity);
+            out.push_back(std::move(h));
+        }
+    }
+    return out;
+}
 
 JournalStats computeStats(const std::vector<JournalEntry>& entries) {
     JournalStats out;
