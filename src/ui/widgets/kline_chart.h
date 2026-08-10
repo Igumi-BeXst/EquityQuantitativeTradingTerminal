@@ -4,6 +4,7 @@
 #include "foundation/stock_code.h"
 #include "foundation/types.h"
 #include "engine/analyzer/overlay_analysis.h"
+#include "engine/journal/trade_journal.h"
 #include "data/eastmoney_sector_provider.h"
 #include <QWidget>
 #include <QString>
@@ -55,6 +56,10 @@ public:
     /// 清除画线标注
     void clearAnnotations();
 
+    /// 设置交易标记 + 持仓成本线（空 = 无；切股/清空时传空；切周期保留）
+    void setTradeMarks(const std::vector<TradeMark>& marks,
+                       const std::vector<HoldingLine>& holdings);
+
     /// 设置叠加对比目标（指数/个股/板块/概念）——按视图隔离：只叠加本图（日/周/月）
     void setOverlay(const OverlayTarget& target, bool showRelativeStrength);
     /// 清除叠加
@@ -92,6 +97,8 @@ private:
     void recomputeIndicators();
     void computeVisibleRange();
     void buildLayout();
+    void drawTradeMarks(QPainter& p);       // 成本线 + 买卖箭头
+    void buildMarkBarIndex();               // 标记 → bar 索引（对齐）
 
     // 坐标辅助
     double plotTop() const { return controlBar_ ? controlBar_->height() : 0.0; }
@@ -170,6 +177,11 @@ private:
     int dragStartIdx_ = -1;
     double dragStartPrice_ = 0.0;
     std::vector<ChartLine> lines_;  // 画线标注（锚定 bar 索引+价格，随平移缩放稳定）
+
+    // 交易标记
+    std::vector<TradeMark> tradeMarks_;
+    std::vector<HoldingLine> holdings_;
+    std::vector<int> markBarIndex_;         // 与 tradeMarks_ 平行：-1 = 不在数据范围
 
     // 叠加对比（指数/个股/板块/概念）——按视图隔离：只叠加本图（日/周/月）
     bool overlayActive_ = false;

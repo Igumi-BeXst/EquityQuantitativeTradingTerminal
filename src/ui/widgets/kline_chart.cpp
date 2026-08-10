@@ -21,8 +21,10 @@
 #include <QFileDialog>
 #include <QFile>
 #include <QTextStream>
+#include <QPolygonF>
 #include <algorithm>
 #include <cmath>
+#include <ctime>
 #include <optional>
 #include <utility>
 
@@ -59,6 +61,19 @@ QString periodLabel(BarPeriod p) {
         case BarPeriod::Minute60:return QStringLiteral("60分");
         default:                 return QStringLiteral("日线");
     }
+}
+
+/// 两 DateTime 是否同一天（本地时区年/月/日）
+bool isSameDate(DateTime a, DateTime b) {
+    const std::time_t ta = std::chrono::system_clock::to_time_t(a);
+    const std::time_t tb = std::chrono::system_clock::to_time_t(b);
+    std::tm ma{}, mb{};
+#ifdef _WIN32
+    localtime_s(&ma, &ta); localtime_s(&mb, &tb);
+#else
+    localtime_r(&ta, &ma); localtime_r(&tb, &mb);
+#endif
+    return ma.tm_year == mb.tm_year && ma.tm_mon == mb.tm_mon && ma.tm_mday == mb.tm_mday;
 }
 }  // namespace
 
@@ -237,6 +252,12 @@ void KLineChart::drawAnnotations(QPainter& p) {
 // 数据
 // ============================================================
 void KLineChart::loadStock(const StockCode& code, const QString& name) {
+    // 切股清交易标记；切周期/重载同代码保留（setData 后按新周期重对齐）
+    if (code != code_) {
+        tradeMarks_.clear();
+        holdings_.clear();
+        markBarIndex_.clear();
+    }
     const int gen = ++loadGen_;
     code_ = code;
     name_ = name;
@@ -290,6 +311,12 @@ void KLineChart::setExternalReloader(std::function<void()> reloadFn) {
 
 void KLineChart::loadBars(const std::vector<Bar>& bars, const StockCode& code,
                           const QString& name) {
+    // 切股清交易标记；同代码重载（自定义指数刷新）保留
+    if (code != code_) {
+        tradeMarks_.clear();
+        holdings_.clear();
+        markBarIndex_.clear();
+    }
     code_ = code;
     name_ = name;
     lines_.clear();
@@ -309,7 +336,34 @@ void KLineChart::setData(const std::vector<Bar>& bars) {
     lastEmittedDate_.reset();
     emit crosshairDateChanged(std::nullopt);  // 数据重载 → 外部面板回退最新
     recomputeIndicators();
+    buildMarkBarIndex();  // bars 更新后重对齐交易标记（周期/股票切换后）
     update();
+}
+
+void KLineChart::setTradeMarks(const std::vector<TradeMark>& marks,
+                               const std::vector<HoldingLine>& holdings) {
+    tradeMarks_ = marks;
+    holdings_ = holdings;
+    buildMarkBarIndex();
+    update();
+}
+
+void KLineChart::buildMarkBarIndex() {
+    markBarIndex_.assign(tradeMarks_.size(), -1);
+    if (bars_.empty() || tradeMarks_.empty()) return;
+    size_t j = 0;
+    for (size_t i = 0; i < tradeMarks_.size(); ++i) {
+        const DateTime mt = tradeMarks_[i].time;
+        while (j < bars_.size() && bars_[j].time < mt) ++j;   // 第一个 bar.time >= mt
+        if (j >= bars_.size()) { markBarIndex_[i] = -1; continue; }
+        if (isSameDate(bars_[j].time, mt)) {                   // 日线/当日
+            markBarIndex_[i] = static_cast<int>(j);
+        } else if (j > 0 && bars_[j - 1].time < mt) {          // 周/月：归属前一根
+            markBarIndex_[i] = static_cast<int>(j - 1);
+        } else {
+            markBarIndex_[i] = -1;                             // 数据范围外（早于最早 bar）
+        }
+    }
 }
 
 // ============================================================
@@ -514,6 +568,14 @@ void KLineChart::computeVisibleRange() {
         }
     }
 
+    // 交易标记成本线纳入量程（模拟青 / 实盘橙）
+    for (const auto& h : holdings_) {
+        if (h.quantity > 0 && h.avgCost > 0) {
+            hi = std::max(hi, h.avgCost);
+            lo = std::min(lo, h.avgCost);
+        }
+    }
+
     double pad = (hi - lo) * 0.05;
     if (pad < 1e-9) pad = 1.0;
     priceHi_ = hi + pad;
@@ -617,6 +679,7 @@ void KLineChart::paintEvent(QPaintEvent*) {
     if (showRsi_)  drawRsi(p);
     if (overlayActive_ && showRelativeStrength_) drawRelativeStrength(p);
     drawAxes(p);
+    drawTradeMarks(p);   // 交易标记（成本线 + 买卖箭头）
     drawAnnotations(p);  // 画线标注（十字线之下）
     drawCrosshair(p);
 }
@@ -1119,6 +1182,21 @@ void KLineChart::drawCrosshair(QPainter& p) {
         .arg(change, 0, 'f', 2)
         .arg(formatVolume(b.volume));
 
+    // 悬停 K 线若有交易标记 → 浮框追加交易行
+    for (size_t i = 0; i < tradeMarks_.size(); ++i) {
+        if (markBarIndex_[i] != mouseIndex_) continue;
+        const auto& m = tradeMarks_[i];
+        const QString dir = (m.direction == Direction::Buy) ? tr("买") : tr("卖");
+        const QString typ = (m.type == JournalType::AutoTrade) ? tr("模拟") : tr("实盘");
+        txt += QStringLiteral("\n%1%2 %3 %4 @ %5")
+            .arg(typ).arg(dir)
+            .arg(static_cast<qint64>(m.volume))
+            .arg(QString::fromStdString(m.name))
+            .arg(m.price, 0, 'f', 2);
+        if (!m.strategy.empty())
+            txt += QStringLiteral(" [%1]").arg(QString::fromStdString(m.strategy));
+    }
+
     QFont f = p.font();
     f.setPixelSize(11);
     p.setFont(f);
@@ -1132,6 +1210,59 @@ void KLineChart::drawCrosshair(QPainter& p) {
     p.setPen(QColor("#e8e8e8"));
     p.drawRect(box);
     p.drawText(box.adjusted(4, 2, -4, -2), Qt::AlignLeft | Qt::AlignTop, txt);
+}
+
+void KLineChart::drawTradeMarks(QPainter& p) {
+    if (bars_.empty()) return;
+    const int start = firstVisible_;
+    const int end = std::min(start + visibleCount_, static_cast<int>(bars_.size()));
+
+    // 持仓成本线（模拟青 #00e5ff / 实盘橙 #ff9800）
+    QFont f = p.font();
+    f.setPixelSize(11);
+    p.setFont(f);
+    const QColor kSimColor("#00e5ff");
+    const QColor kManualColor("#ff9800");
+    for (const auto& h : holdings_) {
+        if (h.quantity <= 0 || h.avgCost <= 0) continue;
+        const double y = priceToY(h.avgCost);
+        if (y < mainRect_.top() - 12 || y > mainRect_.bottom() + 12) continue;
+        const QColor color = (h.type == JournalType::AutoTrade) ? kSimColor : kManualColor;
+        p.setPen(QPen(color, 1, Qt::DashLine));
+        p.drawLine(QPointF(mainRect_.left(), y), QPointF(mainRect_.right(), y));
+        const QString label = QStringLiteral("[%1] %2 @ %3")
+            .arg(h.type == JournalType::AutoTrade ? tr("模拟") : tr("实盘"))
+            .arg(static_cast<qint64>(h.quantity))
+            .arg(h.avgCost, 0, 'f', 2);
+        const int tw = QFontMetrics(f).horizontalAdvance(label);
+        p.drawText(QPointF(mainRect_.right() - tw - 4, y - 4), label);
+    }
+
+    // 买卖箭头（红 ▲ 买 / 绿 ▼ 卖），按 markBarIndex_
+    const double bw = bodyWidth();
+    const double bodyHalf = std::min(0.35 * bw, 6.0);
+    const QColor kBuyColor("#ff5252");   // 红买
+    const QColor kSellColor("#00e676");  // 绿卖
+    for (size_t i = 0; i < tradeMarks_.size(); ++i) {
+        const int bi = markBarIndex_[i];
+        if (bi < start || bi >= end) continue;
+        const auto& m = tradeMarks_[i];
+        const double cx = barCenterX(bi);
+        const double y = priceToY(m.price);
+        const QColor color = (m.direction == Direction::Buy) ? kBuyColor : kSellColor;
+        p.setPen(QPen(color, 1));
+        p.setBrush(color);
+        // 竖线 + 三角：买朝上（画 bar 上方），卖朝下（画 bar 下方）
+        const double up = (m.direction == Direction::Buy) ? -1.0 : 1.0;
+        const double len = bodyHalf * 2.2;
+        p.drawLine(QPointF(cx, y), QPointF(cx, y + up * len));
+        const double ax = cx, ay = y + up * len;
+        QPolygonF tri;
+        tri << QPointF(ax, ay + up * 4.5)
+            << QPointF(ax - 4.5, ay - up * 4.5)
+            << QPointF(ax + 4.5, ay - up * 4.5);
+        p.drawPolygon(tri);
+    }
 }
 
 // ============================================================
