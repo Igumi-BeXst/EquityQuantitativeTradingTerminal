@@ -355,7 +355,12 @@ void KLineChart::buildMarkBarIndex() {
     for (size_t i = 0; i < tradeMarks_.size(); ++i) {
         const DateTime mt = tradeMarks_[i].time;
         while (j < bars_.size() && bars_[j].time < mt) ++j;   // 第一个 bar.time >= mt
-        if (j >= bars_.size()) { markBarIndex_[i] = -1; continue; }
+        if (j >= bars_.size()) {
+            // 晚于最后一根 bar：归属最后一根（末周期含其后全部；TDX bar.time=周期首日 15:00）
+            markBarIndex_[i] = (j > 0 && bars_[j - 1].time < mt)
+                ? static_cast<int>(j - 1) : -1;
+            continue;
+        }
         if (isSameDate(bars_[j].time, mt)) {                   // 日线/当日
             markBarIndex_[i] = static_cast<int>(j);
         } else if (j > 0 && bars_[j - 1].time < mt) {          // 周/月：归属前一根
