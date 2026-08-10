@@ -1,5 +1,26 @@
 # 开发日志 (Development Log)
 
+## 2026-08-11 — P10 第十二轮：多窗口开图对比
+
+### 需求
+补齐需求文档「工具 (P8)」中**多窗口模式**剩余项。用户选定 = 多窗口开图对比：把当前图表或任意股票开新窗口，多个完整图表窗口同时对比（各自独立缩放/周期/叠加/交易标记）。确认：①完整图表窗口（含周期栏/叠加/交易标记）；②中央图表「新窗口」按钮 + 右键菜单打开；③新窗口去筹码分布按钮（避免多窗口筹码联动复杂度）。
+
+### 实施
+- `ui/widgets/central_chart_widget.{h,cpp}`：构造加 `bool standalone = false`（standalone 时不建筹码分布按钮）+ `currentName()` getter + `openNewWindow(code, name)` 信号 + 周期栏「新窗口」按钮（loadStock/loadCustomIndex 后 enable）+ 右键菜单「在新窗口打开」→ `emitOpenNewWindow()`；修复：新签名在 parent 前插 bool 导致主窗口 `centralStack_` 隐式转 bool 误开 standalone——显式 `/*standalone=*/false`
+- `ui/panels/chart_window.{h,cpp}`（NEW）：`ChartWindow : QMainWindow` 独立图表窗口——`new CentralChartWidget(provider, /*standalone=*/true)` 作中央 widget，`loadStock`（标题「名称 - 图表」+ 加载 + 刷新标记），`refreshTradeMarks()`（public，marshal 主线程 + currentCode 判空 + entries()→collectTradeMarks/deriveHoldings→setTradeMarks，仿 MainWindow），`openNewWindow` 信号转发（级联开窗）
+- MainWindow 装配：`openNewChartWindow(code, name)`——new ChartWindow + `WA_DeleteOnClose` + 递归 `openNewWindow` 连接 + 级联偏移（`80+(cascade%6)*30, 60+(cascade%6)*30`）+ loadStock + show + `chartWindows_`（QPointer 容器）push_back；主窗口 centralChart_ 的 `openNewWindow` → openNewChartWindow；`refreshTradeMarks` 末尾遍历 chartWindows_ 分发（**onChange 覆盖式，窗口不自己注册 setOnChange**，由 MainWindow 统一刷新）
+- 环境：vcpkg 目录被上次 worktree 删除误清 → 重新克隆官方 vcpkg + `VCPKG_MANIFEST_INSTALL=OFF` + `VCPKG_APPLOCAL_DEPS=OFF` + `VCPKG_INSTALLED_DIR` 复用主仓库 build/vcpkg_installed（worktree 无需 vcpkg.exe）
+
+### 验证
+- 构建零警告；387 全绿（无引擎新逻辑，无新增单测）
+- 手动：主窗口开股 → 点「新窗口」→ 独立窗口完整功能；右键再开（递归）；多窗口并存互不影响；关窗不崩；录日志主+新窗口交易标记同步刷新
+
+### 已知限制
+- 新窗口不联动主窗口盘口/关键数据（绑定主窗口中央图表；v2 可加信号）
+- 自定义指数图不从新窗口打开（入口在主窗口 customIndexPanel_ Dock）
+- `chartWindows_` 只增不减（QPointer 自动置空，无真实泄漏；长期大量开窗 vector 缓慢增长）
+- 主窗口无有效股票时日志变更不刷新新窗口标记（分发循环在 currentCode 判空后，边界场景）
+
 ## 2026-08-10 — P10 第十一轮：K线持仓标注 + 交易标记
 
 ### 需求

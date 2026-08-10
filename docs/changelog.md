@@ -1,5 +1,13 @@
 # 变更记录
 
+## 2026-08-11 — P10 第十二轮：多窗口开图对比
+- 功能: 中央图表「新窗口」按钮 + 右键菜单「在新窗口打开」→ 独立图表窗口（ChartWindow：完整周期栏/叠加对比/交易标记，多实例可并存、可递归开窗）
+- 图表: CentralChartWidget 加 `standalone` 模式（独立窗口去筹码分布按钮）+ `currentName()` + `openNewWindow` 信号
+- 装配: MainWindow `openNewChartWindow`（QPointer 容器 + WA_DeleteOnClose + 级联偏移 + 递归连接）+ `refreshTradeMarks` 遍历所有窗口分发（onChange 覆盖式统一由 MainWindow 刷新）
+- 环境: vcpkg 目录恢复（重新克隆 + VCPKG_MANIFEST_INSTALL=OFF 复用已装库）
+- 测试 387 全绿（纯 UI 装配，无新增单测）
+- 已知限制: 新窗口不联动盘口/关键数据；自定义指数不从新窗口开；chartWindows_ 只增不减
+
 ## 2026-08-10 — P10 第十一轮：K线持仓标注 + 交易标记
 - 功能: 图表标注模拟+实盘交易数据——K线（日/周/月）+分时图买卖点箭头（红▲买/绿▼卖）+ 持仓成本线（模拟青/实盘橙虚线）
 - 数据: 引擎层 `collectTradeMarks`/`deriveHoldings`（按 JournalType 各自独立 FIFO 推导持仓）+ `TradeJournalEngine::setOnChange` 变更回调（纯 C++17 可单测）
