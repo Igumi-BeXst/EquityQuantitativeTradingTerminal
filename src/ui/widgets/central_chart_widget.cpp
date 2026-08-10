@@ -303,6 +303,7 @@ void CentralChartWidget::setChipButtonChecked(bool visible) {
 
 void CentralChartWidget::emitOpenNewWindow() {
     if (!currentCode_.isValid()) return;
+    if (customIndex_) return;   // 自定义指数模式：伪造代码在新窗口拉空，禁止开新窗口（设计文档 v1 限制）
     emit openNewWindow(currentCode_, currentName_);
 }
 
