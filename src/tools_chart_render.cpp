@@ -11,6 +11,7 @@
 #include <QImage>
 #include <QColor>
 #include <QWidget>
+#include <QMouseEvent>
 #include <iostream>
 #include <cmath>
 
@@ -101,13 +102,21 @@ int main(int argc, char* argv[]) {
 
         kline.grab().save("chart_kline.png");
 
-        // 4. 分时: 均价橙线 + MACD DIF 白/DEA 黄
+        // 4. 分时: 均价橙线 + MACD DIF 白/DEA 黄 + 交易箭头
+        // 模拟悬停（x=中间 → 触发信息框），验证信息框文字颜色不被交易标记污染
+        timeline.show();
+        QApplication::processEvents();
+        QMouseEvent move(QEvent::MouseMove, QPointF(400, 100), QPointF(400, 100),
+                         Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(&timeline, &move);
+        QApplication::processEvents();
         QImage timg = count(&timeline);
         std::cout << "[分时] 红=" << countColor(timg, QColor(0xe5,0x46,0x48), 30)
                   << " 绿=" << countColor(timg, QColor(0x2e,0x9e,0x5b), 30)
                   << " 橙(均价)=" << countColor(timg, QColor(0xff,0xa7,0x26), 30)
                   << " 蓝(价格线)=" << countColor(timg, QColor(0x4f,0xc3,0xf7), 30)
                   << " 黄(MACD-DEA)=" << countColor(timg, QColor(0xff,0xd5,0x4f), 30)
+                  << " 箭头(#ff5252)=" << countColor(timg, QColor(0xff,0x52,0x52), 40)
                   << std::endl;
         timeline.grab().save("chart_timeline.png");
         app.quit();

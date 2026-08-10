@@ -1219,6 +1219,7 @@ void KLineChart::drawCrosshair(QPainter& p) {
 
 void KLineChart::drawTradeMarks(QPainter& p) {
     if (bars_.empty()) return;
+    p.save();   // 保护画笔状态：本函数改动 pen/brush/font，返回前 restore 恢复，避免污染后续绘制
     const int start = firstVisible_;
     const int end = std::min(start + visibleCount_, static_cast<int>(bars_.size()));
 
@@ -1306,7 +1307,7 @@ void KLineChart::drawTradeMarks(QPainter& p) {
         if (yT < mainRect_.top() + 4) continue;
         p.drawText(QPointF(cx - 4.0, yT), QStringLiteral("T"));
     }
-    p.setFont(f);   // 恢复原字体
+    p.restore();   // 恢复画笔/字体状态（含 save 前的 pen/brush/font）
 }
 
 // ============================================================

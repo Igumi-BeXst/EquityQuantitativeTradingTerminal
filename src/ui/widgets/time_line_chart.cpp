@@ -536,6 +536,7 @@ void TimelineChart::drawOverlayLine(QPainter& p) {
 
 void TimelineChart::drawTradeMarks(QPainter& p) {
     if (data_.points.empty() || tradeMarks_.empty()) return;
+    p.save();   // 保护画笔状态：本函数改动 pen/brush，必须在返回前恢复，避免污染后续绘制
     // 只画当日交易；匹配分钟 → x 坐标（分钟级粒度独立定位，不依赖数据点索引）
     const std::time_t td = std::chrono::system_clock::to_time_t(data_.date);
     std::tm tmd{};
@@ -573,6 +574,7 @@ void TimelineChart::drawTradeMarks(QPainter& p) {
             << QPointF(x + 4.5, y + up * len - up * 4.5);
         p.drawPolygon(tri);
     }
+    p.restore();
 }
 
 void TimelineChart::drawVolume(QPainter& p) {
