@@ -11,6 +11,7 @@
 #include "ui/panels/funds_window.h"
 #include "ui/panels/journal_window.h"
 #include "ui/panels/task_window.h"
+#include "ui/panels/chart_window.h"
 #include "engine/journal/trade_journal.h"
 #include "engine/journal/trade_journal_store.h"
 #include "engine/scheduler/screener_scope.h"
@@ -178,6 +179,27 @@ void MainWindow::refreshTradeMarks() {
     const auto marks = collectTradeMarks(entries, code);
     const auto holdings = deriveHoldings(entries, code);
     centralChart_->setTradeMarks(marks, holdings);
+
+    // onChange 覆盖式分发：同步刷新所有独立图表窗口（QPointer 判空，关窗后自动置空）
+    for (auto& w : chartWindows_) {
+        if (w) w->refreshTradeMarks();
+    }
+}
+
+void MainWindow::openNewChartWindow(const StockCode& code, const QString& name) {
+    auto* win = new ChartWindow(provider_.get(), journal_, this);
+    win->setAttribute(Qt::WA_DeleteOnClose);
+    // 新窗口内再开新窗口（递归）
+    connect(win, &ChartWindow::openNewWindow, this,
+            &MainWindow::openNewChartWindow);
+    // 每次向右下偏移 30px（0..5 循环），避免多窗口完全重叠
+    static int cascade = 0;
+    win->move(80 + (cascade % 6) * 30, 60 + (cascade % 6) * 30);
+    ++cascade;
+    win->loadStock(code, name);
+    win->show();
+    // QPointer 自动置空：关窗（WA_DeleteOnClose）后容器中对应项安全判空
+    chartWindows_.push_back(win);
 }
 
 void MainWindow::createCentral() {
@@ -204,6 +226,12 @@ void MainWindow::createCentral() {
     // 若把 centralStack_ 当第 2 参，QWidget* 会隐式转 bool → 误开 standalone 模式并丢 parent
     centralChart_ = new CentralChartWidget(provider_.get(), /*standalone=*/false, centralStack_);
     centralStack_->addWidget(centralChart_);
+
+    // 「新窗口」按钮/右键菜单 → 打开独立图表窗口（递归开窗）
+    connect(centralChart_, &CentralChartWidget::openNewWindow, this,
+            [this](const StockCode& code, const QString& name) {
+                openNewChartWindow(code, name);
+            });
 
     setCentralWidget(centralStack_);
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QPointer>
 #include <memory>
 #include <set>
 #include <string>
@@ -24,6 +25,7 @@ class TradeJournalEngine;
 class StockSearchBar;
 class MarketPanel;
 class CentralChartWidget;
+class ChartWindow;
 class ShortcutManager;
 class QuantWindow;
 class MarketDepthWidget;
@@ -65,6 +67,8 @@ private:
     void runScheduledTask(ScheduledTask& t);
     /// 交易日志变更 → 重算当前股票交易标记并注入中央图表（可能从 IO 线程触发，需 marshal 主线程）
     void refreshTradeMarks();
+    /// 打开新图表窗口（多实例并存；关窗即销毁）
+    void openNewChartWindow(const StockCode& code, const QString& name);
 
     std::unique_ptr<IDataProvider> provider_;
     std::unique_ptr<ShortcutManager> shortcuts_;
@@ -88,6 +92,7 @@ private:
     SectorPanel* sectorPanel_ = nullptr;
     CentralChartWidget* centralChart_ = nullptr;
     QStackedWidget* centralStack_ = nullptr;
+    std::vector<QPointer<ChartWindow>> chartWindows_;   // 独立图表窗口（QPointer 自动置空）
     QLabel* connLabel_ = nullptr;
 
     std::vector<StockCode> lastScreenerConfig_;   // 上次手动选股池（scope=last 复用）
