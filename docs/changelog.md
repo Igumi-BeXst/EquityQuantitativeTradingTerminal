@@ -1,5 +1,14 @@
 # 变更记录
 
+## 2026-08-10 — P10 第十一轮：K线持仓标注 + 交易标记
+- 功能: 图表标注模拟+实盘交易数据——K线（日/周/月）+分时图买卖点箭头（红▲买/绿▼卖）+ 持仓成本线（模拟青/实盘橙虚线）
+- 数据: 引擎层 `collectTradeMarks`/`deriveHoldings`（按 JournalType 各自独立 FIFO 推导持仓）+ `TradeJournalEngine::setOnChange` 变更回调（纯 C++17 可单测）
+- 交互: 悬停 K 线浮框追加交易行；切股清空、切周期保留重定位；日志变更（模拟成交落库/手动增删）自动刷新图表标注
+- 成本线: 模拟=AutoTrade 青色、实盘=ManualNote 橙色（方案 B：实盘也推导，依赖录入完整性）
+- 装配: CentralChartWidget 缓存转发 + MainWindow 7 处加载点接线 + setOnChange QueuedConnection marshal
+- 测试 376 → 387：Engine 147 → 158（TradeMarkTest 11 例）
+- 已知限制: 分时悬停浮框 v1 不做；点击箭头跳转详情 v1 不做；实盘成本线依赖录入完整性
+
 ## 2026-08-08 — P10 第十轮：定时任务（刷新行情 / 跑选股 / 抓数据 / 提醒）
 - 功能: 设置菜单 → 独立「定时任务」窗口（TaskWindow）——任务列表 CRUD（新建/编辑/删除/立即执行）+ 类型/触发/启用/上次结果展示
 - 动作: 定时刷新行情（市场+板块）/ 跑选股（ScopeResolver 范围解析）/ 抓数据（范围内全部股票日线）/ 提醒（NotificationService）

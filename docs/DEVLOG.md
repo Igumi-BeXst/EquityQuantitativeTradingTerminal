@@ -1,5 +1,28 @@
 # 开发日志 (Development Log)
 
+## 2026-08-10 — P10 第十一轮：K线持仓标注 + 交易标记
+
+### 需求
+补齐需求文档「K线图 9 层渲染系统」中**持仓标注**与**交易标记**两层。用户选定本轮 = K线持仓标注+交易标记，并排除实盘券商 API 接入。确认：①模拟+实盘都画（颜色区分）；②成本线+买卖箭头+悬停浮框；③K线（日/周/月）+分时都标；④**实盘也推导持仓成本线（方案 B）**——实盘 ManualNote 手动录入，若只记买入不记卖出 FIFO 会误判为仍在持有，此风险用户已知并选择。
+
+### 实施
+- `engine/journal/trade_journal.{h,cpp}`：新增 `TradeMark`（模拟/实盘买卖点：code/type/direction/price/volume/fees/strategy/note/time）与 `HoldingLine`（当前持仓线：type/quantity/avgCost）结构；`collectTradeMarks(entries, code)` 按代码提取全类型标记（时间升序）；`deriveHoldings(entries, code)` 按 JournalType 各自独立 FIFO 推导当前持仓（买入含费用摊销、卖出从队首扣减、超量忽略、全卖不产出）；`TradeJournalEngine::setOnChange` 变更回调（addEntry/updateEntry/removeEntry/clear/appendAuto 锁外触发）——纯 C++17 无 Qt 依赖，可单测
+- `ui/widgets/kline_chart.{h,cpp}`：`setTradeMarks(marks, holdings)`——模拟成本线青 #00e5ff 虚线 + 实盘橙 #ff9800 虚线（右端 `[模拟/实盘]持仓 N @ 价` 标签）+ 红▲买/绿▼卖箭头（QPolygonF）+ 悬停浮框追加交易行；`buildMarkBarIndex` 日线同日/周月周期包含对齐（bar.time=周期首日，交易日期落在 [bar.time,nextBar.time) 归前一根）；成本线纳入主图量程；**切股清空、切周期保留**（仅 code 变化才清——因 setPeriod 内部走 loadStock，无条件清会误清周期切换）
+- `ui/widgets/time_line_chart.{h,cpp}`：`setTradeMarks`——只画当日交易（data_.date 同天判断），红▲买/绿▼卖箭头，切股清空；v1 不做分时悬停浮框（注释注明 v2 可加）
+- `ui/widgets/central_chart_widget.{h,cpp}`：`setTradeMarks` 缓存转发（marks_/holdings_ 缓存 + reapplyTradeMarks 在 loadStock/setPeriod/自定义指数喂数据后重注入——因两图的 loadStock 会清标记）
+- UI 装配：MainWindow `refreshTradeMarks`（currentCode 非法跳过；`journal_->entries()` → collectTradeMarks/deriveHoldings → centralChart_->setTradeMarks）+ `journal_->setOnChange` 注册（QueuedConnection marshal 主线程）+ 7 处中央图表加载点接线（搜索/指数条/市场/自定义指数/量化/资金/日志）
+- 测试：TradeMarkTest 11 例（test_engine）
+
+### 验证
+- 构建零警告；376 → **387**（Engine 147 → 158，+11 交易标记）
+- 手动：模拟交易成交 → K线/分时出现标记 + 成本线；手动录入实盘日志 → 红标 + 橙色成本线；悬停显示浮框；切日/周/月保留重定位、切股清空；删除/清空日志标记消失
+
+### 已知限制
+- 实盘成本线依赖录入完整性（方案 B 固有风险）：只记买入不记卖出会误判为仍在持有；模拟线因引擎自动落库始终可靠
+- 分时悬停浮框 v1 不做（v2 可加）
+- 点击箭头跳转详情 v1 不做（仅悬停浮框）
+- Signal 类型条目在标注中全量显示（不过滤）
+
 ## 2026-08-08 — P10 第十轮：定时任务（刷新行情 / 跑选股 / 抓数据 / 提醒）
 
 ### 需求
