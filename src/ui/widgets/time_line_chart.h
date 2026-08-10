@@ -3,6 +3,7 @@
 #include "data/idata_provider.h"
 #include "foundation/stock_code.h"
 #include "engine/analyzer/overlay_analysis.h"
+#include "engine/journal/trade_journal.h"
 #include "data/eastmoney_sector_provider.h"
 #include <QWidget>
 #include <QString>
@@ -44,6 +45,11 @@ public:
     /// 当前叠加目标名称（未叠加为空）
     QString overlayName() const { return overlayTarget_.name; }
 
+    /// 设置交易标记（当日匹配分钟的买卖箭头；空 = 无；切股清空）
+    /// v1 只画当日主图买卖箭头，不追加悬停浮框交易行（分时数据点索引与交易分钟
+    /// 映射不直接，保持简单）；v2 可在此补充悬停浮框交易信息。
+    void setTradeMarks(const std::vector<TradeMark>& marks);
+
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
@@ -71,6 +77,7 @@ private:
     void drawVolume(QPainter& p);
     void drawMacd(QPainter& p);
     void drawCrosshair(QPainter& p);
+    void drawTradeMarks(QPainter& p);  // 当日买卖箭头（分钟独立定位，不依赖数据点索引）
 
     void fetchOverlayData();  // 异步拉取叠加标的分时并存储（auto-refresh 只重对齐不重拉）
 
@@ -79,6 +86,7 @@ private:
     IntradayData data_;
     StockCode code_;
     QString name_;
+    std::vector<TradeMark> tradeMarks_;  // 交易标记（当日分钟匹配 → 买卖箭头）
     bool loading_ = false;
     int loadGen_ = 0;
     QTimer* refreshTimer_ = nullptr;  // 实时自动刷新

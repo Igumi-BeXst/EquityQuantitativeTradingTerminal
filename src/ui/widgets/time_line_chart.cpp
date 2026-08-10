@@ -78,6 +78,7 @@ void TimelineChart::loadStock(const StockCode& code, const QString& name) {
     overlayActive_ = false;   // 切股清叠加（按视图隔离）
     overlayRows_.clear();
     overlayData_ = IntradayData{};
+    tradeMarks_.clear();      // 切股清交易标记
     update();
     // 外部数据模式（自定义指数等）：由拥有者重算后经 loadIntraday 喂入
     if (externalReloader_) {
@@ -107,6 +108,11 @@ void TimelineChart::setExternalReloader(std::function<void()> reloadFn) {
     externalReloader_ = std::move(reloadFn);
 }
 
+void TimelineChart::setTradeMarks(const std::vector<TradeMark>& marks) {
+    tradeMarks_ = marks;
+    update();
+}
+
 void TimelineChart::loadIntraday(IntradayData intraday, const StockCode& code,
                                  const QString& name) {
     LogManager::instance()->log(LogLevel::Info,
@@ -119,6 +125,7 @@ void TimelineChart::loadIntraday(IntradayData intraday, const StockCode& code,
     overlayActive_ = false;
     overlayRows_.clear();
     overlayData_ = IntradayData{};
+    tradeMarks_.clear();      // 切股清交易标记
     setData(std::move(intraday));
 }
 
@@ -372,6 +379,7 @@ void TimelineChart::paintEvent(QPaintEvent*) {
     drawGridAndAxis(p);
     drawPriceLines(p);
     if (overlayActive_) drawOverlayLine(p);
+    drawTradeMarks(p);  // 交易标记画在价格层之上
     drawVolume(p);
     drawMacd(p);
     drawCrosshair(p);
@@ -524,6 +532,47 @@ void TimelineChart::drawOverlayLine(QPainter& p) {
     }
     p.setPen(QPen(QColor("#ab47bc"), 2));
     p.drawPath(path);
+}
+
+void TimelineChart::drawTradeMarks(QPainter& p) {
+    if (data_.points.empty() || tradeMarks_.empty()) return;
+    // 只画当日交易；匹配分钟 → x 坐标（分钟级粒度独立定位，不依赖数据点索引）
+    const std::time_t td = std::chrono::system_clock::to_time_t(data_.date);
+    std::tm tmd{};
+#ifdef _WIN32
+    localtime_s(&tmd, &td);
+#else
+    localtime_r(&td, &tmd);
+#endif
+    const QColor kBuyColor("#ff5252");   // 红买
+    const QColor kSellColor("#00e676");  // 绿卖
+    for (const auto& m : tradeMarks_) {
+        const std::time_t mt = std::chrono::system_clock::to_time_t(m.time);
+        std::tm mtm{};
+#ifdef _WIN32
+        localtime_s(&mtm, &mt);
+#else
+        localtime_r(&mt, &mtm);
+#endif
+        if (mtm.tm_year != tmd.tm_year || mtm.tm_mon != tmd.tm_mon ||
+            mtm.tm_mday != tmd.tm_mday) continue;   // 非当日不画
+        const int mins = minutesFromOpen(m.time);
+        if (mins < 0 || mins > 240) continue;
+        const double x = xFor(mins);
+        const double y = priceToY(m.price);
+        const QColor color = (m.direction == Direction::Buy) ? kBuyColor : kSellColor;
+        p.setPen(QPen(color, 1));
+        p.setBrush(color);
+        // 竖线 + 三角：买朝上，卖朝下（同 K 线图交易标记风格）
+        const double up = (m.direction == Direction::Buy) ? -1.0 : 1.0;
+        const double len = 6.0;
+        p.drawLine(QPointF(x, y), QPointF(x, y + up * len));
+        QPolygonF tri;
+        tri << QPointF(x, y + up * len + up * 4.5)
+            << QPointF(x - 4.5, y + up * len - up * 4.5)
+            << QPointF(x + 4.5, y + up * len - up * 4.5);
+        p.drawPolygon(tri);
+    }
 }
 
 void TimelineChart::drawVolume(QPainter& p) {
