@@ -10,6 +10,7 @@
 #include <QToolButton>
 #include <QPushButton>
 #include <QPointer>
+#include <QMenu>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QButtonGroup>
@@ -17,8 +18,9 @@
 
 namespace st {
 
-CentralChartWidget::CentralChartWidget(IDataProvider* provider, QWidget* parent)
-    : QWidget(parent), provider_(provider) {
+CentralChartWidget::CentralChartWidget(IDataProvider* provider, bool standalone,
+                                       QWidget* parent)
+    : QWidget(parent), provider_(provider), standalone_(standalone) {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
@@ -68,19 +70,33 @@ CentralChartWidget::CentralChartWidget(IDataProvider* provider, QWidget* parent)
         refreshOverlayButton();
     });
 
-    // 筹码分布开关（点击切换主窗口筹码面板；勾选状态由主窗口经 setChipButtonChecked 同步）
-    chipBtn_ = new QPushButton(tr("筹码分布"), this);
-    chipBtn_->setCheckable(true);
-    chipBtn_->setStyleSheet(QStringLiteral(
+    // 新窗口打开（独立图表窗口；复制当前股票）
+    newWindowBtn_ = new QPushButton(tr("新窗口"), this);
+    newWindowBtn_->setStyleSheet(QStringLiteral(
         "QPushButton{color:#e6e6e6;border:1px solid #6a6a6a;border-radius:3px;"
         "padding:2px 10px;background:#2a2a2c;}"
-        "QPushButton:hover{background:#3d3d40;border-color:#999999;}"
-        "QPushButton:checked{color:#ffd700;border-color:#ffd700;"
-        "background:#3a3220;font-weight:bold;}"));
-    periodBar->addWidget(chipBtn_);
-    connect(chipBtn_, &QPushButton::clicked, this, [this](bool) {
-        emit chipDockToggled();
-    });
+        "QPushButton:hover{background:#3d3d40;border-color:#999999;}"));
+    newWindowBtn_->setEnabled(false);
+    periodBar->addWidget(newWindowBtn_);
+    connect(newWindowBtn_, &QPushButton::clicked, this,
+            [this] { emitOpenNewWindow(); });
+
+    // 筹码分布开关（点击切换主窗口筹码面板；勾选状态由主窗口经 setChipButtonChecked 同步）
+    // standalone 独立图表窗口不建筹码按钮（筹码面板仅存在于主窗口）
+    if (!standalone_) {
+        chipBtn_ = new QPushButton(tr("筹码分布"), this);
+        chipBtn_->setCheckable(true);
+        chipBtn_->setStyleSheet(QStringLiteral(
+            "QPushButton{color:#e6e6e6;border:1px solid #6a6a6a;border-radius:3px;"
+            "padding:2px 10px;background:#2a2a2c;}"
+            "QPushButton:hover{background:#3d3d40;border-color:#999999;}"
+            "QPushButton:checked{color:#ffd700;border-color:#ffd700;"
+            "background:#3a3220;font-weight:bold;}"));
+        periodBar->addWidget(chipBtn_);
+        connect(chipBtn_, &QPushButton::clicked, this, [this](bool) {
+            emit chipDockToggled();
+        });
+    }
     layout->addLayout(periodBar);
 
     // 默认日线选中
@@ -107,6 +123,17 @@ CentralChartWidget::CentralChartWidget(IDataProvider* provider, QWidget* parent)
         IDataProvider* p = provider_;
         ThreadPool::submitIO([p] { (void)p->getSectorIndices(); });
     }
+
+    // 右键菜单：在新窗口打开当前图表
+    setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(this, &QWidget::customContextMenuRequested, this,
+            [this](const QPoint& pos) {
+        if (!currentCode_.isValid()) return;
+        QMenu menu(this);
+        QAction* act = menu.addAction(tr("在新窗口打开 %1").arg(currentName_));
+        connect(act, &QAction::triggered, this, [this] { emitOpenNewWindow(); });
+        menu.exec(mapToGlobal(pos));
+    });
 }
 
 void CentralChartWidget::setTradeMarks(const std::vector<TradeMark>& marks,
@@ -126,6 +153,7 @@ void CentralChartWidget::loadStock(const StockCode& code, const QString& name) {
     clearCustomIndexMode();   // 退出自定义指数模式，图表回到 provider 拉取
     currentCode_ = code;
     currentName_ = name;
+    newWindowBtn_->setEnabled(code.isValid());
     // 保持当前周期，重新加载
     if (stack_->currentWidget() == timeline_) {
         timeline_->loadStock(code, name);
@@ -166,6 +194,7 @@ void CentralChartWidget::loadCustomIndex(const CustomIndex& idx) {
     customIndexCode_ = "CI" + idx.id;
     currentCode_ = StockCode(Market::US, customIndexCode_);
     currentName_ = QString::fromStdString(idx.name);
+    newWindowBtn_->setEnabled(currentCode_.isValid());   // 自定义指数也可开窗
 
     // 两个图进入外部数据模式：切周期/分时刷新都重算（主线程同步调用 reloadCustomIndexNow）
     kline_->setExternalReloader([this] { reloadCustomIndexNow(); });
@@ -270,6 +299,11 @@ void CentralChartWidget::refreshOverlayButton() {
 
 void CentralChartWidget::setChipButtonChecked(bool visible) {
     if (chipBtn_) chipBtn_->setChecked(visible);
+}
+
+void CentralChartWidget::emitOpenNewWindow() {
+    if (!currentCode_.isValid()) return;
+    emit openNewWindow(currentCode_, currentName_);
 }
 
 } // namespace st

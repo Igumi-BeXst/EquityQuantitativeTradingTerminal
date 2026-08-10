@@ -200,7 +200,9 @@ void MainWindow::createCentral() {
     centralStack_->addWidget(welcome);
 
     // 页 1: 图表（分时 ↔ K线 + 周期栏）
-    centralChart_ = new CentralChartWidget(provider_.get(), centralStack_);
+    // 注意 standalone 必须显式 false：CentralChartWidget(provider, bool, parent)
+    // 若把 centralStack_ 当第 2 参，QWidget* 会隐式转 bool → 误开 standalone 模式并丢 parent
+    centralChart_ = new CentralChartWidget(provider_.get(), /*standalone=*/false, centralStack_);
     centralStack_->addWidget(centralChart_);
 
     setCentralWidget(centralStack_);
