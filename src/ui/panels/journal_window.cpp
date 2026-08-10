@@ -10,6 +10,7 @@
 #include "foundation/stock_info.h"
 #include "foundation/utils/datetime.h"
 #include <QComboBox>
+#include <QDateTimeEdit>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
@@ -80,6 +81,12 @@ JournalEntryDialog::JournalEntryDialog(const FeeConfig& fees,
     feesSpin_->setValue(0.0);
     feesSpin_->setToolTip(tr("根据方向/价格/数量自动计算，可手动修改"));
     form->addRow(tr("费用："), feesSpin_);
+
+    // 成交时间（默认当前时间；盘中录入时改为真实成交时刻，分时图按此定位箭头）
+    timeEdit_ = new QDateTimeEdit(QDateTime::currentDateTime(), this);
+    timeEdit_->setDisplayFormat("yyyy-MM-dd HH:mm:ss");
+    timeEdit_->setCalendarPopup(true);
+    form->addRow(tr("时间："), timeEdit_);
 
     // 策略
     strategyEdit_ = new QLineEdit(this);
@@ -162,7 +169,6 @@ void JournalEntryDialog::recalcFees() {
 
 void JournalEntryDialog::setEntry(const JournalEntry& entry) {
     editId_ = entry.id;
-    editTime_ = entry.time;
     code_ = entry.code;
     name_ = QString::fromStdString(entry.name);
 
@@ -178,6 +184,9 @@ void JournalEntryDialog::setEntry(const JournalEntry& entry) {
     feesSpin_->setValue(entry.fees);
     strategyEdit_->setText(QString::fromStdString(entry.strategy));
     noteEdit_->setText(QString::fromStdString(entry.note));
+    // 回填成交时间（编辑模式；新建默认当前时间）
+    const std::time_t tt = std::chrono::system_clock::to_time_t(entry.time);
+    timeEdit_->setDateTime(QDateTime::fromSecsSinceEpoch(tt));
 }
 
 JournalEntry JournalEntryDialog::entry() const {
@@ -193,8 +202,10 @@ JournalEntry JournalEntryDialog::entry() const {
     e.fees = feesSpin_->value();
     e.strategy = strategyEdit_->text().toStdString();
     e.note = noteEdit_->text().toStdString();
-    // 编辑模式保留原时间，新建用当前时间
-    e.time = editId_.empty() ? utils::now() : editTime_;
+    // 时间用时间编辑框（默认当前时间，可改真实成交时刻；编辑模式也已回填原时间）
+    e.time = timeEdit_->dateTime().toSecsSinceEpoch() > 0
+        ? std::chrono::system_clock::from_time_t(timeEdit_->dateTime().toSecsSinceEpoch())
+        : utils::now();
     // 编辑模式保留原 id（传给 updateEntry 用），新建留空由引擎生成
     if (!editId_.empty()) {
         e.id = editId_;

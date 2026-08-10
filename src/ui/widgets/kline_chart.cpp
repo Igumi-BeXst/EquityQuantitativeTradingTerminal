@@ -1244,30 +1244,69 @@ void KLineChart::drawTradeMarks(QPainter& p) {
     }
 
     // 买卖箭头（红 ▲ 买 / 绿 ▼ 卖），按 markBarIndex_
+    // 箭头锚定在 K 线高低点之外（买在 bar 下方、卖在 bar 上方），不遮挡蜡烛实体
+    // 同一天（同一 bar）既有买又有卖的 → 只标 "T"（不画箭头，悬停浮框仍显示买卖明细）
     const double bw = bodyWidth();
     const double bodyHalf = std::min(0.35 * bw, 6.0);
     const QColor kBuyColor("#ff5252");   // 红买
     const QColor kSellColor("#00e676");  // 绿卖
+    const double kArrowOffset = bodyHalf * 2.2;   // 箭头与 K 线高低点间距
+    const double kTriSize = 5.0;
+
+    // 预扫描：每个 bar 是否有买/卖（用于判断是否画 T 并跳过箭头）
+    std::vector<std::pair<bool, bool>> hasBS(bars_.size(), {false, false});
     for (size_t i = 0; i < tradeMarks_.size(); ++i) {
         const int bi = markBarIndex_[i];
         if (bi < start || bi >= end) continue;
+        if (tradeMarks_[i].direction == Direction::Buy) hasBS[static_cast<size_t>(bi)].first = true;
+        else hasBS[static_cast<size_t>(bi)].second = true;
+    }
+    auto isTBar = [&](int bi) {
+        return hasBS[static_cast<size_t>(bi)].first &&
+               hasBS[static_cast<size_t>(bi)].second;
+    };
+
+    for (size_t i = 0; i < tradeMarks_.size(); ++i) {
+        const int bi = markBarIndex_[i];
+        if (bi < start || bi >= end) continue;
+        if (isTBar(bi)) continue;   // 同天有买有卖 → 只标 T，不画箭头
         const auto& m = tradeMarks_[i];
         const double cx = barCenterX(bi);
-        const double y = priceToY(m.price);
+        // 买：锚定 bar 低点之下；卖：锚定 bar 高点之上（不遮蜡烛）
+        const double anchorPrice = (m.direction == Direction::Buy)
+            ? bars_[static_cast<size_t>(bi)].low
+            : bars_[static_cast<size_t>(bi)].high;
+        const double y = priceToY(anchorPrice);
+        if (y < mainRect_.top() - 12 || y > mainRect_.bottom() + 12) continue;
         const QColor color = (m.direction == Direction::Buy) ? kBuyColor : kSellColor;
         p.setPen(QPen(color, 1));
         p.setBrush(color);
-        // 竖线 + 三角：买朝上（画 bar 上方），卖朝下（画 bar 下方）
-        const double up = (m.direction == Direction::Buy) ? -1.0 : 1.0;
-        const double len = bodyHalf * 2.2;
-        p.drawLine(QPointF(cx, y), QPointF(cx, y + up * len));
-        const double ax = cx, ay = y + up * len;
+        // 买：尖朝上（画在 bar 低点下方，指示低位买入）；卖：尖朝下（画在 bar 高点上方，指示高位卖出）
+        const double up = (m.direction == Direction::Buy) ? 1.0 : -1.0;   // 买在低点下方，卖在高点上方
+        const double baseY = y + up * kArrowOffset;   // 三角底边（靠外一侧）
         QPolygonF tri;
-        tri << QPointF(ax, ay + up * 4.5)
-            << QPointF(ax - 4.5, ay - up * 4.5)
-            << QPointF(ax + 4.5, ay - up * 4.5);
+        tri << QPointF(cx, baseY - up * kTriSize)      // 尖端（靠 bar 一侧）
+            << QPointF(cx - kTriSize, baseY + up * kTriSize)
+            << QPointF(cx + kTriSize, baseY + up * kTriSize);
         p.drawPolygon(tri);
     }
+
+    // "T" 标记：同一天（同一 bar）既有买又有卖 → 画 "T"（当日做过回转交易）
+    p.setPen(QPen(QColor("#ffd700"), 1));   // 金黄 "T"
+    p.setBrush(Qt::NoBrush);
+    QFont tf = p.font();
+    tf.setPixelSize(11);
+    tf.setBold(true);
+    p.setFont(tf);
+    for (int bi = start; bi < end; ++bi) {
+        if (!isTBar(bi)) continue;
+        const double cx = barCenterX(bi);
+        // "T" 画在 bar 高点之上、贴近 K 线（与买卖箭头同样紧贴）
+        const double yT = priceToY(bars_[static_cast<size_t>(bi)].high) - 16.0;
+        if (yT < mainRect_.top() + 4) continue;
+        p.drawText(QPointF(cx - 4.0, yT), QStringLiteral("T"));
+    }
+    p.setFont(f);   // 恢复原字体
 }
 
 // ============================================================

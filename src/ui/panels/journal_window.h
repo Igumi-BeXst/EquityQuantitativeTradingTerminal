@@ -16,6 +16,7 @@ class QComboBox;
 class QDoubleSpinBox;
 class QSpinBox;
 class QLabel;
+class QDateTimeEdit;
 
 namespace st {
 class EquityCurveWidget;
@@ -56,12 +57,12 @@ private:
     QDoubleSpinBox* feesSpin_ = nullptr;
     QLineEdit* strategyEdit_ = nullptr;
     QLineEdit* noteEdit_ = nullptr;
+    QDateTimeEdit* timeEdit_ = nullptr;   // 成交时间（默认当前时间，可改真实成交时刻）
 
     StockCode code_;
     QString name_;
     FeeConfig feesConfig_;
     std::string editId_;     // 非空 = 编辑模式
-    DateTime editTime_{};    // 编辑模式保 留原时间
 };
 
 /// 费率设置对话框 — 四行 QDoubleSpinBox（佣金/最低佣金/印花税/过户费）
