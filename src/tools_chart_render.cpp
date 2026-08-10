@@ -2,6 +2,8 @@
 #include "ui/widgets/kline_chart.h"
 #include "ui/widgets/time_line_chart.h"
 #include "data/provider_factory.h"
+#include "engine/journal/trade_journal_store.h"
+#include "core/app_paths.h"
 #include "core/log_manager.h"
 #include <QApplication>
 #include <QTimer>
@@ -16,6 +18,7 @@ using namespace st;
 
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
+    app.setApplicationName("StockTerminal");   // 与主程序一致，configDir 指向 StockTerminal/config
     LogManager::instance()->init("logs/chart_render.log");
 
     auto provider = makeDataProvider();
@@ -31,6 +34,30 @@ int main(int argc, char* argv[]) {
     timeline.resize(900, 520);
     timeline.loadStock(code, "贵州茅台");
     timeline.hide();
+
+    // 交易标记诊断：从真实日志加载 SH600519 的标记 + 持仓成本线
+    std::cout << "[诊断] configDir=" << AppPaths::configDir() << std::endl;
+    TradeJournalEngine journal;
+    TradeJournalStore store;
+    store.load(AppPaths::configDir() + "/trade_journal.json", journal);
+    const auto allEntries = journal.entries();
+    std::cout << "[诊断] 日志条目数=" << allEntries.size() << std::endl;
+    const auto marks = collectTradeMarks(allEntries, StockCode(Market::SH, "600519"));
+    const auto holdings = deriveHoldings(allEntries, StockCode(Market::SH, "600519"));
+    std::cout << "[诊断] SH600519 标记数=" << marks.size()
+              << " 持仓线数=" << holdings.size() << std::endl;
+    for (const auto& m : marks) {
+        std::cout << "  标记: " << m.code.fullCode() << " dir="
+                  << static_cast<int>(m.direction) << " price=" << m.price
+                  << " vol=" << m.volume << " type=" << static_cast<int>(m.type)
+                  << std::endl;
+    }
+    for (const auto& h : holdings) {
+        std::cout << "  持仓线: type=" << static_cast<int>(h.type)
+                  << " qty=" << h.quantity << " avgCost=" << h.avgCost << std::endl;
+    }
+    kline.setTradeMarks(marks, holdings);
+    timeline.setTradeMarks(marks);
 
     QTimer::singleShot(3500, &app, [&] {
         auto countColor = [](const QImage& img, const QColor& target, int tol) {
@@ -53,6 +80,9 @@ int main(int argc, char* argv[]) {
                   << " 绿=" << countColor(img, QColor(0x2e,0x9e,0x5b), 30)
                   << " 黄(MA/MACD-DEA)=" << countColor(img, QColor(0xff,0xd5,0x4f), 30)
                   << " 橙(BOLL)=" << countColor(img, QColor(0xff,0x8a,0x65), 40)
+                  << " 青(成本线#00e5ff)=" << countColor(img, QColor(0x00,0xe5,0xff), 40)
+                  << " 买红(#ff5252)=" << countColor(img, QColor(0xff,0x52,0x52), 40)
+                  << " T金(#ffd700)=" << countColor(img, QColor(0xff,0xd7,0x00), 25)
                   << std::endl;
 
         // 2. 关 BOLL → 橙像素应大幅下降
