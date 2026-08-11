@@ -1,19 +1,13 @@
 #include "ui/panels/sector_panel.h"
-#include "ui/utils/table_csv_export.h"
 #include "core/thread_pool.h"
 #include "foundation/tick.h"
-#include <QButtonGroup>
-#include <QColor>
-#include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
 #include <QMetaObject>
 #include <QPointer>
-#include <QPushButton>
 #include <QStackedWidget>
-#include <QTableWidget>
+#include <QTableView>
 #include <QTime>
-#include <QTimer>
 #include <QVBoxLayout>
 #include <algorithm>
 #include <unordered_map>
@@ -21,48 +15,21 @@
 
 namespace st {
 
-SectorPanel::SectorPanel(IDataProvider* provider, QWidget* parent)
-    : QWidget(parent), provider_(provider) {
+SectorListPage::SectorListPage(IDataProvider* provider, SectorType type, QWidget* parent)
+    : QWidget(parent), provider_(provider), type_(type) {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
     layout->setSpacing(4);
 
-    // 顶行：行业/概念 tab + 刷新 + 更新时间
+    // 顶行：更新时间（右上角小字）
     auto* topRow = new QHBoxLayout();
-    typeGroup_ = new QButtonGroup(this);
-    typeGroup_->setExclusive(true);
-    struct T { const char* label; SectorType type; };
-    const T tabs[] = {
-        {"行业板块", SectorType::Industry},
-        {"概念板块", SectorType::Concept},
-    };
-    for (const auto& tab : tabs) {
-        auto* btn = new QPushButton(QString::fromUtf8(tab.label));
-        btn->setCheckable(true);
-        btn->setFixedWidth(64);
-        typeGroup_->addButton(btn, static_cast<int>(tab.type));
-        topRow->addWidget(btn);
-    }
-    typeGroup_->button(static_cast<int>(SectorType::Industry))->setChecked(true);
-    connect(typeGroup_, &QButtonGroup::idClicked, this, [this](int id) {
-        setType(static_cast<SectorType>(id));
-    });
-    refreshBtn_ = new QPushButton(tr("刷新"));
-    refreshBtn_->setFixedWidth(44);
-    topRow->addWidget(refreshBtn_);
-    auto* exportBtn = new QPushButton(tr("导出"));
-    connect(exportBtn, &QPushButton::clicked, this, [this] {
-        st::ui::exportViewToCsv(table_, this, "sector_quotes.csv");
-    });
-    topRow->addWidget(exportBtn);
     topRow->addStretch();
     updateLabel_ = new QLabel(tr("--"));
     updateLabel_->setStyleSheet(QStringLiteral("color:#888888;"));
     topRow->addWidget(updateLabel_);
     layout->addLayout(topRow);
-    connect(refreshBtn_, &QPushButton::clicked, this, &SectorPanel::onRefresh);
 
-    // 板块榜单（TDX 全量源；QTableView + 模型虚拟化渲染，大表滚动只画可见行，避免卡死）
+    // 板块榜单（QTableView + SectorListModel 虚拟化渲染；模板同步涨跌幅榜——不设自定义 stylesheet）
     stack_ = new QStackedWidget(this);
     model_ = new SectorListModel(this);
     table_ = new QTableView(stack_);
@@ -71,12 +38,10 @@ SectorPanel::SectorPanel(IDataProvider* provider, QWidget* parent)
     table_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     table_->verticalHeader()->setVisible(false);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table_->setSelectionMode(QAbstractItemView::NoSelection);
+    table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setFocusPolicy(Qt::NoFocus);
     table_->setShowGrid(false);
-    table_->setStyleSheet(QStringLiteral(
-        "QTableView{background:#18181a;border:none;}"
-        "QHeaderView::section{background:#222225;color:#bbbbbb;border:none;padding:4px;}"));
+    // 注意：不设置自定义背景色（跟随应用主题，与涨跌幅榜一致）
     stack_->addWidget(table_);
     emptyLabel_ = new QLabel(tr("暂无板块数据"), stack_);
     emptyLabel_->setAlignment(Qt::AlignCenter);
@@ -84,66 +49,41 @@ SectorPanel::SectorPanel(IDataProvider* provider, QWidget* parent)
     stack_->addWidget(emptyLabel_);
     layout->addWidget(stack_, 1);
 
-    // 30s 自动刷新
-    timer_ = new QTimer(this);
-    timer_->setInterval(30000);
-    connect(timer_, &QTimer::timeout, this, &SectorPanel::onRefresh);
+    // 双击板块行 → 打开板块指数 K 线（与指数条行为一致；右侧盘口面板不设置）
+    connect(table_, &QTableView::doubleClicked, this, [this](const QModelIndex& idx) {
+        if (!idx.isValid() || !model_) return;
+        const auto& r = model_->rowAt(idx.row());
+        if (r.code.isValid()) emit openSectorChart(r.code, r.name);
+    });
 
-    onRefresh();  // 立即刷一次
+    // 构造时不自动拉取：刷新时机统一由 MarketPanel 错峰时钟调度（Task 3）
 }
 
-void SectorPanel::showEvent(QShowEvent* event) {
-    QWidget::showEvent(event);
-    if (timer_ && !timer_->isActive()) {
-        timer_->start();
-        onRefresh();
-    }
-}
+void SectorListPage::refresh() { fetch(); }
 
-void SectorPanel::hideEvent(QHideEvent* event) {
-    QWidget::hideEvent(event);
-    if (timer_) timer_->stop();
-}
-
-void SectorPanel::setType(SectorType type) {
-    if (type_ == type) return;
-    type_ = type;
-    // 有缓存先立即显示（免卡顿），再后台刷新保持新鲜
-    const auto it = cache_.find(type);
-    if (it != cache_.end()) applyRows(it->second);
-    fetchType(type);
-}
-
-void SectorPanel::refresh() { onRefresh(); }
-
-void SectorPanel::onRefresh() { fetchType(type_); }
-
-void SectorPanel::fetchType(SectorType type) {
-    if (!provider_ || fetching_[type]) return;  // 同类型在途则跳过（防重叠）
-    fetching_[type] = true;
+void SectorListPage::fetch() {
+    if (!provider_ || fetching_) return;  // 在途则跳过（防重叠）
+    fetching_ = true;
     const int seq = ++fetchSeq_;
     IDataProvider* provider = provider_;
-    QPointer<SectorPanel> guard(this);
-    ThreadPool::submitIO([provider, guard, seq, type] {
+    QPointer<SectorListPage> guard(this);
+    ThreadPool::submitIO([provider, guard, seq, type = type_] {
         auto rows = fetchRows(provider, type);
-        QMetaObject::invokeMethod(guard, [guard, seq, type, rows = std::move(rows)]() mutable {
-            guard->onRowsReady(type, seq, std::move(rows));
+        QMetaObject::invokeMethod(guard, [guard, seq, rows = std::move(rows)]() mutable {
+            guard->onRowsReady(seq, std::move(rows));
         }, Qt::QueuedConnection);
     });
 }
 
-void SectorPanel::onRowsReady(SectorType type, int seq, std::vector<SectorRow> rows) {
-    fetching_[type] = false;
-    if (seq <= lastSeq_[type]) return;  // 陈旧丢弃（切换/刷新竞态）
-    lastSeq_[type] = seq;
-    cache_[type] = std::move(rows);
-    if (type == type_) applyRows(cache_[type]);  // 当前类型才显示
-    // 不预取另一种类型：概念 438 个批量报价很重，后台预取会长时间占用 TDX 连接，
-    // 与市场面板刷新叠加导致应用卡死。首次切到某类型时现场拉取（异步，UI 不阻塞）。
+void SectorListPage::onRowsReady(int seq, std::vector<SectorRow> rows) {
+    fetching_ = false;
+    if (seq <= lastSeq_) return;  // 陈旧丢弃
+    lastSeq_ = seq;
+    cache_ = std::move(rows);
+    applyRows(cache_);
 }
 
-std::vector<SectorRow> SectorPanel::fetchRows(IDataProvider* provider,
-                                                           SectorType type) {
+std::vector<SectorRow> SectorListPage::fetchRows(IDataProvider* provider, SectorType type) {
     std::vector<SectorRow> rows;
     if (!provider) return rows;
     // 通达信板块指数全量（与叠加对话框同源同过滤：行业 8803xx-8804xx，概念 8805xx+）
@@ -172,6 +112,7 @@ std::vector<SectorRow> SectorPanel::fetchRows(IDataProvider* provider,
     rows.reserve(names.size());
     for (size_t i = 0; i < names.size(); ++i) {
         SectorRow r;
+        r.code = codes[i];      // 板块指数代码（双击开图用）
         r.name = names[i];
         const auto it = qmap.find(codes[i].displayCode());
         if (it != qmap.end() && it->second->lastPrice > 0) {
@@ -183,7 +124,7 @@ std::vector<SectorRow> SectorPanel::fetchRows(IDataProvider* provider,
     return rows;
 }
 
-void SectorPanel::applyRows(std::vector<SectorRow> rows) {
+void SectorListPage::applyRows(std::vector<SectorRow> rows) {
     const bool hasData = !rows.empty();  // 先判空（下面会 move 走）
     // 涨跌幅降序（全量展示，可滚动）
     std::sort(rows.begin(), rows.end(),
