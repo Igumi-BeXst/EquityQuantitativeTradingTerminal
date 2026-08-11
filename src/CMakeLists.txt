@@ -148,6 +148,7 @@ add_library(st_ui STATIC
     ui/models/grid_search_table_model.cpp
     ui/models/comparison_table_model.cpp
     ui/models/pattern_table_model.cpp
+    ui/utils/table_csv_export.cpp
 )
 target_link_libraries(st_ui PUBLIC st_engine st_intelligence Qt6::Widgets)
 
