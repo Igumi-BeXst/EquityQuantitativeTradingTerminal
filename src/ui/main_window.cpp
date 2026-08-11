@@ -257,6 +257,15 @@ void MainWindow::createDocks() {
         if (chipPanel_) chipPanel_->setStock(code, name);
     });
 
+    // 板块行双击 → 中央图表打开板块指数 K 线（与指数条行为一致：只开图，不动右侧面板）
+    connect(marketPanel_, &MarketPanel::openSectorChart, this,
+            [this](const StockCode& code, const QString& name) {
+                centralStack_->setCurrentWidget(centralChart_);
+                centralChart_->loadStock(code, name.isEmpty()
+                    ? QString::fromStdString(code.displayCode()) : name);
+                refreshTradeMarks();
+            });
+
     // 左: 自定义指数（独立 Dock，与市场竖排；建/编/删 + 实时点位 + 打开图表）
     customIndexDock_ = new QDockWidget(tr("自定义指数"), this);
     customIndexDock_->setObjectName(QStringLiteral("customIndexDock"));
