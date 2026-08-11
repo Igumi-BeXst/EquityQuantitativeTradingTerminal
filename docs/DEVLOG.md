@@ -1,5 +1,27 @@
 # 开发日志 (Development Log)
 
+## 2026-08-11 — P10 第十三轮：全量 CSV 导出
+
+### 需求
+补齐需求文档「工具 (P8)」中**数据导出CSV/Excel**剩余项。用户选定 = 全量 CSV 导出，6 面板全覆盖。此前仅回测面板（手工 CSV）+ K线单图表（klineToCsv）有导出，选股/市场/板块/资金/日志均无。
+
+### 实施
+- `foundation/utils/csv.{h,cpp}`：新增 `csv::tableToCsv(rows)` 纯函数——「表头+行数据」→ CSV 文本，**UTF-8 BOM**（`\xEF\xBB\xBF`）保证 Excel 中文不乱码；复用 `joinRow` 转义；空表仅 BOM
+- `ui/utils/table_csv_export.{h,cpp}`（NEW）：通用表格视图导出工具——`tableViewToCsv(QAbstractItemView*)`（表头=model->headerData 横向、单元格=data DisplayRole，QTableView/QTableWidget 统一）+ `exportViewToCsv(view, parent, defaultName)`（空表返回 false 不弹框；QFileDialog 保存；QFile 写 BOM；LogManager 记录）
+- 6 面板接入「导出」按钮：选股结果（resultView_/screener_result.csv）、市场全景（当前 tab 涨幅榜/跌幅榜 → gainersView_/losersView_/market_ranking.csv）、板块行情（table_/sector_quotes.csv）、资金数据（龙虎榜 FundsDragonTigerPanel + 融资融券 FundsMarginPanel 各一按钮 → funds_lhb.csv/funds_rzrq.csv）、交易日志（recordsTable_/journal_records.csv）
+- 回测面板**保留原导出逻辑**（现有 onExportClicked 含绩效指标 14 行 + 净值曲线 + 成交明细，多于表格内容，按 brief 规则不统一）
+- 测试：CsvExportTest 5 例（test_foundation）——基础表/逗号引号转义/空表仅BOM/数字不科学计数/多行字段包引号
+
+### 验证
+- 构建零警告；387 → **392**（Foundation 47 → 52，+5 CSV 导出）
+- 手动：6 面板导出 → CSV 用 Excel 打开中文正常（BOM）、列对齐、逗号/引号字段转义正确
+
+### 已知限制
+- 只做 CSV 不做 Excel(.xlsx)（CSV 可被 Excel 打开，覆盖需求；xlsx 需引库 v2 可选）
+- 市场面板第 3 个 tab（市场宽度）点导出导的是跌幅榜（losersView_），与当前视图无关（brief 给定代码；UX 语义缺口可 v2 优化）
+- 空表格时导出按钮静默无效（无提示；工具设计如此）
+- 回测面板保留的手工导出无 UTF-8 BOM（既有行为，与新版工具编码不一致，后续可统一）
+
 ## 2026-08-11 — P10 第十二轮：多窗口开图对比
 
 ### 需求

@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-08-11 — P10 第十三轮：全量 CSV 导出
+- 功能: 6 面板加「导出」按钮（选股结果/市场全景/板块行情/资金数据×2/交易日志）→ CSV 文件（UTF-8 BOM，Excel 中文正常）
+- 工具: `csv::tableToCsv`（foundation 纯函数，BOM + joinRow 转义）+ `ui/utils/table_csv_export`（QAbstractItemView 通用导出：QTableView/QTableWidget 统一）
+- 回测: 保留原有导出（含绩效指标+净值曲线，多于表格，不统一）
+- 测试 387 → 392：Foundation 47 → 52（CsvExportTest 5 例）
+- 已知限制: 只做 CSV 不做 xlsx；市场宽度 tab 导跌幅榜；空表按钮静默；回测导出无 BOM
+
 ## 2026-08-11 — P10 第十二轮：多窗口开图对比
 - 功能: 中央图表「新窗口」按钮 + 右键菜单「在新窗口打开」→ 独立图表窗口（ChartWindow：完整周期栏/叠加对比/交易标记，多实例可并存、可递归开窗）
 - 图表: CentralChartWidget 加 `standalone` 模式（独立窗口去筹码分布按钮）+ `currentName()` + `openNewWindow` 信号
