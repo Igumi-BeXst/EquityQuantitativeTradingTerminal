@@ -45,13 +45,12 @@ QVariant SectorListModel::data(const QModelIndex& index, int role) const {
                 default: return {};
             }
         case Qt::ForegroundRole:
-            if (index.column() == 1) {
+            if (index.column() == 1) {  // 涨跌幅列：红涨绿跌（与涨跌幅榜同色值）
                 return r.changePct >= 0.0
                     ? QColor(QString::fromUtf8(kUpColor))
                     : QColor(QString::fromUtf8(kDownColor));
             }
-            if (index.column() == 0) return QColor("#dddddd");
-            return QColor("#999999");
+            return {};  // 名称/成交额跟随应用主题默认色（模板同步涨跌幅榜，去掉硬编码灰）
         default:
             return {};
     }
@@ -66,6 +65,12 @@ QVariant SectorListModel::headerData(int section, Qt::Orientation orientation,
         case 2: return QStringLiteral("成交额");
         default: return {};
     }
+}
+
+const SectorRow& SectorListModel::rowAt(int row) const {
+    static const SectorRow kEmpty;  // 越界返回的空行（code.isValid()==false）
+    if (row < 0 || static_cast<size_t>(row) >= rows_.size()) return kEmpty;
+    return rows_[static_cast<size_t>(row)];
 }
 
 } // namespace st
