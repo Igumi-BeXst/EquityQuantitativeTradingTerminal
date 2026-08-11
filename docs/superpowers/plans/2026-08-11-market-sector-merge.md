@@ -95,6 +95,8 @@ git commit -m "refactor: 板块行携带代码 + rowAt 访问器 + 表格模板�
 **Files:**
 - Modify: `src/ui/panels/sector_panel.h`（整文件重写类定义）
 - Modify: `src/ui/panels/sector_panel.cpp`（整文件重写）
+- Modify: `src/ui/main_window.h`（移除 SectorPanel 前置声明与成员——类改名后编译必需）
+- Modify: `src/ui/main_window.cpp`（移除 include/板块 Dock/自定义指数改竖排——类改名后编译必需）
 
 **Interfaces:**
 - Produces: `class SectorListPage : public QWidget`（文件名不变），构造 `(IDataProvider*, SectorType type, QWidget* = nullptr)`；`void refresh()`；`SectorType type() const`；`QTableView* tableView() const`；signal `void openSectorChart(const StockCode& code, const QString& name)`。Task 3（MarketPanel）消费。
@@ -325,16 +327,58 @@ void SectorListPage::applyRows(std::vector<SectorRow> rows) {
 
 注意：`moc_sector_panel.cpp` 的 include 行保留（Q_OBJECT 类的 moc 文件名由源文件名决定，`sector_panel.cpp` 仍对应 `moc_sector_panel.cpp`，类名改了但文件名没变）。
 
-- [ ] **Step 3: 构建验证**
+- [ ] **Step 3: 同步清理 MainWindow 的 SectorPanel 引用（类改名后编译必需）**
+
+类改名后 `main_window` 仍引用旧类名 `SectorPanel`，必须同任务清理，否则整体编译失败（不能留到 Task 4，违反每任务可编译原则）。改 `src/ui/main_window.h`：
+
+```cpp
+// 前置声明区删除：
+class SectorPanel;
+// 成员区删除：
+    SectorPanel* sectorPanel_ = nullptr;
+```
+
+改 `src/ui/main_window.cpp`：
+- 删除 `#include "ui/panels/sector_panel.h"`（第 9 行）
+- 删除 `createDocks()` 中整个板块 Dock 块（现第 261-269 行，含注释）：
+
+```cpp
+    // 左: 板块前十榜单（市场面板下方；行业/概念涨跌幅 Top10 简单列表）
+    // [BISECT] 定位关闭堆损坏时曾临时禁用；根因实为陈旧对象/ABI 错位（全量重建已修复），面板本身无问题。
+    auto* sectorDock = new QDockWidget(tr("板块"), this);
+    sectorDock->setObjectName(QStringLiteral("sectorDock"));
+    sectorPanel_ = new SectorPanel(provider_.get(), sectorDock);
+    sectorDock->setWidget(sectorPanel_);
+    addDockWidget(Qt::LeftDockWidgetArea, sectorDock);
+    splitDockWidget(marketDock, sectorDock, Qt::Vertical);
+    sectorDock->setMinimumWidth(260);
+```
+
+- 自定义指数 Dock 的放置从「与板块 tabify」改为「与市场竖排 split」（现第 271-278 行；同块删除 `tabifyDockWidget(sectorDock, ...)` 引用，否则编译错）：
+
+```cpp
+    // 左: 自定义指数（独立 Dock，与市场竖排；建/编/删 + 实时点位 + 打开图表）
+    customIndexDock_ = new QDockWidget(tr("自定义指数"), this);
+    customIndexDock_->setObjectName(QStringLiteral("customIndexDock"));
+    customIndexPanel_ = new CustomIndexPanel(provider_.get(), customIndexDock_);
+    customIndexDock_->setWidget(customIndexPanel_);
+    addDockWidget(Qt::LeftDockWidgetArea, customIndexDock_);
+    splitDockWidget(marketDock, customIndexDock_, Qt::Vertical);  // 独立竖排（不再与板块 tabify）
+    customIndexDock_->setMinimumWidth(260);
+```
+
+- [ ] **Step 4: 构建验证**
 
 Run: `cmake --build --preset with-qt`
-Expected: 零错误零警告。若报 `SectorPanel` 未定义（MainWindow 仍引用旧类名），属预期，Task 4 清理。
+Expected: 零错误零警告（MainWindow 引用已在本任务清理，不应再有 `SectorPanel` 未定义错误）。
 
-- [ ] **Step 4: 提交**
+- [ ] **Step 5: 提交**
 
 ```bash
 git add src/ui/panels/sector_panel.h src/ui/panels/sector_panel.cpp
 git commit -m "refactor: SectorPanel 重构为 SectorListPage（固定类型/去chrome/双击开图信号）"
+git add src/ui/main_window.h src/ui/main_window.cpp
+git commit -m "refactor: 移除 MainWindow 板块 Dock（SectorPanel 类改名后的编译必需清理）"
 ```
 
 ---
@@ -473,64 +517,18 @@ git commit -m "feat: 市场窗口 4 平级 tab（涨幅/跌幅/行业/概念）+
 
 ---
 
-### Task 4: MainWindow — 删除板块 Dock、收敛刷新、连接板块开图
+### Task 4: MainWindow — 连接板块开图 + 收敛定时刷新
 
 **Files:**
-- Modify: `src/ui/main_window.h`
 - Modify: `src/ui/main_window.cpp`
 
 **Interfaces:**
 - Consumes: Task 3 的 `MarketPanel::openSectorChart` 信号。
+- Produces: 无新接口。
 
-**背景**：删除独立板块 Dock（及 `sectorPanel_` 成员），板块并入市场。自定义指数 Dock 改为与市场 Dock 竖排 split（不再与板块 tabify）。`runScheduledTask` 的刷新引用收敛为 `marketPanel_->refresh()`。新增板块开图连接：只 `loadStock` + `refreshTradeMarks`，不设置右侧盘口/关键数据/筹码（与指数条 `indexClicked` 行为一致）。
+**背景**：Task 2 已删除板块 Dock、`sectorPanel_` 成员、SectorPanel 引用（类改名编译必需）。本任务补上剩余接线：① 板块双击开图连接——只 `loadStock` + `refreshTradeMarks`，不设置右侧盘口/关键数据/筹码（与指数条 `indexClicked` 行为一致）；② `runScheduledTask` 的 `RefreshQuotes` 刷新引用收敛为 `marketPanel_->refresh()`（内部已错峰覆盖市场池 + 行业 + 概念）。
 
-- [ ] **Step 1: 改头文件 `main_window.h`**
-
-删除两处：
-```cpp
-// 前置声明区删除：
-class SectorPanel;
-// 成员区删除：
-    SectorPanel* sectorPanel_ = nullptr;
-```
-
-- [ ] **Step 2: 改实现 `main_window.cpp` — 删除板块 Dock**
-
-删除 include 与 Dock 创建块：
-
-```cpp
-// 第 9 行删除：
-#include "ui/panels/sector_panel.h"
-```
-
-删除 `createDocks()` 中整个板块 Dock 块（现第 261-269 行，含注释）：
-
-```cpp
-    // 左: 板块前十榜单（市场面板下方；行业/概念涨跌幅 Top10 简单列表）
-    // [BISECT] 定位关闭堆损坏时曾临时禁用；根因实为陈旧对象/ABI 错位（全量重建已修复），面板本身无问题。
-    auto* sectorDock = new QDockWidget(tr("板块"), this);
-    sectorDock->setObjectName(QStringLiteral("sectorDock"));
-    sectorPanel_ = new SectorPanel(provider_.get(), sectorDock);
-    sectorDock->setWidget(sectorPanel_);
-    addDockWidget(Qt::LeftDockWidgetArea, sectorDock);
-    splitDockWidget(marketDock, sectorDock, Qt::Vertical);
-    sectorDock->setMinimumWidth(260);
-```
-
-并把自定义指数 Dock 的放置从「与板块 tabify」改为「与市场竖排 split」（现第 271-278 行）：
-
-```cpp
-    // 左: 自定义指数（独立 Dock，与市场竖排；建/编/删 + 实时点位 + 打开图表）
-    customIndexDock_ = new QDockWidget(tr("自定义指数"), this);
-    customIndexDock_->setObjectName(QStringLiteral("customIndexDock"));
-    customIndexPanel_ = new CustomIndexPanel(provider_.get(), customIndexDock_);
-    customIndexDock_->setWidget(customIndexPanel_);
-    addDockWidget(Qt::LeftDockWidgetArea, customIndexDock_);
-    splitDockWidget(marketDock, customIndexDock_, Qt::Vertical);  // 独立竖排（不再与板块 tabify）
-    customIndexDock_->setMinimumWidth(260);
-```
-
-- [ ] **Step 3: 改实现 `main_window.cpp` — 板块开图连接**
+- [ ] **Step 1: 改实现 `main_window.cpp` — 板块开图连接**
 
 `marketDock` 创建后、`connect(marketPanel_, &MarketPanel::openChart, ...)` 之后追加：
 
@@ -545,9 +543,9 @@ class SectorPanel;
             });
 ```
 
-- [ ] **Step 4: 改实现 `main_window.cpp` — 定时刷新收敛**
+- [ ] **Step 2: 改实现 `main_window.cpp` — 定时刷新收敛**
 
-`runScheduledTask` 的 `RefreshQuotes` 分支（现第 538-544 行）删除 `sectorPanel_` 行：
+`runScheduledTask` 的 `RefreshQuotes` 分支（原第 538-544 行；Task 2 删除板块 Dock 后行号可能偏移，按内容 `if (sectorPanel_) sectorPanel_->refresh();` 匹配）删除 `sectorPanel_` 行：
 
 ```cpp
     case ScheduledTaskType::RefreshQuotes:
@@ -556,21 +554,21 @@ class SectorPanel;
         break;
 ```
 
-- [ ] **Step 5: 全仓清理旧类名引用**
+- [ ] **Step 3: 全仓清理旧类名引用**
 
 Run: `grep -rn "sectorPanel_\|SectorPanel" src/`
-Expected: 仅剩 `sector_panel.{h,cpp}` 内的 `SectorListPage` 自身（`SectorPanel` 字样应无残留）。若有遗漏（如其它面板/窗口引用），逐一改名为 `SectorListPage` 并修正用法。
+Expected: 无残留（Task 2 已清理）。若有遗漏，逐一改名为 `SectorListPage` 并修正用法。
 
-- [ ] **Step 6: 构建验证**
+- [ ] **Step 4: 构建验证**
 
 Run: `cmake --build --preset with-qt`
 Expected: 零错误零警告。
 
-- [ ] **Step 7: 提交**
+- [ ] **Step 5: 提交**
 
 ```bash
-git add src/ui/main_window.h src/ui/main_window.cpp
-git commit -m "refactor: 删除独立板块 Dock，板块并入市场窗口；自定义指数独立竖排；板块开图轻量连接"
+git add src/ui/main_window.cpp
+git commit -m "refactor: 板块开图轻量连接 + 定时刷新收敛为 marketPanel（板块并入市场收尾）"
 ```
 
 ---
