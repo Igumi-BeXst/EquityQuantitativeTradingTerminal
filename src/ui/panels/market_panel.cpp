@@ -56,13 +56,15 @@ MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
     auto* exportBtn = new QPushButton(tr("导出"));
     connect(exportBtn, &QPushButton::clicked, this, [this] {
         QAbstractItemView* view = nullptr;
-        switch (tabs_->currentIndex()) {
-            case 0: view = gainersView_; break;
-            case 1: view = losersView_; break;
-            case 2: view = industryPage_ ? industryPage_->tableView() : nullptr; break;
-            case 3: view = conceptPage_ ? conceptPage_->tableView() : nullptr; break;
-            default: break;
-        }
+        const int cur = tabs_->currentIndex();
+        if (cur == 0)
+            view = gainersView_;
+        else if (cur == 1)
+            view = losersView_;
+        else if (cur == tabs_->indexOf(industryPage_) && industryPage_)
+            view = industryPage_->tableView();
+        else if (cur == tabs_->indexOf(conceptPage_) && conceptPage_)
+            view = conceptPage_->tableView();
         if (view) st::ui::exportViewToCsv(view, this, "market_ranking.csv");
     });
     topRow->addWidget(exportBtn);
@@ -106,8 +108,8 @@ MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
             this, &MarketPanel::onOpenSectorChart);
     // 切到板块 tab：立即后台刷新（缓存已由错峰轮询保持新鲜，此刷新覆盖首次/过期数据）
     connect(tabs_, &QTabWidget::currentChanged, this, [this](int index) {
-        if (index == 2 && industryPage_) industryPage_->refresh();
-        else if (index == 3 && conceptPage_) conceptPage_->refresh();
+        if (index == tabs_->indexOf(industryPage_) && industryPage_) industryPage_->refresh();
+        else if (index == tabs_->indexOf(conceptPage_) && conceptPage_) conceptPage_->refresh();
     });
 
     // 市场宽度

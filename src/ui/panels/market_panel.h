@@ -22,10 +22,9 @@ class MarketRankModel;
 class SectorListPage;
 struct MarketRankItem;
 
-/// 市场全景面板 — 涨幅榜/跌幅榜/市场宽度（实时 batchQuote 轻量方案）
-///
-/// 池 = 精选 129 只；QTimer 10s + 手动刷新；refreshing_ 防重叠 + gen_ 防陈旧回写。
-/// 双击行 → openChart(StockCode) 打开 K 线图。
+/// 市场全景面板 — 4 tab（涨幅榜/跌幅榜/行业板块/概念板块）+ 市场宽度常驻底部
+/// 统一 30s 错峰刷新：市场池 t=0、行业 +1s、概念 +2s；板块走交互优先级 batchQuoteInteractive。
+/// 板块行双击 → openSectorChart（轻量开图，不动右侧盘口面板）。
 class MarketPanel : public QWidget {
     Q_OBJECT
 
