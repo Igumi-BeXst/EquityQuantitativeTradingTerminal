@@ -1,4 +1,5 @@
 #include "ui/panels/sector_panel.h"
+#include "ui/utils/table_csv_export.h"
 #include "core/thread_pool.h"
 #include <QButtonGroup>
 #include <QColor>
@@ -61,6 +62,11 @@ SectorPanel::SectorPanel(QWidget* parent)
     refreshBtn_ = new QPushButton(tr("刷新"));
     refreshBtn_->setFixedWidth(44);
     topRow->addWidget(refreshBtn_);
+    auto* exportBtn = new QPushButton(tr("导出"));
+    connect(exportBtn, &QPushButton::clicked, this, [this] {
+        st::ui::exportViewToCsv(table_, this, "sector_quotes.csv");
+    });
+    topRow->addWidget(exportBtn);
     topRow->addStretch();
     updateLabel_ = new QLabel(tr("--"));
     updateLabel_->setStyleSheet(QStringLiteral("color:#888888;"));

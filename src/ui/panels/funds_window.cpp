@@ -1,4 +1,5 @@
 #include "ui/panels/funds_window.h"
+#include "ui/utils/table_csv_export.h"
 #include "data/eastmoney_funds_provider.h"
 #include "data/idata_provider.h"
 #include "core/thread_pool.h"
@@ -52,6 +53,11 @@ FundsDragonTigerPanel::FundsDragonTigerPanel(
     auto* refreshBtn = new QPushButton(tr("刷新"), this);
     connect(refreshBtn, &QPushButton::clicked, this, &FundsDragonTigerPanel::refresh);
     topRow->addWidget(refreshBtn);
+    auto* exportBtn = new QPushButton(tr("导出"), this);
+    connect(exportBtn, &QPushButton::clicked, this, [this] {
+        st::ui::exportViewToCsv(table_, this, "funds_lhb.csv");
+    });
+    topRow->addWidget(exportBtn);
     topRow->addStretch();
     layout->addLayout(topRow);
 
@@ -150,8 +156,18 @@ FundsMarginPanel::FundsMarginPanel(
     layout->setSpacing(4);
 
     stockLabel_ = new QLabel(tr("选择股票以查看两融明细"), this);
-    layout->addWidget(stockLabel_);
     overview_ = new QLabel(this);
+
+    auto* topRow = new QHBoxLayout();
+    topRow->addWidget(stockLabel_);
+    topRow->addStretch();
+    auto* exportBtn = new QPushButton(tr("导出"), this);
+    connect(exportBtn, &QPushButton::clicked, this, [this] {
+        st::ui::exportViewToCsv(table_, this, "funds_rzrq.csv");
+    });
+    topRow->addWidget(exportBtn);
+    layout->addLayout(topRow);
+
     layout->addWidget(overview_);
 
     table_ = new QTableWidget(0, 5, this);

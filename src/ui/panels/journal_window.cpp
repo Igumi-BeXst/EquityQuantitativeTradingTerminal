@@ -1,4 +1,5 @@
 #include "ui/panels/journal_window.h"
+#include "ui/utils/table_csv_export.h"
 #include "ui/panels/stock_search_bar.h"
 #include "ui/widgets/equity_curve_widget.h"
 #include "data/idata_provider.h"
@@ -329,6 +330,13 @@ JournalWindow::JournalWindow(std::shared_ptr<TradeJournalEngine> journal,
     // 费率设置按钮
     auto* feeBtn = new QPushButton(tr("费率设置"), recordsPage);
     toolRow->addWidget(feeBtn);
+
+    // 导出按钮
+    auto* exportBtn = new QPushButton(tr("导出"), recordsPage);
+    connect(exportBtn, &QPushButton::clicked, this, [this] {
+        st::ui::exportViewToCsv(recordsTable_, this, "journal_records.csv");
+    });
+    toolRow->addWidget(exportBtn);
 
     filter_ = new QLineEdit(recordsPage);
     filter_->setPlaceholderText(tr("筛选 代码/名称/策略/注解"));

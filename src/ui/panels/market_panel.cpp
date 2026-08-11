@@ -1,4 +1,5 @@
 #include "ui/panels/market_panel.h"
+#include "ui/utils/table_csv_export.h"
 #include "ui/models/market_rank_model.h"
 #include "data/idata_provider.h"
 #include "data/akshare_provider.h"
@@ -46,10 +47,18 @@ MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
     layout->setContentsMargins(6, 6, 6, 6);
     layout->setSpacing(6);
 
-    // 刷新按钮
+    // 刷新按钮 + 导出当前 tab
     auto* topRow = new QHBoxLayout();
     refreshBtn_ = new QPushButton(tr("刷新"));
     topRow->addWidget(refreshBtn_);
+    auto* exportBtn = new QPushButton(tr("导出"));
+    connect(exportBtn, &QPushButton::clicked, this, [this] {
+        QAbstractItemView* view = (tabs_->currentIndex() == 0)
+            ? static_cast<QAbstractItemView*>(gainersView_)
+            : static_cast<QAbstractItemView*>(losersView_);
+        st::ui::exportViewToCsv(view, this, "market_ranking.csv");
+    });
+    topRow->addWidget(exportBtn);
     topRow->addStretch();
     layout->addLayout(topRow);
     connect(refreshBtn_, &QPushButton::clicked, this, &MarketPanel::refresh);

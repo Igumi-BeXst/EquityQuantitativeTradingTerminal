@@ -1,4 +1,5 @@
 #include "ui/panels/screener_panel.h"
+#include "ui/utils/table_csv_export.h"
 #include "ui/models/screen_result_model.h"
 #include "data/idata_provider.h"
 #include "data/data_cache.h"
@@ -121,6 +122,11 @@ ScreenerPanel::ScreenerPanel(IDataProvider* provider, QWidget* parent)
     progress_->setValue(0);
     progress_->setVisible(false);
     runRow->addWidget(runBtn_);
+    auto* exportBtn = new QPushButton(tr("导出"));
+    connect(exportBtn, &QPushButton::clicked, this, [this] {
+        st::ui::exportViewToCsv(resultView_, this, "screener_result.csv");
+    });
+    runRow->addWidget(exportBtn);
     runRow->addWidget(progress_, 1);
     fl->addRow(runRow);
     layout->addWidget(form);
