@@ -1,6 +1,7 @@
 #include "ui/panels/sector_panel.h"
 #include "ui/utils/table_csv_export.h"
 #include "core/thread_pool.h"
+#include "foundation/tick.h"
 #include <QButtonGroup>
 #include <QColor>
 #include <QHBoxLayout>
@@ -15,26 +16,13 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <algorithm>
+#include <unordered_map>
 #include <utility>
 
 namespace st {
 
-namespace {
-
-constexpr char kUpColor[] = "#e54648";    // 红涨
-constexpr char kDownColor[] = "#2e9e5b";  // 绿跌
-
-/// 成交额（元）→ 亿/万
-QString amountText(double yuan) {
-    if (yuan >= 1e8) return QStringLiteral("%1亿").arg(yuan / 1e8, 0, 'f', 1);
-    if (yuan >= 1e4) return QStringLiteral("%1万").arg(yuan / 1e4, 0, 'f', 1);
-    return QStringLiteral("%1").arg(yuan, 0, 'f', 0);
-}
-
-}  // namespace
-
-SectorPanel::SectorPanel(QWidget* parent)
-    : QWidget(parent), provider_(std::make_shared<EastMoneySectorProvider>()) {
+SectorPanel::SectorPanel(IDataProvider* provider, QWidget* parent)
+    : QWidget(parent), provider_(provider) {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
     layout->setSpacing(4);
@@ -74,12 +62,11 @@ SectorPanel::SectorPanel(QWidget* parent)
     layout->addLayout(topRow);
     connect(refreshBtn_, &QPushButton::clicked, this, &SectorPanel::onRefresh);
 
-    // 前十榜单（列表，替代全量 treemap 热力图）
+    // 板块榜单（TDX 全量源；QTableView + 模型虚拟化渲染，大表滚动只画可见行，避免卡死）
     stack_ = new QStackedWidget(this);
-    table_ = new QTableWidget(0, 4, stack_);
-    table_->setHorizontalHeaderLabels(
-        {QStringLiteral("板块"), QStringLiteral("涨跌幅"),
-         QStringLiteral("领涨股"), QStringLiteral("成交额")});
+    model_ = new SectorListModel(this);
+    table_ = new QTableView(stack_);
+    table_->setModel(model_);
     table_->horizontalHeader()->setStretchLastSection(true);
     table_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     table_->verticalHeader()->setVisible(false);
@@ -88,8 +75,7 @@ SectorPanel::SectorPanel(QWidget* parent)
     table_->setFocusPolicy(Qt::NoFocus);
     table_->setShowGrid(false);
     table_->setStyleSheet(QStringLiteral(
-        "QTableWidget{background:#18181a;border:none;}"
-        "QTableWidget::item{padding:2px 6px;border-bottom:1px solid #242426;}"
+        "QTableView{background:#18181a;border:none;}"
         "QHeaderView::section{background:#222225;color:#bbbbbb;border:none;padding:4px;}"));
     stack_->addWidget(table_);
     emptyLabel_ = new QLabel(tr("暂无板块数据"), stack_);
@@ -122,75 +108,96 @@ void SectorPanel::hideEvent(QHideEvent* event) {
 void SectorPanel::setType(SectorType type) {
     if (type_ == type) return;
     type_ = type;
-    ++gen_;  // 丢弃在途旧类型响应
-    busy_ = false;
-    onRefresh();
+    // 有缓存先立即显示（免卡顿），再后台刷新保持新鲜
+    const auto it = cache_.find(type);
+    if (it != cache_.end()) applyRows(it->second);
+    fetchType(type);
 }
 
 void SectorPanel::refresh() { onRefresh(); }
 
-void SectorPanel::onRefresh() {
-    if (busy_ || !provider_) return;
-    busy_ = true;
-    const int gen = ++gen_;
-    const SectorType type = type_;
-    // 安全异步：shared_ptr 按值捕获 + QPointer 守卫回主线程
-    auto provider = provider_;
+void SectorPanel::onRefresh() { fetchType(type_); }
+
+void SectorPanel::fetchType(SectorType type) {
+    if (!provider_ || fetching_[type]) return;  // 同类型在途则跳过（防重叠）
+    fetching_[type] = true;
+    const int seq = ++fetchSeq_;
+    IDataProvider* provider = provider_;
     QPointer<SectorPanel> guard(this);
-    ThreadPool::submitIO([provider, guard, gen, type] {
-        auto boards = provider->fetchBoards(type);
-        QMetaObject::invokeMethod(guard,
-            [guard, gen, boards = std::move(boards)]() mutable {
-                guard->busy_ = false;
-                if (gen != guard->gen_) return;
-                guard->applyBoards(std::move(boards));
-            }, Qt::QueuedConnection);
+    ThreadPool::submitIO([provider, guard, seq, type] {
+        auto rows = fetchRows(provider, type);
+        QMetaObject::invokeMethod(guard, [guard, seq, type, rows = std::move(rows)]() mutable {
+            guard->onRowsReady(type, seq, std::move(rows));
+        }, Qt::QueuedConnection);
     });
 }
 
-void SectorPanel::applyBoards(std::vector<SectorBoard> boards) {
-    // 涨跌幅降序 → 仅展示前 10
-    std::sort(boards.begin(), boards.end(),
-              [](const SectorBoard& a, const SectorBoard& b) {
+void SectorPanel::onRowsReady(SectorType type, int seq, std::vector<SectorRow> rows) {
+    fetching_[type] = false;
+    if (seq <= lastSeq_[type]) return;  // 陈旧丢弃（切换/刷新竞态）
+    lastSeq_[type] = seq;
+    cache_[type] = std::move(rows);
+    if (type == type_) applyRows(cache_[type]);  // 当前类型才显示
+    // 不预取另一种类型：概念 438 个批量报价很重，后台预取会长时间占用 TDX 连接，
+    // 与市场面板刷新叠加导致应用卡死。首次切到某类型时现场拉取（异步，UI 不阻塞）。
+}
+
+std::vector<SectorRow> SectorPanel::fetchRows(IDataProvider* provider,
+                                                           SectorType type) {
+    std::vector<SectorRow> rows;
+    if (!provider) return rows;
+    // 通达信板块指数全量（与叠加对话框同源同过滤：行业 8803xx-8804xx，概念 8805xx+）
+    auto isType = [type](const std::string& c) {
+        if (c.size() < 6) return false;
+        if (type == SectorType::Industry) {
+            return c.compare(0, 3, "880") == 0 && c >= "880300" && c < "880500";
+        }
+        return c.compare(0, 3, "880") == 0 && c >= "880500";
+    };
+    const auto sectors = provider->getSectorIndices();
+    std::vector<StockCode> codes;
+    std::vector<QString> names;
+    codes.reserve(sectors.size());
+    names.reserve(sectors.size());
+    for (const auto& s : sectors) {
+        if (!isType(s.code.code())) continue;
+        codes.push_back(s.code);
+        names.push_back(QString::fromUtf8(s.name.c_str()));
+    }
+    auto quotes = provider->batchQuoteInteractive(codes);
+    std::unordered_map<std::string, const Quote*> qmap;
+    qmap.reserve(quotes.size());
+    for (const auto& q : quotes) qmap[q.code.displayCode()] = &q;
+
+    rows.reserve(names.size());
+    for (size_t i = 0; i < names.size(); ++i) {
+        SectorRow r;
+        r.name = names[i];
+        const auto it = qmap.find(codes[i].displayCode());
+        if (it != qmap.end() && it->second->lastPrice > 0) {
+            r.changePct = it->second->change;
+            r.amount = it->second->amount;
+        }
+        rows.push_back(std::move(r));
+    }
+    return rows;
+}
+
+void SectorPanel::applyRows(std::vector<SectorRow> rows) {
+    const bool hasData = !rows.empty();  // 先判空（下面会 move 走）
+    // 涨跌幅降序（全量展示，可滚动）
+    std::sort(rows.begin(), rows.end(),
+              [](const SectorRow& a, const SectorRow& b) {
                   return a.changePct > b.changePct;
               });
-    boards.resize(std::min<size_t>(boards.size(), 10));
+    if (model_) model_->setRows(std::move(rows));  // 模型一次 reset，虚拟化渲染
 
-    table_->setRowCount(static_cast<int>(boards.size()));
-    for (size_t i = 0; i < boards.size(); ++i) {
-        const auto& b = boards[i];
-        const QString color = b.changePct >= 0.0
-            ? QString::fromUtf8(kUpColor) : QString::fromUtf8(kDownColor);
-
-        auto* nameItem = new QTableWidgetItem(QString::fromUtf8(b.name.c_str()));
-        nameItem->setForeground(QColor("#dddddd"));
-
-        auto* pctItem = new QTableWidgetItem(
-            QStringLiteral("%1%").arg(b.changePct, 0, 'f', 2));
-        pctItem->setForeground(QColor(color));
-
-        QString lead = QString::fromUtf8(b.leadingStock.c_str());
-        if (!b.leadingStock.empty() && b.leadingChangePct != 0.0) {
-            lead += QStringLiteral(" %1%").arg(b.leadingChangePct, 0, 'f', 2);
-        }
-        auto* leadItem = new QTableWidgetItem(lead);
-        leadItem->setForeground(QColor("#999999"));
-
-        auto* amountItem = new QTableWidgetItem(amountText(b.amount));
-        amountItem->setForeground(QColor("#999999"));
-
-        table_->setItem(static_cast<int>(i), 0, nameItem);
-        table_->setItem(static_cast<int>(i), 1, pctItem);
-        table_->setItem(static_cast<int>(i), 2, leadItem);
-        table_->setItem(static_cast<int>(i), 3, amountItem);
-    }
-
-    stack_->setCurrentWidget(boards.empty()
-        ? static_cast<QWidget*>(emptyLabel_)
-        : static_cast<QWidget*>(table_));
+    stack_->setCurrentWidget(hasData
+        ? static_cast<QWidget*>(table_)
+        : static_cast<QWidget*>(emptyLabel_));
     const auto now = QTime::currentTime().toString("HH:mm:ss");
-    updateLabel_->setText(boards.empty() ? tr("获取失败 %1").arg(now)
-                                         : tr("更新 %1").arg(now));
+    updateLabel_->setText(hasData ? tr("更新 %1").arg(now)
+                                  : tr("获取失败 %1").arg(now));
 }
 
 } // namespace st

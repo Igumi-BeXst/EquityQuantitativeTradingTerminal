@@ -1,5 +1,15 @@
 # 变更记录
 
+## 2026-08-11 — 板块窗口改用通达信板块指数全量源（去掉领涨股列 + 切换缓存）
+- 修复: 板块窗口原用东财 clist（被 IP 封锁）→ 新浪兜底（行业仅 49 个）→ 数据不全
+- 数据: SectorPanel 改用 `IDataProvider::getSectorIndices()`（TDX 板块指数，实测行业 132 / 概念 438 全量）+ `batchQuote`（涨跌幅/成交额，132/132 有效报价）——与叠加对比对话框同源同过滤
+- UI: 表格 4 列 → 3 列（板块/涨跌幅/成交额），移除领涨股列（TDX 简单报价不提供）；涨跌幅降序全量展示（可滚动）
+- **切换优化 + 卡死修复**:
+  - 每类型结果缓存 + 每类型 seq 去陈旧 → 重复切换即显示缓存不卡顿
+  - **交互优先级**（TdxProvider InteractiveGuard + yieldToInteractive）：批量报价在 chunk 间让位于交互请求；板块面板用 `batchQuoteInteractive` 抢占市场批量刷新（实测批量运行中交互批量 **635ms** 完成）
+  - **绘制卡死修复**：QTableWidget 438 行大表在 app 完整环境（Win11 样式）下滚动触发 Qt 绘制死循环（gdb 定位主线程卡在 Qt6Gui/Widgets 绘制路径）→ 板块榜单改用 **QTableView + SectorListModel**（虚拟化渲染，只画可见行），卡死消除
+- 实测: TDX 板块指数 652 个全量抓取 + 报价有效，远超新浪 49 个
+
 ## 2026-08-11 — P10 第十三轮：全量 CSV 导出
 - 功能: 6 面板加「导出」按钮（选股结果/市场全景/板块行情/资金数据×2/交易日志）→ CSV 文件（UTF-8 BOM，Excel 中文正常）
 - 工具: `csv::tableToCsv`（foundation 纯函数，BOM + joinRow 转义）+ `ui/utils/table_csv_export`（QAbstractItemView 通用导出：QTableView/QTableWidget 统一）

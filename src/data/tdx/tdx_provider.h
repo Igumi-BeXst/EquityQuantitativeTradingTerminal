@@ -38,6 +38,8 @@ public:
                              DateTime start, DateTime end) override;
     std::optional<IntradayData> getIntraday(const StockCode& code) override;
     std::vector<Quote> batchQuote(const std::vector<StockCode>& codes) override;
+    /// 交互优先批量报价：用户主动请求（板块面板等）标记为交互，可抢占后台批量刷新
+    std::vector<Quote> batchQuoteInteractive(const std::vector<StockCode>& codes);
     std::optional<MarketDepth> getMarketDepth(const StockCode& code) override;
     std::vector<Tick> getTransactions(const StockCode& code, int limit = 50) override;
     /// 全天逐笔成交明细（0x0FC5 分页拉全当日，含买卖方向；最新在前）。
@@ -61,6 +63,23 @@ private:
         bool ok = false;
         std::vector<uint8_t> payload;  // 已解压
     };
+
+    /// 交互请求（K线/分时/盘口/板块面板）RAII 守卫：在途计数 +1，析构归零并唤醒批量循环。
+    /// 批量报价（batchQuote）在 chunk 间等待计数归零 → 交互请求优先插入连接。
+    struct InteractiveGuard {
+        explicit InteractiveGuard(TdxProvider* p) : p_(p) { p_->interactiveWaiters_.fetch_add(1); }
+        ~InteractiveGuard() {
+            if (p_->interactiveWaiters_.fetch_sub(1) == 1) {
+                std::lock_guard<std::mutex> lk(p_->bulkMutex_);
+                p_->bulkCv_.notify_one();
+            }
+        }
+        TdxProvider* p_;
+    };
+    /// 批量循环在 chunk 间等待交互请求排空（最多 ~500ms，避免异常时永久暂停）
+    void yieldToInteractive();
+    /// 批量报价核心循环；yield=true 时 chunk 间让位于交互请求
+    std::vector<Quote> batchQuoteImpl(const std::vector<StockCode>& codes, bool yield);
 
     Resp executeCommand(tdx::Cmd cmd, const std::vector<uint8_t>& req,
                         int timeoutMs);
@@ -113,6 +132,11 @@ private:
     size_t quoteChunk_ = 80;  // 服务器单次报价批上限（实测 200 只请求返回 80）
     int pollIntervalMs_ = 5000;
     static constexpr uint16_t kMaxBarsPerRequest = 800;
+
+    // ---- 交互优先级（batchQuote 让位于 K线/分时/盘口/板块面板）----
+    std::atomic<int> interactiveWaiters_{0};
+    std::mutex bulkMutex_;
+    std::condition_variable bulkCv_;
 };
 
 } // namespace st

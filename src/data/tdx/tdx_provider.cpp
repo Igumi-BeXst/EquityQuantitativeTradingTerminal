@@ -199,6 +199,19 @@ TdxProvider::Resp TdxProvider::executeCommand(tdx::Cmd cmd,
     return r;
 }
 
+void TdxProvider::yieldToInteractive() {
+    // 有交互请求在途（K线/分时/盘口/板块面板）时暂停批量循环，直到其排空；
+    // 空闲时立即返回（零开销）。上限 ~500ms 防交互请求异常卡住时批量永久停顿。
+    std::unique_lock<std::mutex> lk(bulkMutex_);
+    bulkCv_.wait_for(lk, std::chrono::milliseconds(500),
+                     [this] { return interactiveWaiters_.load() == 0; });
+}
+
+std::vector<Quote> TdxProvider::batchQuoteInteractive(const std::vector<StockCode>& codes) {
+    InteractiveGuard guard(this);  // 交互优先：可抢占后台批量刷新
+    return batchQuoteImpl(codes, /*yield=*/false);  // 自身已是交互，不再自我让步
+}
+
 void TdxProvider::heartbeatLoop() {
     while (true) {
         {
@@ -248,6 +261,7 @@ std::vector<Bar> TdxProvider::fetchBarsRaw(const StockCode& code, BarPeriod peri
 
 std::vector<Bar> TdxProvider::getBars(const StockCode& code, BarPeriod period,
                                       DateTime start, DateTime end) {
+    InteractiveGuard guard(this);  // 交互优先
     if (tdx::tdxMarket(code.market()) < 0 || tdx::klineCategory(period) < 0) {
         return {};
     }
@@ -366,6 +380,7 @@ std::vector<Bar> TdxProvider::qfqAdjust(std::vector<Bar> bars,
 // 分时
 // ============================================================
 std::optional<IntradayData> TdxProvider::getIntraday(const StockCode& code) {
+    InteractiveGuard guard(this);  // 交互优先
     // 0x0FC5 逐笔成交明细 → 分页拉全当日 → 按分钟聚合 → IntradayData。
     // （0x051D 当日分时响应在此服务器为非标准变体，pytdx 同失败，弃用）
     const int mkt = tdx::tdxMarket(code.market());
@@ -480,6 +495,10 @@ std::optional<IntradayData> TdxProvider::getIntraday(const StockCode& code) {
 // 实时报价
 // ============================================================
 std::vector<Quote> TdxProvider::batchQuote(const std::vector<StockCode>& codes) {
+    return batchQuoteImpl(codes, /*yield=*/true);
+}
+
+std::vector<Quote> TdxProvider::batchQuoteImpl(const std::vector<StockCode>& codes, bool yield) {
     std::vector<Quote> out;
     out.reserve(codes.size());
     std::vector<std::pair<uint8_t, std::string>> chunk;
@@ -515,9 +534,9 @@ std::vector<Quote> TdxProvider::batchQuote(const std::vector<StockCode>& codes) 
         chunk.emplace_back(static_cast<uint8_t>(mkt), code.code());
         if (chunk.size() >= quoteChunk_) {
             flush();
-            // 每个 chunk 间让出片刻：TDX 连接为每命令加锁，等待中的交互请求
-            // （选股 getBars / 盘口）得以插入，避免全市场批量报价长时间独占连接。
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            // 每个 chunk 间让位：若有交互请求（K线/分时/盘口/板块面板）在途，暂停到其排空，
+            // 避免全市场批量报价长时间独占连接、饿死交互加载。交互版不自让。
+            if (yield) yieldToInteractive();
         }
     }
     flush();
@@ -525,6 +544,7 @@ std::vector<Quote> TdxProvider::batchQuote(const std::vector<StockCode>& codes) 
 }
 
 std::optional<MarketDepth> TdxProvider::getMarketDepth(const StockCode& code) {
+    InteractiveGuard guard(this);  // 交互优先
     const int mkt = tdx::tdxMarket(code.market());
     if (mkt < 0) return std::nullopt;
     const auto req = tdx::buildQuoteReq({{static_cast<uint8_t>(mkt), code.code()}});
@@ -545,6 +565,7 @@ std::optional<MarketDepth> TdxProvider::getMarketDepth(const StockCode& code) {
 }
 
 std::vector<Tick> TdxProvider::getTransactions(const StockCode& code, int limit) {
+    InteractiveGuard guard(this);  // 交互优先
     const int mkt = tdx::tdxMarket(code.market());
     if (mkt < 0 || limit <= 0) return {};
     const auto req = tdx::buildTransactionReq(static_cast<uint8_t>(mkt), code.code(), 0,
@@ -560,6 +581,7 @@ std::vector<Tick> TdxProvider::getTransactions(const StockCode& code, int limit)
 }
 
 std::vector<Tick> TdxProvider::getDayTransactions(const StockCode& code) {
+    InteractiveGuard guard(this);  // 交互优先
     const int mkt = tdx::tdxMarket(code.market());
     if (mkt < 0) return {};
     // 0x0FC5：start 为「从当日末尾倒数」的偏移（start=0 最新），分页向前拉全当日
@@ -603,6 +625,7 @@ std::vector<Tick> TdxProvider::toTicks(const StockCode& code,
 // 股票列表 / 基本信息
 // ============================================================
 std::vector<StockInfo> TdxProvider::loadStockList(Market market) {
+    InteractiveGuard guard(this);  // 交互优先（搜索/列表）
     const int mkt = tdx::tdxMarket(market);
     if (mkt < 0) return {};
     {
@@ -651,6 +674,7 @@ std::vector<StockInfo> TdxProvider::getStockList(Market market) {
 }
 
 std::vector<StockInfo> TdxProvider::getSectorIndices() {
+    InteractiveGuard guard(this);  // 交互优先（板块面板）
     {
         std::lock_guard<std::mutex> lk(sectorMutex_);
         if (!sectorIndices_.empty()) return sectorIndices_;

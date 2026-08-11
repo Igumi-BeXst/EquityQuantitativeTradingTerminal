@@ -262,7 +262,7 @@ void MainWindow::createDocks() {
     // [BISECT] 定位关闭堆损坏时曾临时禁用；根因实为陈旧对象/ABI 错位（全量重建已修复），面板本身无问题。
     auto* sectorDock = new QDockWidget(tr("板块"), this);
     sectorDock->setObjectName(QStringLiteral("sectorDock"));
-    sectorPanel_ = new SectorPanel(sectorDock);
+    sectorPanel_ = new SectorPanel(provider_.get(), sectorDock);
     sectorDock->setWidget(sectorPanel_);
     addDockWidget(Qt::LeftDockWidgetArea, sectorDock);
     splitDockWidget(marketDock, sectorDock, Qt::Vertical);

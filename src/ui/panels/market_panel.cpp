@@ -100,9 +100,10 @@ MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
     addLabel(0, 1, tr("下跌"), dec_);
     addLabel(1, 0, tr("平盘"), flat_);
     addLabel(1, 1, tr("涨跌比"), ratio_);
-    tabs_->addTab(breadthBox, tr("市场宽度"));
 
     layout->addWidget(tabs_, 1);
+    // 市场宽度常驻底部（不占 tab，免切换即见）
+    layout->addWidget(breadthBox);
 
     // 定时刷新
     timer_ = new QTimer(this);

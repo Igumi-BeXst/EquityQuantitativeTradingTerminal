@@ -88,6 +88,14 @@ std::vector<Quote> MultiProvider::batchQuote(const std::vector<StockCode>& codes
     return {};
 }
 
+std::vector<Quote> MultiProvider::batchQuoteInteractive(const std::vector<StockCode>& codes) {
+    IDataProvider* p = preferred();
+    auto quotes = p->batchQuoteInteractive(codes);
+    if (!quotes.empty()) return quotes;
+    if (IDataProvider* o = other(p)) return o->batchQuoteInteractive(codes);
+    return {};
+}
+
 std::optional<IntradayData> MultiProvider::getIntraday(const StockCode& code) {
     IDataProvider* p = preferred();
     if (auto r = p->getIntraday(code)) return r;

@@ -45,6 +45,11 @@ public:
 
     /// 批量实时报价（市场面板/模拟交易轮询用）
     virtual std::vector<Quote> batchQuote(const std::vector<StockCode>& codes) = 0;
+    /// 交互优先批量报价：用户主动请求（板块面板）标记为交互，可抢占后台批量刷新。
+    /// 默认等价 batchQuote；TDX 实现走交互优先级。
+    virtual std::vector<Quote> batchQuoteInteractive(const std::vector<StockCode>& codes) {
+        return batchQuote(codes);
+    }
 
     /// 当日分时数据（分时图用）
     virtual std::optional<IntradayData> getIntraday(const StockCode& code) = 0;

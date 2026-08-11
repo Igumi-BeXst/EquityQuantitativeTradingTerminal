@@ -27,6 +27,7 @@ public:
     void subscribeQuote(const StockCode& code) override;
     void unsubscribeQuote(const StockCode& code) override;
     std::vector<Quote> batchQuote(const std::vector<StockCode>& codes) override;
+    std::vector<Quote> batchQuoteInteractive(const std::vector<StockCode>& codes) override;
     std::optional<IntradayData> getIntraday(const StockCode& code) override;
     std::optional<MarketDepth> getMarketDepth(const StockCode& code) override;
     std::vector<Tick> getTransactions(const StockCode& code, int limit = 50) override;
