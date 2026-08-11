@@ -1,5 +1,26 @@
 # 开发日志 (Development Log)
 
+## 2026-08-11 — P10 第十四轮：市场窗口合并板块窗口
+
+### 需求
+把独立的板块窗口合并进市场窗口作为平级 tab，统一刷新机制、减少 Dock 数量。用户选定本轮 = 市场窗口合并板块：4 平级 tab（涨幅榜/跌幅榜/行业板块/概念板块）+ 统一错峰刷新 + 板块双击开图 + 板块表模板同步涨幅榜；自定义指数 Dock 独立竖排。
+
+### 实施
+- `ui/panels/market_panel.{h,cpp}`：MarketPanel 由双 tab（涨幅榜/跌幅榜）重构为 4-tab（涨幅榜/跌幅榜/行业板块/概念板块）；市场宽度仍固定底栏；新增 `refresh()` 公开方法统一入口——行业/概念板块表用 TDX `getSectorIndices`（880xxx 全量源，行业 132 / 概念 438）+ `batchQuoteInteractive` 获取行情；新增 `buildSectorTab(type)`——创建 QTableView + SectorListModel（固定类型列，虚拟化渲染），双击行 `emitStockSelected(code, name, MarketType::Sector)`
+- `ui/panels/sector_list_page.{h,cpp}`（NEW）：SectorListModel（QAbstractTableModel：3 列「板块/涨跌幅%/成交额」，table-driven ColMeta 列映射，SectorRow 存储，`setRows` 整表替换 + `data/sort` 委托）+ SectorListPage（QWidget 组装 QHeaderView + QTableView + 排序切换 + 双击板开图信号）
+- `ui/panels/sector_panel.{h,cpp}`：SectorPanel 独立 Dock 移除——面板逻辑内嵌到 MarketPanel 的行业/概念 tab 中；原先独立的 `refresh()`/`batchQuoteInteractive` 调用链关闭
+- `ui/main_window.{h,cpp}`：`customIndexPanel_` Dock 从与 sector 水平分拆改为独立竖排（`splitDockWidget(marketDock_, customIndexPanel_, Qt::Vertical)`）；移除 sectorDock 的 register/visibility/toggleViewAction 调用；`RefreshQuotes` 定时任务简化为只调 `marketPanel_->refresh()`
+- 刷新错峰：MarketPanel::refresh() 内——市场池 `batchQuoteInteractive` 立即发起 t=0；行业 +1s `QTimer::singleShot`；概念 +2s `QTimer::singleShot`；seq 去陈旧防重复刷新
+- 视觉同步：行业/概念板块表模板同步涨幅榜——移除硬编码黑底灰字、跟随 app 主题、涨跌幅列红涨绿跌
+
+### 验证
+- 构建零警告；392 全绿（纯 UI 重构+装配，无引擎/数据层变更，无新增单测）
+- GUI 冒烟由用户手动执行（见 task-5-report.md 附录清单）
+
+### 已知限制
+- 市场宽度 tab 仍固定在底部（非平级 tab），因宽度数据与排名共用行情池
+- 双击板块开 K 线图不联动右侧盘口/关键数据面板（绑定主窗口中央图表交互；v2 可加信号）
+
 ## 2026-08-11 — P10 第十三轮：全量 CSV 导出
 
 ### 需求
