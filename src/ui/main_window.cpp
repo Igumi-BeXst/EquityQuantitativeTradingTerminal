@@ -6,7 +6,6 @@
 #include "ui/widgets/central_chart_widget.h"
 #include "ui/panels/stock_search_bar.h"
 #include "ui/panels/market_panel.h"
-#include "ui/panels/sector_panel.h"
 #include "ui/panels/quant_window.h"
 #include "ui/panels/funds_window.h"
 #include "ui/panels/journal_window.h"
@@ -258,23 +257,13 @@ void MainWindow::createDocks() {
         if (chipPanel_) chipPanel_->setStock(code, name);
     });
 
-    // 左: 板块前十榜单（市场面板下方；行业/概念涨跌幅 Top10 简单列表）
-    // [BISECT] 定位关闭堆损坏时曾临时禁用；根因实为陈旧对象/ABI 错位（全量重建已修复），面板本身无问题。
-    auto* sectorDock = new QDockWidget(tr("板块"), this);
-    sectorDock->setObjectName(QStringLiteral("sectorDock"));
-    sectorPanel_ = new SectorPanel(provider_.get(), sectorDock);
-    sectorDock->setWidget(sectorPanel_);
-    addDockWidget(Qt::LeftDockWidgetArea, sectorDock);
-    splitDockWidget(marketDock, sectorDock, Qt::Vertical);
-    sectorDock->setMinimumWidth(260);
-
-    // 左: 自定义指数（与板块 tab 并列；建/编/删 + 实时点位 + 打开图表）
+    // 左: 自定义指数（独立 Dock，与市场竖排；建/编/删 + 实时点位 + 打开图表）
     customIndexDock_ = new QDockWidget(tr("自定义指数"), this);
     customIndexDock_->setObjectName(QStringLiteral("customIndexDock"));
     customIndexPanel_ = new CustomIndexPanel(provider_.get(), customIndexDock_);
     customIndexDock_->setWidget(customIndexPanel_);
     addDockWidget(Qt::LeftDockWidgetArea, customIndexDock_);
-    tabifyDockWidget(sectorDock, customIndexDock_);  // 与板块同 tab
+    splitDockWidget(marketDock, customIndexDock_, Qt::Vertical);  // 独立竖排（不再与板块 tabify）
     customIndexDock_->setMinimumWidth(260);
     connect(customIndexPanel_, &CustomIndexPanel::openChart, this,
             [this](const CustomIndex& idx) {
@@ -539,7 +528,6 @@ void MainWindow::runScheduledTask(ScheduledTask& t) {
     switch (t.type) {
     case ScheduledTaskType::RefreshQuotes:
         if (marketPanel_) marketPanel_->refresh();
-        if (sectorPanel_) sectorPanel_->refresh();
         t.lastResult = "刷新行情完成";
         break;
 

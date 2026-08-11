@@ -31,7 +31,6 @@ class QuantWindow;
 class MarketDepthWidget;
 class StockKeyDataWidget;
 class ChipPanel;
-class SectorPanel;
 class TaskScheduler;
 class TaskWindow;
 struct ScheduledTask;
@@ -89,7 +88,6 @@ private:
     MarketIndexStrip* indexStrip_ = nullptr;
     StockSearchBar* searchBar_ = nullptr;
     MarketPanel* marketPanel_ = nullptr;
-    SectorPanel* sectorPanel_ = nullptr;
     CentralChartWidget* centralChart_ = nullptr;
     QStackedWidget* centralStack_ = nullptr;
     std::vector<QPointer<ChartWindow>> chartWindows_;   // 独立图表窗口（QPointer 自动置空）
