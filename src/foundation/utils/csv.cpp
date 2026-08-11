@@ -27,6 +27,15 @@ std::string joinRow(const std::vector<std::string>& cols) {
     return os.str();
 }
 
+std::string tableToCsv(const std::vector<std::vector<std::string>>& rows) {
+    std::ostringstream os;
+    os << "\xEF\xBB\xBF";   // UTF-8 BOM：Excel 中文不乱码
+    for (const auto& row : rows) {
+        os << joinRow(row) << '\n';
+    }
+    return os.str();
+}
+
 std::string klineToCsv(const std::vector<Bar>& bars) {
     std::ostringstream os;
     os << "日期,开盘,最高,最低,收盘,成交量(股),成交额(元),换手率\n";

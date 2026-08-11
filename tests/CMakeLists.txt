@@ -8,6 +8,7 @@ add_executable(test_foundation
     test_foundation/test_indicators.cpp
     test_foundation/test_pinyin.cpp
     test_foundation/test_csv.cpp
+    test_foundation/test_csv_export.cpp
     test_foundation/test_scheduled_task.cpp
 )
 target_link_libraries(test_foundation PRIVATE st_foundation GTest::gtest GTest::gtest_main)
