@@ -19,6 +19,7 @@ namespace st {
 class IDataProvider;
 class AKShareProvider;
 class MarketRankModel;
+class SectorListPage;
 struct MarketRankItem;
 
 /// 市场全景面板 — 涨幅榜/跌幅榜/市场宽度（实时 batchQuote 轻量方案）
@@ -36,6 +37,8 @@ public:
 
 signals:
     void openChart(const StockCode& code, const QString& name);
+    /// 板块指数开图（双击板块行；右侧盘口/关键数据/筹码面板保持不动）
+    void openSectorChart(const StockCode& code, const QString& name);
 
 private slots:
     void onQuotesReady(const std::vector<Quote>& quotes);
@@ -43,6 +46,7 @@ private slots:
 private:
     void onGainersDoubleClicked(const QModelIndex& index);
     void onLosersDoubleClicked(const QModelIndex& index);
+    void onOpenSectorChart(const StockCode& code, const QString& name);
 
     /// 异步拉取显示股票的东财换手率，回填排名表
     void requestTurnover(const std::vector<MarketRankItem>& items);
@@ -68,6 +72,9 @@ private:
     QLabel* flat_ = nullptr;
     QLabel* ratio_ = nullptr;
     QPushButton* refreshBtn_ = nullptr;
+
+    SectorListPage* industryPage_ = nullptr;   // 行业板块 tab
+    SectorListPage* conceptPage_ = nullptr;    // 概念板块 tab
 };
 
 } // namespace st

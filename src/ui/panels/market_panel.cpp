@@ -1,6 +1,8 @@
 #include "ui/panels/market_panel.h"
 #include "ui/utils/table_csv_export.h"
 #include "ui/models/market_rank_model.h"
+#include "ui/panels/sector_panel.h"          // SectorListPage
+#include "data/eastmoney_sector_provider.h"  // SectorType
 #include "data/idata_provider.h"
 #include "data/akshare_provider.h"
 #include "data/curated_stocks.h"
@@ -53,10 +55,15 @@ MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
     topRow->addWidget(refreshBtn_);
     auto* exportBtn = new QPushButton(tr("导出"));
     connect(exportBtn, &QPushButton::clicked, this, [this] {
-        QAbstractItemView* view = (tabs_->currentIndex() == 0)
-            ? static_cast<QAbstractItemView*>(gainersView_)
-            : static_cast<QAbstractItemView*>(losersView_);
-        st::ui::exportViewToCsv(view, this, "market_ranking.csv");
+        QAbstractItemView* view = nullptr;
+        switch (tabs_->currentIndex()) {
+            case 0: view = gainersView_; break;
+            case 1: view = losersView_; break;
+            case 2: view = industryPage_ ? industryPage_->tableView() : nullptr; break;
+            case 3: view = conceptPage_ ? conceptPage_->tableView() : nullptr; break;
+            default: break;
+        }
+        if (view) st::ui::exportViewToCsv(view, this, "market_ranking.csv");
     });
     topRow->addWidget(exportBtn);
     topRow->addStretch();
@@ -87,6 +94,21 @@ MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
     tabs_->addTab(losersView_, tr("跌幅榜"));
     connect(losersView_, &QTableView::doubleClicked,
             this, &MarketPanel::onLosersDoubleClicked);
+
+    // 板块榜单页（固定类型；TDX 全量；刷新由统一错峰时钟调度，见 refresh()）
+    industryPage_ = new SectorListPage(provider_, SectorType::Industry, this);
+    tabs_->addTab(industryPage_, tr("行业板块"));
+    conceptPage_ = new SectorListPage(provider_, SectorType::Concept, this);
+    tabs_->addTab(conceptPage_, tr("概念板块"));
+    connect(industryPage_, &SectorListPage::openSectorChart,
+            this, &MarketPanel::onOpenSectorChart);
+    connect(conceptPage_, &SectorListPage::openSectorChart,
+            this, &MarketPanel::onOpenSectorChart);
+    // 切到板块 tab：立即后台刷新（缓存已由错峰轮询保持新鲜，此刷新覆盖首次/过期数据）
+    connect(tabs_, &QTabWidget::currentChanged, this, [this](int index) {
+        if (index == 2 && industryPage_) industryPage_->refresh();
+        else if (index == 3 && conceptPage_) conceptPage_->refresh();
+    });
 
     // 市场宽度
     auto* breadthBox = new QGroupBox(tr("市场宽度"));
@@ -162,6 +184,11 @@ void MarketPanel::refresh() {
             guard->onQuotesReady(quotes);
         }, Qt::QueuedConnection);
     });
+
+    // 统一错峰：市场池 t=0（上面），行业 +1s，概念 +2s（板块走 batchQuoteInteractive
+    // 交互优先级，不与批量队列竞争；singleShot 以 this 为 context，本面板销毁即取消）
+    QTimer::singleShot(1000, this, [this] { if (industryPage_) industryPage_->refresh(); });
+    QTimer::singleShot(2000, this, [this] { if (conceptPage_) conceptPage_->refresh(); });
 }
 
 void MarketPanel::onQuotesReady(const std::vector<Quote>& quotes) {
@@ -252,6 +279,11 @@ void MarketPanel::onLosersDoubleClicked(const QModelIndex& index) {
     const auto& item = losersModel_->itemAt(index.row());
     emit openChart(item.code, QString::fromUtf8(item.name.c_str(),
                                                static_cast<int>(item.name.size())));
+}
+
+void MarketPanel::onOpenSectorChart(const StockCode& code, const QString& name) {
+    // 板块指数开图：转发给 MainWindow 的轻量处理（只 loadStock，不设置右侧面板）
+    emit openSectorChart(code, name);
 }
 
 } // namespace st
