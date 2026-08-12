@@ -10,6 +10,7 @@ add_executable(test_foundation
     test_foundation/test_csv.cpp
     test_foundation/test_csv_export.cpp
     test_foundation/test_scheduled_task.cpp
+    test_foundation/test_watchlist_store.cpp
 )
 target_link_libraries(test_foundation PRIVATE st_foundation GTest::gtest GTest::gtest_main)
 gtest_discover_tests(test_foundation)

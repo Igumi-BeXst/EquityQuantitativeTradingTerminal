@@ -14,6 +14,7 @@ add_library(st_foundation STATIC
     foundation/utils/csv.cpp
     foundation/scheduler/scheduled_task.cpp
     foundation/scheduler/scheduled_task_store.cpp
+    foundation/utils/watchlist_store.cpp
 )
 target_include_directories(st_foundation PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(st_foundation PUBLIC nlohmann_json::nlohmann_json)
@@ -149,6 +150,7 @@ add_library(st_ui STATIC
     ui/models/grid_search_table_model.cpp
     ui/models/comparison_table_model.cpp
     ui/models/pattern_table_model.cpp
+    ui/models/watchlist_model.cpp
     ui/utils/table_csv_export.cpp
 )
 target_link_libraries(st_ui PUBLIC st_engine st_intelligence Qt6::Widgets)
