@@ -1,5 +1,21 @@
 # 开发日志 (Development Log)
 
+## 2026-08-12 — P10 第十六轮：K线区间统计（全套指标 + 弹窗表格）
+
+### 需求
+补齐需求文档「工具 (P8)」区间统计功能项。用户选定 = K线图上拖拽选区间，弹窗展示全套统计（涨跌幅/最高最低/振幅/天数/量额/换手/均价），选区高亮保留、多窗口自动生效。
+
+### 实施
+- `engine/analyzer/range_statistics.{h,cpp}`（NEW）：RangeStats + computeRangeStats —— 纯 C++17 无 Qt 依赖，闭区间 [from,to] 统计，无效 bar 跳过、基准=首个有效 open、量额比均价、除零守卫，全无效区间返回 nullopt
+- `ui/widgets/kline_chart.{h,cpp}`：DrawMode 加 Range（控制条「区间统计」按钮同组互斥）——按下记起点、拖拽选区高亮（半透明块+两端虚线+首末日期）、松开发 `rangeSelected(bars,from,to)`；弹窗关闭高亮保留；切股/切周期/清除标注/退出模式清选区；坐标锚定 bar 索引随平移缩放稳定
+- `ui/widgets/range_stats_dialog.{h,cpp}`（NEW）：RangeStatsDialog 模态表格（指标/数值两列 10 行，涨跌幅/振幅红涨绿跌，量额 手/万/亿 格式化）
+- `ui/widgets/central_chart_widget.{h,cpp}`：接 rangeSelected → 弹窗（标题「股票名（周期）」）；独立图表窗口共用 CentralChartWidget 自动生效
+- 测试：RangeStatisticsTest 8 例（test_engine）——正常区间全字段/单根/降序/越界/空/无效跳过/全无效 nullopt/均价除零
+
+### 验证
+- 构建零警告；Engine 158 → **166**（+8 RangeStatisticsTest），总计 → **407** 全绿
+- GUI 冒烟由用户手动执行（选区→弹窗、单根、换区间、高亮保留、清除时机、多窗口）
+
 ## 2026-08-12 — P10 第十五轮：自选股列表 + 板块成分股下钻 + 市场收编视图菜单
 
 ### 需求

@@ -1,5 +1,11 @@
 # 变更记录
 
+## 2026-08-12 — P10 第十六轮：K线区间统计（全套指标 + 弹窗表格）
+- 区间统计引擎: `RangeStats` + `computeRangeStats`（engine/analyzer/range_statistics，纯 C++17 无 Qt 依赖）——闭区间 [from,to] 统计，无效 bar 跳过、基准=首个有效 open、量额比均价、除零守卫，全无效区间返回 nullopt
+- 图表交互: KLineChart DrawMode 加 Range（控制条「区间统计」按钮）——拖拽选区高亮（半透明块+两端虚线+首末日期）、松开发 `rangeSelected(bars,from,to)`；弹窗关闭高亮保留；切股/切周期/清除标注/退出模式清选区；坐标锚定 bar 索引随平移缩放稳定
+- 弹窗: RangeStatsDialog 模态表格（指标/数值 2 列 10 行，涨跌幅/振幅红涨绿跌，量额 手/万/亿 格式化）；CentralChartWidget 接 rangeSelected → 弹窗（标题「股票名（周期）」），独立图表窗口共用自动生效
+- 测试: Engine 158 → 166（+8 RangeStatisticsTest），总计 → 407 全绿
+
 ## 2026-08-12 — P10 第十五轮：自选股列表 + 板块成分股下钻 + 市场收编视图菜单
 - 自选股: WatchlistStore（foundation 层 JSON 持久化，纯 C++17 可单测）+ WatchlistModel（3 列 QAbstractTableModel 行情表 涨跌幅红涨绿跌）+ WatchlistPanel（左侧主 Dock + 10s 交互优先级刷新 + 双击开图 / 右键移除）
 - 图表同步: 周期栏「加入自选」checkable 按钮 —— 已在自选显示「已在自选」；经 currentCodeChanged / watchlistChanged 双重同步，切换股时按钮状态随自选列表自动更新
