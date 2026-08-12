@@ -1420,7 +1420,7 @@ void KLineChart::mouseReleaseEvent(QMouseEvent* event) {
     if (event->button() == Qt::LeftButton && drawMode_ == DrawMode::Range &&
         rangeDragging_) {
         rangeDragging_ = false;
-        unsetCursor();
+        setCursor(Qt::CrossCursor);
         const int cur = indexAtX(event->pos().x());
         rangeFrom_ = std::min(rangeDragStart_, cur);
         rangeTo_ = std::max(rangeDragStart_, cur);
