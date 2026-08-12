@@ -23,13 +23,14 @@ SectorConstituentsDialog::SectorConstituentsDialog(IDataProvider* provider,
     setMinimumSize(520, 480);
 
     auto* layout = new QVBoxLayout(this);
-    auto* title = new QLabel(tr("加载 %1 成分股…").arg(boardName), this);
-    title->setStyleSheet(QStringLiteral("color:#888888;"));
-    layout->addWidget(title);
+    title_ = new QLabel(tr("加载 %1 成分股…").arg(boardName), this);
+    title_->setStyleSheet(QStringLiteral("color:#888888;"));
+    layout->addWidget(title_);
 
     model_ = new MarketRankModel(this);
     table_ = new QTableView(this);
     table_->setModel(model_);
+    table_->setColumnHidden(4, true);  // 隐藏换手率列（TDX 行情无此数据）
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->horizontalHeader()->setStretchLastSection(true);
@@ -112,6 +113,7 @@ void SectorConstituentsDialog::onQuotesReady(std::vector<Quote> quotes) {
         items.push_back(std::move(it));
     }
     if (model_) model_->setItems(items);
+    if (title_) title_->hide();
     setWindowTitle(tr("成分股 — %1（%2）").arg(boardName_).arg(items.size()));
 }
 

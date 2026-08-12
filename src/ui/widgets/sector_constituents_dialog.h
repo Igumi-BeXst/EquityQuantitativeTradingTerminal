@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
+class QLabel;
 class QTableView;
 
 namespace st {
@@ -35,6 +36,7 @@ private:
 
     IDataProvider* provider_ = nullptr;
     QString boardName_;
+    QLabel* title_ = nullptr;
     QTableView* table_ = nullptr;
     MarketRankModel* model_ = nullptr;
     int fetchSeq_ = 0;
