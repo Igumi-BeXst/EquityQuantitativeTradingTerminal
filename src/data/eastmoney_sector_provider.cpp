@@ -86,8 +86,10 @@ std::vector<SectorBoard> EastMoneySectorProvider::fetchBoards(SectorType type) {
 }
 
 std::vector<SectorBoard> EastMoneySectorProvider::fetchEastMoneyBoards(SectorType type) {
-    // 主域偶发限流（返回空），回退编号子域（东财负载均衡节点，ulist.np 同主机群）
+    // 主域偶发限流（返回空），回退编号子域（东财负载均衡节点，ulist.np 同主机群）。
+    // push2delay（延时主机）实测可用（2026-08 主域封锁期），置首位优先。
     static const char* kHosts[] = {
+        "push2delay.eastmoney.com",
         "push2.eastmoney.com",
         "2.push2.eastmoney.com",
         "1.push2.eastmoney.com",

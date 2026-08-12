@@ -22,6 +22,16 @@ namespace {
 constexpr int kTimeoutMs = 10000;
 constexpr int kFundCacheSeconds = 30;  // 东财 A 股整表缓存时长
 
+/// 东财 push2 集群多主机回退表：push2delay（延时主机）实测可用（2026-08 主域封锁期）
+/// 置首位；其余编号子域与主域作后备。ulist/clist 共用同一主机群。
+const char* kEastMoneyPush2Hosts[] = {
+    "push2delay.eastmoney.com",
+    "push2.eastmoney.com",
+    "1.push2.eastmoney.com",
+    "2.push2.eastmoney.com",
+    "3.push2.eastmoney.com",
+};
+
 /// 线程本地 QNetworkAccessManager（NoProxy）— 任意 IO 线程可安全调用。
 /// 基本面接口从 ThreadPool IO 线程调用，不能用主线程亲和的成员 QNAM。
 QNetworkAccessManager& threadLocalHttp() {
@@ -143,7 +153,7 @@ std::string AKShareProvider::fetch(const std::string& url) {
 
 std::vector<StockInfo> AKShareProvider::fetchStockList(Market market) {
     std::vector<StockInfo> result;
-    // 东财板块股票列表接口: http://push2.eastmoney.com/api/qt/clist/get
+    // 东财板块股票列表接口: http://push2delay.eastmoney.com/api/qt/clist/get
     std::string fs;
     switch (market) {
         case Market::SH: fs = "m:1+t:2"; break;      // 上海主板
@@ -152,45 +162,46 @@ std::vector<StockInfo> AKShareProvider::fetchStockList(Market market) {
             fs = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"; // 全A
             break;
     }
-    std::ostringstream url;
-    url << "http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=100&po=1&np=1"
-        << "&fields=f12,f14,f13,f15,f16,f17,f18,f20,f26"
-        << "&fs=" << fs;
-    auto body = fetch(url.str());
-    if (body.empty()) return result;
-
-    try {
-        auto json = nlohmann::json::parse(body);
-        auto& data = json["data"];
-        if (data.is_null()) return result;
-        for (auto& item : data["diff"]) {
-            StockInfo info;
-            // f12 股票代码(数字可能是字符串或数字), f14 名称, f13 市场(1沪/0深)
-            std::string codeStr;
-            if (item.contains("f12") && item["f12"].is_string()) {
-                codeStr = item["f12"].get<std::string>();
-            } else if (item.contains("f12") && item["f12"].is_number()) {
-                codeStr = std::to_string(item["f12"].get<long long>());
+    const std::string query = "/api/qt/clist/get?pn=1&pz=100&po=1&np=1"
+        "&fields=f12,f14,f13,f15,f16,f17,f18,f20,f26&fs=" + fs;
+    // 多主机回退：当前主机失败自动换下一个东财节点
+    for (const char* host : kEastMoneyPush2Hosts) {
+        auto body = fetch(std::string("http://") + host + query);
+        if (body.empty()) continue;
+        try {
+            auto json = nlohmann::json::parse(body);
+            auto& data = json["data"];
+            if (data.is_null()) continue;
+            for (auto& item : data["diff"]) {
+                StockInfo info;
+                // f12 股票代码(数字可能是字符串或数字), f14 名称, f13 市场(1沪/0深)
+                std::string codeStr;
+                if (item.contains("f12") && item["f12"].is_string()) {
+                    codeStr = item["f12"].get<std::string>();
+                } else if (item.contains("f12") && item["f12"].is_number()) {
+                    codeStr = std::to_string(item["f12"].get<long long>());
+                }
+                std::string name;
+                if (item.contains("f14") && item["f14"].is_string()) {
+                    name = item["f14"].get<std::string>();
+                } else if (item.contains("f14") && item["f14"].is_number()) {
+                    name = std::to_string(item["f14"].get<long long>());
+                }
+                if (codeStr.empty() || name.empty()) continue;
+                // 代码补零到6位
+                while (codeStr.size() < 6) codeStr = "0" + codeStr;
+                info.code = StockCode(codeStr);
+                info.name = name;
+                int marketCode = item.contains("f13") && item["f13"].is_number()
+                    ? item["f13"].get<int>() : -1;
+                info.board = marketCode == 1 ? "沪" : "深";
+                info.valid = true;
+                result.push_back(std::move(info));
             }
-            std::string name;
-            if (item.contains("f14") && item["f14"].is_string()) {
-                name = item["f14"].get<std::string>();
-            } else if (item.contains("f14") && item["f14"].is_number()) {
-                name = std::to_string(item["f14"].get<long long>());
-            }
-            if (codeStr.empty() || name.empty()) continue;
-            // 代码补零到6位
-            while (codeStr.size() < 6) codeStr = "0" + codeStr;
-            info.code = StockCode(codeStr);
-            info.name = name;
-            int marketCode = item.contains("f13") && item["f13"].is_number()
-                ? item["f13"].get<int>() : -1;
-            info.board = marketCode == 1 ? "沪" : "深";
-            info.valid = true;
-            result.push_back(std::move(info));
+            if (!result.empty()) break;  // 当前主机成功 → 返回
+        } catch (const nlohmann::json::exception& e) {
+            LogManager::instance()->log(LogLevel::Warn, "Parse stock list failed: {}", e.what());
         }
-    } catch (const nlohmann::json::exception& e) {
-        LogManager::instance()->log(LogLevel::Warn, "Parse stock list failed: {}", e.what());
     }
     LogManager::instance()->log(LogLevel::Info, "Fetched {} stocks", result.size());
     return result;
@@ -295,23 +306,26 @@ void AKShareProvider::refreshQuotes() {}
 
 std::optional<QuoteFundamentals> AKShareProvider::getQuoteFundamentals(const StockCode& code) {
     if (code.market() != Market::SH && code.market() != Market::SZ) return std::nullopt;
-    // 指定代码批量接口（与 clist 同域、明文 HTTP 可用，fltt=2 返回裸值 元/股/%）
+    // 指定代码批量接口（与 clist 同域、明文 HTTP 可用，fltt=2 返回裸值 元/股/%）。
+    // 多主机回退：当前主机失败（空回复/超时）自动换下一个东财节点。
     const std::string secid = (code.market() == Market::SH ? "1." : "0.") + code.code();
-    std::ostringstream url;
-    url << "http://push2.eastmoney.com/api/qt/ulist.np/get?secids=" << secid
-        << "&fields=f12,f8,f115,f20,f21,f38,f39&fltt=2&invt=2";
-    const auto body = httpGet(url.str());
-    if (body.empty()) return std::nullopt;
-    try {
-        const auto json = nlohmann::json::parse(body);
-        const auto& data = json.value("data", nlohmann::json());
-        if (!data.is_object() || !data.contains("diff")) return std::nullopt;
-        const auto& diff = data["diff"];
-        if (!diff.is_array() || diff.empty()) return std::nullopt;
-        return parseFundamentals(diff.front().dump(), code);
-    } catch (...) {
-        return std::nullopt;
+    const std::string query = "/api/qt/ulist.np/get?secids=" + secid
+        + "&fields=f12,f8,f115,f20,f21,f38,f39&fltt=2&invt=2";
+    for (const char* host : kEastMoneyPush2Hosts) {
+        const auto body = httpGet(std::string("http://") + host + query);
+        if (body.empty()) continue;
+        try {
+            const auto json = nlohmann::json::parse(body);
+            const auto& data = json.value("data", nlohmann::json());
+            if (!data.is_object() || !data.contains("diff")) continue;
+            const auto& diff = data["diff"];
+            if (!diff.is_array() || diff.empty()) continue;
+            return parseFundamentals(diff.front().dump(), code);
+        } catch (...) {
+            continue;
+        }
     }
+    return std::nullopt;
 }
 
 std::vector<QuoteFundamentals> AKShareProvider::batchQuoteFundamentals(
@@ -327,32 +341,35 @@ std::vector<QuoteFundamentals> AKShareProvider::batchQuoteFundamentals(
     }
     if (first) return out;  // 无可处理代码
 
-    std::ostringstream url;
-    url << "http://push2.eastmoney.com/api/qt/ulist.np/get?secids=" << secids.str()
-        << "&fields=f12,f8,f115,f20,f21,f38,f39&fltt=2&invt=2";
-    const auto body = httpGet(url.str());
-    if (body.empty()) return out;
-    try {
-        const auto json = nlohmann::json::parse(body);
-        const auto& data = json.value("data", nlohmann::json());
-        if (!data.is_object() || !data.contains("diff")) return out;
-        const auto& diff = data["diff"];
-        if (!diff.is_array()) return out;
-        for (const auto& item : diff) {
-            std::string codeStr;
-            if (item.contains("f12") && item["f12"].is_string()) {
-                codeStr = item["f12"].get<std::string>();
-            } else if (item.contains("f12") && item["f12"].is_number()) {
-                codeStr = std::to_string(item["f12"].get<long long>());
+    // 多主机回退：当前主机失败（空回复/超时/解析失败）自动换下一个东财节点
+    const std::string query = "/api/qt/ulist.np/get?secids=" + secids.str()
+        + "&fields=f12,f8,f115,f20,f21,f38,f39&fltt=2&invt=2";
+    for (const char* host : kEastMoneyPush2Hosts) {
+        const auto body = httpGet(std::string("http://") + host + query);
+        if (body.empty()) continue;
+        try {
+            const auto json = nlohmann::json::parse(body);
+            const auto& data = json.value("data", nlohmann::json());
+            if (!data.is_object() || !data.contains("diff")) continue;
+            const auto& diff = data["diff"];
+            if (!diff.is_array()) continue;
+            for (const auto& item : diff) {
+                std::string codeStr;
+                if (item.contains("f12") && item["f12"].is_string()) {
+                    codeStr = item["f12"].get<std::string>();
+                } else if (item.contains("f12") && item["f12"].is_number()) {
+                    codeStr = std::to_string(item["f12"].get<long long>());
+                }
+                while (codeStr.size() < 6) codeStr = "0" + codeStr;
+                if (codeStr.empty()) continue;
+                if (auto f = parseFundamentals(item.dump(), StockCode(codeStr))) {
+                    out.push_back(std::move(*f));
+                }
             }
-            while (codeStr.size() < 6) codeStr = "0" + codeStr;
-            if (codeStr.empty()) continue;
-            if (auto f = parseFundamentals(item.dump(), StockCode(codeStr))) {
-                out.push_back(std::move(*f));
-            }
+            if (!out.empty()) return out;  // 当前主机解析出数据 → 返回
+        } catch (...) {
+            continue;
         }
-    } catch (...) {
-        return {};
     }
     return out;
 }
