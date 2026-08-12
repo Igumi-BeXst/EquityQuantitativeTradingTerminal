@@ -2,6 +2,7 @@
 #include "ui/widgets/kline_chart.h"
 #include "ui/widgets/time_line_chart.h"
 #include "ui/widgets/overlay_dialog.h"
+#include "ui/widgets/range_stats_dialog.h"
 #include "data/idata_provider.h"
 #include "core/thread_pool.h"
 #include "core/log_manager.h"
@@ -130,6 +131,10 @@ CentralChartWidget::CentralChartWidget(IDataProvider* provider, bool standalone,
             [this](const std::optional<DateTime>& date) {
                 emit crosshairDateChanged(date);
             });
+
+    // 区间统计：拖拽选区 → 弹窗
+    connect(kline_, &KLineChart::rangeSelected, this,
+            &CentralChartWidget::openRangeStats);
 
     // 后台预热 TDX 板块指数列表缓存（叠加对话框选板块用；与股票搜索/市场面板复用 SH 列表缓存）
     if (provider_) {
@@ -326,6 +331,25 @@ void CentralChartWidget::emitOpenNewWindow() {
     if (!currentCode_.isValid()) return;
     if (customIndex_) return;   // 自定义指数模式：伪造代码在新窗口拉空，禁止开新窗口（设计文档 v1 限制）
     emit openNewWindow(currentCode_, currentName_);
+}
+
+void CentralChartWidget::openRangeStats(const std::vector<Bar>& bars, int from, int to) {
+    if (bars.empty() || from < 0 || to >= static_cast<int>(bars.size())) return;
+    QString periodText;
+    switch (kline_->period()) {
+        case BarPeriod::Daily:    periodText = tr("日线"); break;
+        case BarPeriod::Weekly:   periodText = tr("周线"); break;
+        case BarPeriod::Monthly:  periodText = tr("月线"); break;
+        case BarPeriod::Minute5:  periodText = tr("5分"); break;
+        case BarPeriod::Minute15: periodText = tr("15分"); break;
+        case BarPeriod::Minute30: periodText = tr("30分"); break;
+        case BarPeriod::Minute60: periodText = tr("60分"); break;
+        default:                  periodText = tr("日线"); break;
+    }
+    RangeStatsDialog dlg(bars, from, to,
+                         currentName_ + QStringLiteral("（") + periodText + QStringLiteral("）"),
+                         this);
+    dlg.exec();
 }
 
 } // namespace st

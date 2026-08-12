@@ -114,6 +114,7 @@ add_library(st_ui STATIC
     ui/widgets/time_line_chart.cpp
     ui/widgets/central_chart_widget.cpp
     ui/widgets/overlay_dialog.cpp
+    ui/widgets/range_stats_dialog.cpp
     ui/widgets/equity_curve_widget.cpp
     ui/widgets/chart_layers.cpp
     ui/widgets/market_index_strip.cpp

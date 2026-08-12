@@ -75,6 +75,8 @@ private:
     void applyOverlay(const OverlayTarget& target, bool showRelativeStrength);
     void clearCurrentOverlay();
     void refreshOverlayButton();
+    /// 区间统计弹窗（K线 rangeSelected 信号转发）
+    void openRangeStats(const std::vector<Bar>& bars, int from, int to);
     void reloadCustomIndexNow();
     void clearCustomIndexMode();
     /// 重注入缓存的交易标记（loadStock/setPeriod/指数重算清标记后调用）
