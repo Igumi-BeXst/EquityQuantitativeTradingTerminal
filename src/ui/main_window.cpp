@@ -6,6 +6,7 @@
 #include "ui/widgets/central_chart_widget.h"
 #include "ui/panels/stock_search_bar.h"
 #include "ui/panels/market_panel.h"
+#include "ui/panels/watchlist_panel.h"
 #include "ui/panels/quant_window.h"
 #include "ui/panels/funds_window.h"
 #include "ui/panels/journal_window.h"
@@ -71,6 +72,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     restoreState(settings_->value(QStringLiteral("ui/state")).toByteArray());
     // 筹码分布默认收起（不随历史布局常驻），需要时 视图→筹码分布 打开
     if (chipDock_) chipDock_->hide();
+    // 市场 dock 默认隐藏（视图→市场 打开；自选股占左主位）
+    if (marketDock_) marketDock_->hide();
 
     // 搜索/指数点击 → 中央图表打开对应标的
     connect(searchBar_, &StockSearchBar::stockSelected, this,
@@ -240,22 +243,21 @@ void MainWindow::createDocks() {
                    QMainWindow::AllowTabbedDocks |
                    QMainWindow::AnimatedDocks);
 
-    // 左: 市场面板（涨幅/跌幅榜 + 市场宽度）
-    auto* marketDock = new QDockWidget(tr("市场"), this);
-    marketDock->setObjectName(QStringLiteral("marketDock"));
-    marketPanel_ = new MarketPanel(provider_.get(), marketDock);
-    marketDock->setWidget(marketPanel_);
-    addDockWidget(Qt::LeftDockWidgetArea, marketDock);
-    connect(marketPanel_, &MarketPanel::openChart, this,
-            [this](const StockCode& code, const QString& name) {
-        centralStack_->setCurrentWidget(centralChart_);
-        centralChart_->loadStock(code, name.isEmpty()
-            ? QString::fromStdString(code.displayCode()) : name);
-        refreshTradeMarks();
-        if (marketDepth_) marketDepth_->setStock(code, name);
-        if (keyData_) keyData_->setStock(code, name);
-        if (chipPanel_) chipPanel_->setStock(code, name);
-    });
+    // 左主位: 自选股面板（用户自选列表，双击开图，右键增删）
+    watchlistDock_ = new QDockWidget(tr("自选股"), this);
+    watchlistDock_->setObjectName(QStringLiteral("watchlistDock"));
+    watchlistPanel_ = new WatchlistPanel(provider_.get(), watchlistDock_);
+    watchlistDock_->setWidget(watchlistPanel_);
+    addDockWidget(Qt::LeftDockWidgetArea, watchlistDock_);
+    connect(watchlistPanel_, &WatchlistPanel::openChart, this, &MainWindow::openStockChart);
+
+    // 左: 市场面板（涨幅/跌幅榜 + 市场宽度；默认隐藏，视图→市场 开启）
+    marketDock_ = new QDockWidget(tr("市场"), this);
+    marketDock_->setObjectName(QStringLiteral("marketDock"));
+    marketPanel_ = new MarketPanel(provider_.get(), marketDock_);
+    marketDock_->setWidget(marketPanel_);
+    addDockWidget(Qt::LeftDockWidgetArea, marketDock_);
+    connect(marketPanel_, &MarketPanel::openChart, this, &MainWindow::openStockChart);
 
     // 板块行双击 → 中央图表打开板块指数 K 线（与指数条行为一致：只开图，不动右侧面板）
     connect(marketPanel_, &MarketPanel::openSectorChart, this,
@@ -266,13 +268,13 @@ void MainWindow::createDocks() {
                 refreshTradeMarks();
             });
 
-    // 左: 自定义指数（独立 Dock，与市场竖排；建/编/删 + 实时点位 + 打开图表）
+    // 左: 自定义指数（独立 Dock，与自选股竖排；建/编/删 + 实时点位 + 打开图表）
     customIndexDock_ = new QDockWidget(tr("自定义指数"), this);
     customIndexDock_->setObjectName(QStringLiteral("customIndexDock"));
     customIndexPanel_ = new CustomIndexPanel(provider_.get(), customIndexDock_);
     customIndexDock_->setWidget(customIndexPanel_);
     addDockWidget(Qt::LeftDockWidgetArea, customIndexDock_);
-    splitDockWidget(marketDock, customIndexDock_, Qt::Vertical);  // 独立竖排（不再与板块 tabify）
+    splitDockWidget(watchlistDock_, customIndexDock_, Qt::Vertical);  // 独立竖排于自选股 dock 下方
     customIndexDock_->setMinimumWidth(260);
     connect(customIndexPanel_, &CustomIndexPanel::openChart, this,
             [this](const CustomIndex& idx) {
@@ -322,6 +324,28 @@ void MainWindow::createDocks() {
                 if (chipPanel_) chipPanel_->setAsOfDate(date);
             });
 
+    // 自选股接线：图表「加入自选」按钮 ↔ 自选面板同步
+    connect(centralChart_, &CentralChartWidget::toggleWatchlist, this,
+            [this](const StockCode& code, const QString& name) {
+        if (!watchlistPanel_) return;
+        if (watchlistPanel_->contains(code)) {
+            watchlistPanel_->remove(code);
+            statusBar()->showMessage(tr("已从自选移除 %1").arg(name), 3000);
+        } else {
+            watchlistPanel_->add(code, name);
+            statusBar()->showMessage(tr("已加入自选 %1").arg(name), 3000);
+        }
+        syncWatchlistButton();
+    });
+    connect(centralChart_, &CentralChartWidget::currentCodeChanged, this,
+            [this](const StockCode&) { syncWatchlistButton(); });
+    connect(watchlistPanel_, &WatchlistPanel::watchlistChanged, this,
+            [this](const StockCode& code) {
+        if (centralChart_ && centralChart_->currentCode().fullCode() == code.fullCode()) {
+            syncWatchlistButton();
+        }
+    });
+
 }
 
 void MainWindow::createMenus() {
@@ -360,6 +384,7 @@ void MainWindow::createMenus() {
     });
     // 筹码分布不进视图菜单（仍可通过图表「筹码分布」按钮开关）
     if (customIndexDock_) viewMenu->addAction(customIndexDock_->toggleViewAction());
+    if (marketDock_) viewMenu->addAction(marketDock_->toggleViewAction());
     viewMenu->addAction(tr("重置布局(&R)"), this, &MainWindow::resetLayout);
 
     // 量化
@@ -634,6 +659,23 @@ void MainWindow::resetLayout() {
     for (QDockWidget* dock : findChildren<QDockWidget*>()) {
         dock->show();
     }
+}
+
+void MainWindow::openStockChart(const StockCode& code, const QString& name) {
+    centralStack_->setCurrentWidget(centralChart_);
+    centralChart_->loadStock(code, name.isEmpty()
+        ? QString::fromStdString(code.displayCode()) : name);
+    refreshTradeMarks();
+    if (marketDepth_) marketDepth_->setStock(code, name);
+    if (keyData_) keyData_->setStock(code, name);
+    if (chipPanel_) chipPanel_->setStock(code, name);
+}
+
+void MainWindow::syncWatchlistButton() {
+    if (!centralChart_) return;
+    const bool in = watchlistPanel_
+        ? watchlistPanel_->contains(centralChart_->currentCode()) : false;
+    centralChart_->setWatchlistButtonChecked(in);
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
