@@ -60,10 +60,16 @@ signals:
     void chipDockToggled();
     /// 请求在新窗口打开当前图表（复制当前股票；按钮/右键菜单共用）
     void openNewWindow(const StockCode& code, const QString& name);
+    /// 图表「加入自选」点击 → 主窗口 toggle 自选（增/删）
+    void toggleWatchlist(const StockCode& code, const QString& name);
+    /// 当前图表标的切换（loadStock/loadCustomIndex）→ 主窗口同步自选按钮状态
+    void currentCodeChanged(const StockCode& code);
 
 public:
     /// 同步筹码按钮勾选状态（主窗口筹码面板可见性变化时调用）
     void setChipButtonChecked(bool visible);
+    /// 自选按钮状态同步：已在自选 → 勾选 + 「已在自选」文本
+    void setWatchlistButtonChecked(bool in);
 
 private:
     void applyOverlay(const OverlayTarget& target, bool showRelativeStrength);
@@ -86,6 +92,7 @@ private:
     QStackedWidget* stack_ = nullptr;
     QPushButton* overlayBtn_ = nullptr;
     QPushButton* chipBtn_ = nullptr;   // 筹码分布开关（联动主窗口筹码面板；standalone 模式不创建）
+    QPushButton* watchlistBtn_ = nullptr;   // 「加入自选」（非 standalone；勾选=已在自选）
     QPushButton* newWindowBtn_ = nullptr;  // 新窗口打开（复制当前股票）
     StockCode currentCode_;
     QString currentName_;

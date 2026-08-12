@@ -96,6 +96,19 @@ CentralChartWidget::CentralChartWidget(IDataProvider* provider, bool standalone,
         connect(chipBtn_, &QPushButton::clicked, this, [this](bool) {
             emit chipDockToggled();
         });
+
+        watchlistBtn_ = new QPushButton(tr("加入自选"), this);
+        watchlistBtn_->setCheckable(true);
+        watchlistBtn_->setStyleSheet(QStringLiteral(
+            "QPushButton{color:#e6e6e6;border:1px solid #6a6a6a;border-radius:3px;"
+            "padding:2px 10px;background:#2a2a2c;}"
+            "QPushButton:hover{background:#3d3d40;border-color:#999999;}"
+            "QPushButton:checked{color:#ffd700;border-color:#ffd700;"
+            "background:#3a3220;font-weight:bold;}"));
+        periodBar->addWidget(watchlistBtn_);
+        connect(watchlistBtn_, &QPushButton::clicked, this, [this](bool) {
+            if (currentCode_.isValid()) emit toggleWatchlist(currentCode_, currentName_);
+        });
     }
     layout->addLayout(periodBar);
 
@@ -162,6 +175,7 @@ void CentralChartWidget::loadStock(const StockCode& code, const QString& name) {
     }
     reapplyTradeMarks();   // loadStock 清标记 → 重注入缓存
     refreshOverlayButton();
+    emit currentCodeChanged(currentCode_);
 }
 
 void CentralChartWidget::setPeriod(BarPeriod period) {
@@ -202,6 +216,7 @@ void CentralChartWidget::loadCustomIndex(const CustomIndex& idx) {
 
     reloadCustomIndexNow();
     refreshOverlayButton();
+    emit currentCodeChanged(currentCode_);
 }
 
 void CentralChartWidget::clearCustomIndexMode() {
@@ -299,6 +314,12 @@ void CentralChartWidget::refreshOverlayButton() {
 
 void CentralChartWidget::setChipButtonChecked(bool visible) {
     if (chipBtn_) chipBtn_->setChecked(visible);
+}
+
+void CentralChartWidget::setWatchlistButtonChecked(bool in) {
+    if (!watchlistBtn_) return;
+    watchlistBtn_->setChecked(in);
+    watchlistBtn_->setText(in ? tr("已在自选") : tr("加入自选"));
 }
 
 void CentralChartWidget::emitOpenNewWindow() {
