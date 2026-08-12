@@ -55,6 +55,10 @@ std::vector<StockInfo> MultiProvider::getStockList(Market market) {
     return {};
 }
 
+void MultiProvider::invalidateStockListCache() {
+    if (IDataProvider* p = preferred()) p->invalidateStockListCache();
+}
+
 std::vector<StockInfo> MultiProvider::getSectorIndices() {
     IDataProvider* p = preferred();
     auto r = p->getSectorIndices();

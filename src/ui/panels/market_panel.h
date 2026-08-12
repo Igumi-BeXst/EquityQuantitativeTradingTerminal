@@ -60,7 +60,11 @@ private:
     void requestTurnover(const std::vector<MarketRankItem>& items);
     void applyTurnover(const std::vector<QuoteFundamentals>& funds);
 
+    /// 异步加载全 A 股池（TDX 全列表过滤可交易股，覆盖完整市场），完成后立即刷新
+    void loadFullPool();
+
     IDataProvider* provider_ = nullptr;
+    qint64 lastPoolLoadSec_ = 0;  // 上次全量池加载时间（epoch 秒；0=未加载）
     // 基本面专用数据源（东财 ulist，不依赖主源）；shared 供异步按值捕获
     std::shared_ptr<AKShareProvider> fundProvider_;
     QTimer* timer_ = nullptr;

@@ -21,6 +21,7 @@ public:
 
     std::optional<StockInfo> getStockInfo(const StockCode& code) override;
     std::vector<StockInfo> getStockList(Market market) override;
+    void invalidateStockListCache() override;
     std::vector<StockInfo> getSectorIndices() override;
     std::vector<Bar> getBars(const StockCode& code, BarPeriod period,
                              DateTime start, DateTime end) override;

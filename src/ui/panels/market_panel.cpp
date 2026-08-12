@@ -25,6 +25,7 @@
 #include <QPointer>
 #include <QShowEvent>
 #include <QHideEvent>
+#include <QDateTime>
 #include <algorithm>
 
 namespace st {
@@ -162,44 +163,59 @@ MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
     timer_->start();
     refresh();  // 立即刷一次（先精选池）
 
-    // 异步加载全 A 股池（TDX 全列表过滤可交易股，覆盖完整市场），完成后立即刷新
-    if (provider_) {
-        // 安全异步：捕获构造参数 provider + QPointer 守卫投递回主线程（面板销毁后自动跳过）
-        QPointer<MarketPanel> guard(this);
-        ThreadPool::submitIO([provider, guard] {
-            struct PoolData {
-                std::vector<StockCode> pool;
-                std::unordered_map<std::string, std::string> names;
-            };
-            PoolData d;
-            auto sh = provider->getStockList(Market::SH);
-            for (const auto& s : sh) {
-                if (tdx::isTradableAShare(s.code)) {
-                    d.pool.push_back(s.code);
-                    d.names[s.code.displayCode()] = s.name;
-                }
-            }
-            auto sz = provider->getStockList(Market::SZ);
-            for (const auto& s : sz) {
-                if (tdx::isTradableAShare(s.code)) {
-                    d.pool.push_back(s.code);
-                    d.names[s.code.displayCode()] = s.name;
-                }
-            }
-            QMetaObject::invokeMethod(guard, [guard, d = std::move(d)]() mutable {
-                if (d.pool.empty()) return;
-                guard->pool_ = std::move(d.pool);
-                guard->nameByCode_ = std::move(d.names);
-                guard->refresh();  // 用全市场池立即刷一次
-            }, Qt::QueuedConnection);
-        });
-    }
+    // 全量池首次加载由 showEvent 触发（池子小/过期时才重载，见 showEvent）
 }
 
 void MarketPanel::showEvent(QShowEvent* event) {
     QWidget::showEvent(event);
     // 重开窗口：恢复定时刷新（数据缓存已在，openMarketWindow 会再刷一次保持新鲜）
     if (timer_ && !timer_->isActive()) timer_->start();
+    // 池子小（上次全量加载失败，只剩精选池）或过期（>1h，可能有新上市股票）
+    // → 绕过 TDX 股票列表缓存重载全量池，避免新股/新列表永远缺失
+    if (provider_) {
+        const bool smallPool = pool_.size() < 500;
+        const bool stalePool = lastPoolLoadSec_ == 0 ||
+            (QDateTime::currentSecsSinceEpoch() - lastPoolLoadSec_ > 3600);
+        if (smallPool || stalePool) {
+            provider_->invalidateStockListCache();
+            loadFullPool();
+        }
+    }
+}
+
+void MarketPanel::loadFullPool() {
+    if (!provider_) return;
+    // 安全异步：按值捕获 provider + QPointer 守卫投递回主线程（面板销毁后自动跳过）
+    QPointer<MarketPanel> guard(this);
+    IDataProvider* provider = provider_;
+    ThreadPool::submitIO([provider, guard] {
+        struct PoolData {
+            std::vector<StockCode> pool;
+            std::unordered_map<std::string, std::string> names;
+        };
+        PoolData d;
+        auto sh = provider->getStockList(Market::SH);
+        for (const auto& s : sh) {
+            if (tdx::isTradableAShare(s.code)) {
+                d.pool.push_back(s.code);
+                d.names[s.code.displayCode()] = s.name;
+            }
+        }
+        auto sz = provider->getStockList(Market::SZ);
+        for (const auto& s : sz) {
+            if (tdx::isTradableAShare(s.code)) {
+                d.pool.push_back(s.code);
+                d.names[s.code.displayCode()] = s.name;
+            }
+        }
+        QMetaObject::invokeMethod(guard, [guard, d = std::move(d)]() mutable {
+            if (d.pool.empty()) return;
+            guard->pool_ = std::move(d.pool);
+            guard->nameByCode_ = std::move(d.names);
+            guard->lastPoolLoadSec_ = QDateTime::currentSecsSinceEpoch();
+            guard->refresh();  // 用全市场池立即刷一次
+        }, Qt::QueuedConnection);
+    });
 }
 
 void MarketPanel::hideEvent(QHideEvent* event) {

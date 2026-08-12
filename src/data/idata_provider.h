@@ -29,6 +29,8 @@ public:
     /// 股票基本信息
     virtual std::optional<StockInfo> getStockInfo(const StockCode& code) = 0;
     virtual std::vector<StockInfo> getStockList(Market market) = 0;
+    /// 使股票列表缓存失效（下次 getStockList 重新拉取；默认 no-op）
+    virtual void invalidateStockListCache() {}
 
     /// 板块指数列表（通达信 880xxx 行业 / 885xxx 概念），默认不支持返回空
     virtual std::vector<StockInfo> getSectorIndices() { return {}; }

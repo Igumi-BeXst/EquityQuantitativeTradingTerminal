@@ -673,6 +673,11 @@ std::vector<StockInfo> TdxProvider::getStockList(Market market) {
     return loadStockList(market);
 }
 
+void TdxProvider::invalidateStockListCache() {
+    std::lock_guard<std::mutex> lk(listMutex_);
+    stockListCache_.clear();
+}
+
 std::vector<StockInfo> TdxProvider::getSectorIndices() {
     InteractiveGuard guard(this);  // 交互优先（板块面板）
     {
