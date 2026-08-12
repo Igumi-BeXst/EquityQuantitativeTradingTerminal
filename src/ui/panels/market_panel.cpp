@@ -23,6 +23,8 @@
 #include <QHeaderView>
 #include <QMetaObject>
 #include <QPointer>
+#include <QShowEvent>
+#include <QHideEvent>
 #include <algorithm>
 
 namespace st {
@@ -192,6 +194,18 @@ MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
             }, Qt::QueuedConnection);
         });
     }
+}
+
+void MarketPanel::showEvent(QShowEvent* event) {
+    QWidget::showEvent(event);
+    // 重开窗口：恢复定时刷新（数据缓存已在，openMarketWindow 会再刷一次保持新鲜）
+    if (timer_ && !timer_->isActive()) timer_->start();
+}
+
+void MarketPanel::hideEvent(QHideEvent* event) {
+    QWidget::hideEvent(event);
+    // 窗口关闭隐藏：暂停定时刷新，避免后台持续占 TDX 连接
+    if (timer_) timer_->stop();
 }
 
 void MarketPanel::refresh() {

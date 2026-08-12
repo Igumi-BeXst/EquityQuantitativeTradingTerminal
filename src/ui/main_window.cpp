@@ -505,10 +505,10 @@ void MainWindow::openFundsWindow() {
 }
 
 void MainWindow::openMarketWindow() {
-    // 市场窗口为独立面板（视图→市场 打开，仿资金/量化窗口模式）
+    // 市场窗口独立面板（菜单栏直接打开）。关闭仅隐藏不销毁（数据缓存保留），
+    // 重开直接显示上次数据并刷新一次，避免每次重建全量重载。
     if (!marketWindow_) {
-        marketWindow_ = new QMainWindow();
-        marketWindow_->setAttribute(Qt::WA_DeleteOnClose);
+        marketWindow_ = new QMainWindow(this);   // 由 MainWindow 托管生命周期（不随关闭销毁）
         marketWindow_->setWindowTitle(tr("市场"));
         marketWindow_->resize(560, 720);
         marketPanel_ = new MarketPanel(provider_.get(), marketWindow_);
@@ -523,12 +523,12 @@ void MainWindow::openMarketWindow() {
                         ? QString::fromStdString(code.displayCode()) : name);
                     refreshTradeMarks();
                 });
-        connect(marketWindow_, &QObject::destroyed, this,
-                [this] { marketWindow_ = nullptr; marketPanel_ = nullptr; });
     }
     marketWindow_->show();
     marketWindow_->raise();
     marketWindow_->activateWindow();
+    // 重新打开：立即显示缓存，再后台刷新一次保持新鲜
+    if (marketPanel_) marketPanel_->refresh();
 }
 
 void MainWindow::openJournalWindow() {

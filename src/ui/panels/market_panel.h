@@ -13,6 +13,8 @@ class QTableView;
 class QLabel;
 class QPushButton;
 class QTabWidget;
+class QShowEvent;
+class QHideEvent;
 
 namespace st {
 
@@ -33,6 +35,12 @@ public:
 
     /// 手动刷新行情（供定时任务/外部调用）
     void refresh();
+
+protected:
+    /// 显示时重启定时刷新（重开窗口数据保鲜）
+    void showEvent(QShowEvent* event) override;
+    /// 隐藏时暂停定时刷新（窗口关闭隐藏后不再占 TDX 连接）
+    void hideEvent(QHideEvent* event) override;
 
 signals:
     void openChart(const StockCode& code, const QString& name);
