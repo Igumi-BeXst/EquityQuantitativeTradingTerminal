@@ -32,8 +32,7 @@ WatchlistPanel::WatchlistPanel(IDataProvider* provider, QWidget* parent)
     model_ = new WatchlistModel(this);
     table_ = new QTableView(stack_);
     table_->setModel(model_);
-    table_->horizontalHeader()->setStretchLastSection(true);
-    table_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);  // 名称/现价/涨跌幅三列均分
     table_->verticalHeader()->setVisible(false);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);

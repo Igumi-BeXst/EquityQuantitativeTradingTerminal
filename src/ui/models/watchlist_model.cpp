@@ -42,19 +42,23 @@ QVariant WatchlistModel::data(const QModelIndex& index, int role) const {
                 default: return {};
             }
         case Qt::ForegroundRole:
-            if (index.column() == 2) {
+            if (index.column() == 1 || index.column() == 2) {  // 现价/涨跌幅：对比昨收红涨绿跌
                 return it.changePct >= 0.0
                     ? QColor(QString::fromUtf8(kUpColor))
                     : QColor(QString::fromUtf8(kDownColor));
             }
-            return {};  // 名称/现价跟随应用主题默认色
+            return {};  // 名称跟随应用主题默认色
+        case Qt::TextAlignmentRole:
+            return Qt::AlignCenter;  // 三列居中
         default: return {};
     }
 }
 
 QVariant WatchlistModel::headerData(int section, Qt::Orientation orientation,
                                     int role) const {
-    if (orientation != Qt::Horizontal || role != Qt::DisplayRole) return {};
+    if (orientation != Qt::Horizontal) return {};
+    if (role == Qt::TextAlignmentRole) return Qt::AlignCenter;  // 表头居中
+    if (role != Qt::DisplayRole) return {};
     switch (section) {
         case 0: return QStringLiteral("名称");
         case 1: return QStringLiteral("现价");
