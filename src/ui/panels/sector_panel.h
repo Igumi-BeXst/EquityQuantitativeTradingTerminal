@@ -34,6 +34,8 @@ public:
 
 signals:
     void openSectorChart(const StockCode& code, const QString& name);
+    /// 板块行右键「查看成分股」→ MarketPanel 开成分股弹窗
+    void openConstituents(const QString& name);
 
 private:
     void applyRows(std::vector<SectorRow> rows);

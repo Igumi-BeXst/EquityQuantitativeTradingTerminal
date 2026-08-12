@@ -2,6 +2,7 @@
 #include "ui/utils/table_csv_export.h"
 #include "ui/models/market_rank_model.h"
 #include "ui/panels/sector_panel.h"          // SectorListPage
+#include "ui/widgets/sector_constituents_dialog.h"
 #include "data/eastmoney_sector_provider.h"  // SectorType
 #include "data/idata_provider.h"
 #include "data/akshare_provider.h"
@@ -106,6 +107,10 @@ MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
             this, &MarketPanel::onOpenSectorChart);
     connect(conceptPage_, &SectorListPage::openSectorChart,
             this, &MarketPanel::onOpenSectorChart);
+    connect(industryPage_, &SectorListPage::openConstituents,
+            this, &MarketPanel::onOpenConstituents);
+    connect(conceptPage_, &SectorListPage::openConstituents,
+            this, &MarketPanel::onOpenConstituents);
     // 切到板块 tab：立即后台刷新（缓存已由错峰轮询保持新鲜，此刷新覆盖首次/过期数据）
     connect(tabs_, &QTabWidget::currentChanged, this, [this](int index) {
         if (index == tabs_->indexOf(industryPage_) && industryPage_) industryPage_->refresh();
@@ -286,6 +291,15 @@ void MarketPanel::onLosersDoubleClicked(const QModelIndex& index) {
 void MarketPanel::onOpenSectorChart(const StockCode& code, const QString& name) {
     // 板块指数开图：转发给 MainWindow 的轻量处理（只 loadStock，不设置右侧面板）
     emit openSectorChart(code, name);
+}
+
+void MarketPanel::onOpenConstituents(const QString& name) {
+    if (name.isEmpty() || !provider_) return;
+    auto* dlg = new SectorConstituentsDialog(provider_, name, this);
+    connect(dlg, &SectorConstituentsDialog::openChart,
+            this, &MarketPanel::onOpenSectorChart);  // 复用板块开图转发（轻量开图）
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
 }
 
 } // namespace st

@@ -141,6 +141,7 @@ add_library(st_ui STATIC
     ui/widgets/chip_panel.cpp
     ui/widgets/custom_index_editor.cpp
     ui/widgets/custom_index_panel.cpp
+    ui/widgets/sector_constituents_dialog.cpp
     ui/widgets/reminder_popup.cpp
     ui/panels/sector_panel.cpp
     ui/models/stock_list_model.cpp

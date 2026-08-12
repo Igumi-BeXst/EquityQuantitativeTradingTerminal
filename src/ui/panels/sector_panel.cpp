@@ -5,6 +5,7 @@
 #include <QLabel>
 #include <QMetaObject>
 #include <QPointer>
+#include <QMenu>
 #include <QStackedWidget>
 #include <QTableView>
 #include <QTime>
@@ -54,6 +55,20 @@ SectorListPage::SectorListPage(IDataProvider* provider, SectorType type, QWidget
         if (!idx.isValid() || !model_) return;
         const auto& r = model_->rowAt(idx.row());
         if (r.code.isValid()) emit openSectorChart(r.code, r.name);
+    });
+
+    // 右键菜单：查看成分股
+    table_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(table_, &QWidget::customContextMenuRequested, this,
+            [this](const QPoint& pos) {
+        const QModelIndex idx = table_->indexAt(pos);
+        if (!idx.isValid() || !model_) return;
+        const auto& r = model_->rowAt(idx.row());
+        QMenu menu(this);
+        QAction* act = menu.addAction(tr("查看成分股 %1").arg(r.name));
+        if (menu.exec(table_->viewport()->mapToGlobal(pos)) == act) {
+            emit openConstituents(r.name);
+        }
     });
 
     // 构造时不自动拉取：刷新时机统一由 MarketPanel 错峰时钟调度（Task 3）

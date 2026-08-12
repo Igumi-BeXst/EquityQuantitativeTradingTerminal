@@ -46,6 +46,7 @@ private:
     void onGainersDoubleClicked(const QModelIndex& index);
     void onLosersDoubleClicked(const QModelIndex& index);
     void onOpenSectorChart(const StockCode& code, const QString& name);
+    void onOpenConstituents(const QString& name);
 
     /// 异步拉取显示股票的东财换手率，回填排名表
     void requestTurnover(const std::vector<MarketRankItem>& items);
