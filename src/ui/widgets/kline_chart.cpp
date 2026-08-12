@@ -143,6 +143,7 @@ KLineChart::KLineChart(IDataProvider* provider, QWidget* parent)
     };
     addDrawToggle(tr("水平线"), DrawMode::Horizontal);
     addDrawToggle(tr("趋势线"), DrawMode::Trend);
+    addDrawToggle(tr("区间统计"), DrawMode::Range);
 
     auto* clearBtn = new QPushButton(tr("清除标注"), controlBar_);
     clearBtn->setStyleSheet(toolBtnStyle);
@@ -183,6 +184,11 @@ bool KLineChart::isIndicatorVisible(Indicator ind) const {
 }
 
 void KLineChart::setDrawMode(DrawMode mode) {
+    if (drawMode_ == DrawMode::Range && mode != DrawMode::Range) {
+        rangeFrom_ = rangeTo_ = -1;   // 退出区间模式（切其他工具/取消选中）清选区
+        rangeDragStart_ = -1;
+        rangeDragging_ = false;
+    }
     drawMode_ = mode;
     drawing_ = false;
     setCursor(mode != DrawMode::None ? Qt::CrossCursor : Qt::ArrowCursor);
@@ -191,6 +197,9 @@ void KLineChart::setDrawMode(DrawMode mode) {
 
 void KLineChart::clearAnnotations() {
     lines_.clear();
+    rangeFrom_ = rangeTo_ = -1;
+    rangeDragStart_ = -1;
+    rangeDragging_ = false;
     update();
 }
 
@@ -248,6 +257,26 @@ void KLineChart::drawAnnotations(QPainter& p) {
     }
 }
 
+void KLineChart::drawRangeSelection(QPainter& p) {
+    if (rangeFrom_ < 0 || rangeTo_ < 0 || bars_.empty()) return;
+    const int from = std::clamp(rangeFrom_, 0, static_cast<int>(bars_.size()) - 1);
+    const int to = std::clamp(rangeTo_, 0, static_cast<int>(bars_.size()) - 1);
+    const double x1 = barCenterX(from) - bodyWidth() / 2;
+    const double x2 = barCenterX(to) + bodyWidth() / 2;
+    p.fillRect(QRectF(QPointF(x1, mainRect_.top()), QPointF(x2, mainRect_.bottom())),
+               QColor(255, 255, 255, 18));   // 半透明高亮
+    p.setPen(QPen(QColor("#ffd700"), 1, Qt::DashLine));
+    p.drawLine(QPointF(x1, mainRect_.top()), QPointF(x1, mainRect_.bottom()));
+    p.drawLine(QPointF(x2, mainRect_.top()), QPointF(x2, mainRect_.bottom()));
+    p.setPen(QColor("#d4d4d4"));   // 首末日期
+    p.drawText(QPointF(x1 + 2, mainRect_.top() + 12),
+               QString::fromStdString(
+                   utils::toDateString(bars_[static_cast<size_t>(from)].time)));
+    p.drawText(QPointF(x2 - 90, mainRect_.top() + 12),
+               QString::fromStdString(
+                   utils::toDateString(bars_[static_cast<size_t>(to)].time)));
+}
+
 // ============================================================
 // 数据
 // ============================================================
@@ -263,6 +292,9 @@ void KLineChart::loadStock(const StockCode& code, const QString& name) {
     name_ = name;
     loading_ = true;
     lines_.clear();   // 切股不带旧标注
+    rangeFrom_ = rangeTo_ = -1;
+    rangeDragStart_ = -1;
+    rangeDragging_ = false;
     drawMode_ = DrawMode::None;
     drawing_ = false;
     ++overlayGen_;            // 作废在途叠加请求
@@ -320,6 +352,9 @@ void KLineChart::loadBars(const std::vector<Bar>& bars, const StockCode& code,
     code_ = code;
     name_ = name;
     lines_.clear();
+    rangeFrom_ = rangeTo_ = -1;
+    rangeDragStart_ = -1;
+    rangeDragging_ = false;
     drawMode_ = DrawMode::None;
     drawing_ = false;
     ++overlayGen_;
@@ -686,6 +721,7 @@ void KLineChart::paintEvent(QPaintEvent*) {
     drawAxes(p);
     drawTradeMarks(p);   // 交易标记（成本线 + 买卖箭头）
     drawAnnotations(p);  // 画线标注（十字线之下）
+    drawRangeSelection(p);
     drawCrosshair(p);
 }
 
@@ -1324,6 +1360,9 @@ void KLineChart::mouseMoveEvent(QMouseEvent* event) {
         firstVisible_ = std::clamp(dragStartFirst_ + static_cast<int>(dx / bodyWidth()),
                                    0, maxFirst);
     }
+    if (rangeDragging_ && drawMode_ == DrawMode::Range && !bars_.empty()) {
+        rangeTo_ = indexAtX(event->pos().x());
+    }
     if (!bars_.empty()) {
         int idx = firstVisible_ + static_cast<int>(
             (event->pos().x() - mainRect_.left()) / bodyWidth());
@@ -1348,6 +1387,13 @@ void KLineChart::mousePressEvent(QMouseEvent* event) {
     if (event->pos().y() < plotTop()) return;
     if (event->button() == Qt::LeftButton && !bars_.empty()) {
         // 画线模式：水平线点击即画，趋势线按下记起点
+        if (drawMode_ == DrawMode::Range) {
+            rangeDragStart_ = indexAtX(event->pos().x());
+            rangeFrom_ = rangeTo_ = rangeDragStart_;
+            rangeDragging_ = true;
+            update();
+            return;
+        }
         if (drawMode_ == DrawMode::Horizontal) {
             lines_.push_back({true, 0, priceFromY(event->pos().y()), 0, 0});
             update();
@@ -1371,6 +1417,17 @@ void KLineChart::mousePressEvent(QMouseEvent* event) {
 }
 
 void KLineChart::mouseReleaseEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton && drawMode_ == DrawMode::Range &&
+        rangeDragging_) {
+        rangeDragging_ = false;
+        unsetCursor();
+        const int cur = indexAtX(event->pos().x());
+        rangeFrom_ = std::min(rangeDragStart_, cur);
+        rangeTo_ = std::max(rangeDragStart_, cur);
+        if (!bars_.empty()) emit rangeSelected(bars_, rangeFrom_, rangeTo_);
+        update();
+        return;
+    }
     if (event->button() == Qt::LeftButton && drawing_ &&
         drawMode_ == DrawMode::Trend) {
         // 趋势线提交终点（退化点：同 bar 同价则忽略）

@@ -74,6 +74,9 @@ signals:
     /// 十字光标移动：发出当前悬停 K 线的日期（nullopt = 离开图表/数据重载）
     void crosshairDateChanged(const std::optional<DateTime>& date);
 
+    /// 区间统计：拖拽松开后发射（bars 为全量，弹窗内截取 [from,to]）
+    void rangeSelected(const std::vector<Bar>& bars, int from, int to);
+
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
@@ -127,7 +130,7 @@ private:
                         const QColor& color);
 
     // 画线工具
-    enum class DrawMode { None, Horizontal, Trend };
+    enum class DrawMode { None, Horizontal, Trend, Range };
     struct ChartLine {
         bool horizontal = false;
         int idx1 = 0;
@@ -137,6 +140,7 @@ private:
     };
     void setDrawMode(DrawMode mode);
     void drawAnnotations(QPainter& p);
+    void drawRangeSelection(QPainter& p);
     int indexAtX(double x) const;
     double priceFromY(double y) const;
 
@@ -177,6 +181,9 @@ private:
     int dragStartIdx_ = -1;
     double dragStartPrice_ = 0.0;
     std::vector<ChartLine> lines_;  // 画线标注（锚定 bar 索引+价格，随平移缩放稳定）
+    int rangeFrom_ = -1, rangeTo_ = -1;      // 已选区间（-1 = 无）；弹窗关闭后保留高亮
+    int rangeDragStart_ = -1;                // 拖拽起点（仅绘制用）
+    bool rangeDragging_ = false;             // 正在拖拽选区
 
     // 交易标记
     std::vector<TradeMark> tradeMarks_;
