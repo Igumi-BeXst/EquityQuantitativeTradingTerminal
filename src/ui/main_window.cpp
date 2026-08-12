@@ -355,6 +355,10 @@ void MainWindow::createMenus() {
     });
     fileMenu->addAction(tr("退出(&X)"), QKeySequence::Quit, this, &QWidget::close);
 
+    // 市场/资金数据：菜单栏顶层直接点击即开（不经下拉菜单）
+    menuBar()->addAction(tr("市场(&M)"), this, &MainWindow::openMarketWindow);
+    menuBar()->addAction(tr("资金数据(&D)"), this, &MainWindow::openFundsWindow);
+
     // 视图
     auto* viewMenu = menuBar()->addMenu(tr("视图(&V)"));
     viewMenu->addAction(tr("切换主题(&T)"), this, [this] {
@@ -365,16 +369,11 @@ void MainWindow::createMenus() {
     });
     // 筹码分布不进视图菜单（仍可通过图表「筹码分布」按钮开关）
     if (customIndexDock_) viewMenu->addAction(customIndexDock_->toggleViewAction());
-    viewMenu->addAction(tr("市场(&M)"), this, &MainWindow::openMarketWindow);
     viewMenu->addAction(tr("重置布局(&R)"), this, &MainWindow::resetLayout);
 
     // 量化
     auto* quantMenu = menuBar()->addMenu(tr("量化(&Q)"));
     quantMenu->addAction(tr("量化工作台(&W)"), this, &MainWindow::openQuantWindow);
-
-    // 资金（龙虎榜/北向资金/融资融券）
-    auto* fundsMenu = menuBar()->addMenu(tr("资金(&F)"));
-    fundsMenu->addAction(tr("资金数据(&D)…"), this, &MainWindow::openFundsWindow);
 
     // 日志（交易日志窗口）
     auto* journalMenu = menuBar()->addMenu(tr("日志(&L)"));
