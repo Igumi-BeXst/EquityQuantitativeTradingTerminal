@@ -5,6 +5,8 @@
 #include "ui/models/watchlist_model.h"
 #include <QString>
 #include <QWidget>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 class QTimer;
@@ -38,6 +40,9 @@ private:
     void onContextMenu(const QPoint& pos);
     void onDoubleClicked(const QModelIndex& index);
     void onQuotesReady(int seq, std::vector<Quote> quotes);
+    /// 异步解析股票中文名（getStockList SH/SZ → 名称 map，TDX 缓存命中即快）
+    void resolveNames();
+    void onNamesReady(int seq, std::unordered_map<std::string, std::string> names);
     void load();
     void save();
 
@@ -45,6 +50,8 @@ private:
     std::string path_;
     int fetchSeq_ = 0;
     bool fetching_ = false;
+    int nameSeq_ = 0;              // 名称解析专用 seq（避免与行情 fetchSeq_ 串扰）
+    bool namesFetching_ = false;
     std::vector<WatchItem> items_;
     QTimer* timer_ = nullptr;
     QTableView* table_ = nullptr;

@@ -27,7 +27,7 @@ int WatchlistModel::rowCount(const QModelIndex&) const {
     return static_cast<int>(items_.size());
 }
 
-int WatchlistModel::columnCount(const QModelIndex&) const { return 3; }
+int WatchlistModel::columnCount(const QModelIndex&) const { return 4; }
 
 QVariant WatchlistModel::data(const QModelIndex& index, int role) const {
     if (!index.isValid() || index.row() < 0 ||
@@ -36,20 +36,21 @@ QVariant WatchlistModel::data(const QModelIndex& index, int role) const {
     switch (role) {
         case Qt::DisplayRole:
             switch (index.column()) {
-                case 0: return it.name;
-                case 1: return QString::number(it.price, 'f', 2);
-                case 2: return QStringLiteral("%1%").arg(it.changePct, 0, 'f', 2);
+                case 0: return QString::fromStdString(it.code.displayCode());
+                case 1: return it.name;
+                case 2: return QString::number(it.price, 'f', 2);
+                case 3: return QStringLiteral("%1%").arg(it.changePct, 0, 'f', 2);
                 default: return {};
             }
         case Qt::ForegroundRole:
-            if (index.column() == 1 || index.column() == 2) {  // 现价/涨跌幅：对比昨收红涨绿跌
+            if (index.column() == 2 || index.column() == 3) {  // 现价/涨跌幅：对比昨收红涨绿跌
                 return it.changePct >= 0.0
                     ? QColor(QString::fromUtf8(kUpColor))
                     : QColor(QString::fromUtf8(kDownColor));
             }
-            return {};  // 名称跟随应用主题默认色
+            return {};  // 代码/名称跟随应用主题默认色
         case Qt::TextAlignmentRole:
-            return Qt::AlignCenter;  // 三列居中
+            return Qt::AlignCenter;  // 各列居中
         default: return {};
     }
 }
@@ -60,9 +61,10 @@ QVariant WatchlistModel::headerData(int section, Qt::Orientation orientation,
     if (role == Qt::TextAlignmentRole) return Qt::AlignCenter;  // 表头居中
     if (role != Qt::DisplayRole) return {};
     switch (section) {
-        case 0: return QStringLiteral("名称");
-        case 1: return QStringLiteral("现价");
-        case 2: return QStringLiteral("涨跌幅");
+        case 0: return QStringLiteral("代码");
+        case 1: return QStringLiteral("名称");
+        case 2: return QStringLiteral("现价");
+        case 3: return QStringLiteral("涨跌幅");
         default: return {};
     }
 }

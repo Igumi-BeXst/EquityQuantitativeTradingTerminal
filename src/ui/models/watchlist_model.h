@@ -15,7 +15,7 @@ struct WatchItem {
     double changePct = 0.0;
 };
 
-/// 自选股 Model — QTableView 虚拟化渲染（名称/现价/涨跌幅）
+/// 自选股 Model — QTableView 虚拟化渲染（代码/名称/现价/涨跌幅）
 class WatchlistModel : public QAbstractTableModel {
     Q_OBJECT
 public:

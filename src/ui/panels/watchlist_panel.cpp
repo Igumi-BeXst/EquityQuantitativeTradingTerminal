@@ -32,7 +32,7 @@ WatchlistPanel::WatchlistPanel(IDataProvider* provider, QWidget* parent)
     model_ = new WatchlistModel(this);
     table_ = new QTableView(stack_);
     table_->setModel(model_);
-    table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);  // 名称/现价/涨跌幅三列均分
+    table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);  // 代码/名称/现价/涨跌幅四列均分
     table_->verticalHeader()->setVisible(false);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -57,6 +57,7 @@ WatchlistPanel::WatchlistPanel(IDataProvider* provider, QWidget* parent)
     timer_->start();
 
     load();      // 从 watchlist.json 恢复
+    resolveNames();  // 异步回填股票中文名（watchlist.json 只存代码，名称从股票列表解析）
     refresh();   // 立即拉一次行情
 }
 
@@ -80,6 +81,37 @@ void WatchlistPanel::save() {
     codes.reserve(items_.size());
     for (const auto& it : items_) codes.push_back(it.code);
     WatchlistStore::save(path_, codes);
+}
+
+void WatchlistPanel::resolveNames() {
+    if (!provider_ || items_.empty() || namesFetching_) return;
+    namesFetching_ = true;
+    const int seq = ++nameSeq_;
+    IDataProvider* provider = provider_;
+    QPointer<WatchlistPanel> guard(this);
+    ThreadPool::submitIO([provider, guard, seq] {
+        // 名称 map：TDX 股票列表缓存（SH+SZ），全量构建一次
+        std::unordered_map<std::string, std::string> names;
+        for (const auto m : {Market::SH, Market::SZ}) {
+            for (const auto& s : provider->getStockList(m)) {
+                if (s.code.isValid()) names[s.code.fullCode()] = s.name;
+            }
+        }
+        QMetaObject::invokeMethod(guard, [guard, seq, names = std::move(names)]() mutable {
+            guard->onNamesReady(seq, std::move(names));
+        }, Qt::QueuedConnection);
+    });
+}
+
+void WatchlistPanel::onNamesReady(int seq,
+                                  std::unordered_map<std::string, std::string> names) {
+    namesFetching_ = false;
+    if (seq != nameSeq_) return;  // 陈旧丢弃
+    for (auto& it : items_) {
+        const auto nit = names.find(it.code.fullCode());
+        if (nit != names.end()) it.name = QString::fromStdString(nit->second);
+    }
+    if (model_) model_->setItems(items_);
 }
 
 bool WatchlistPanel::contains(const StockCode& code) const {
@@ -136,14 +168,18 @@ void WatchlistPanel::onQuotesReady(int seq, std::vector<Quote> quotes) {
     std::unordered_map<std::string, const Quote*> qmap;
     qmap.reserve(quotes.size());
     for (const auto& q : quotes) qmap[q.code.fullCode()] = &q;
+    bool needsNames = false;
     for (auto& it : items_) {
         const auto qit = qmap.find(it.code.fullCode());
         if (qit != qmap.end()) {
             it.price = qit->second->lastPrice;
             it.changePct = qit->second->change;
         }
+        // 名称仍为占位代码（首次解析时 TDX 缓存可能未就绪）→ 下次行情后重试
+        if (it.name == QString::fromStdString(it.code.displayCode())) needsNames = true;
     }
     if (model_) model_->setItems(items_);
+    if (needsNames && !namesFetching_) resolveNames();
 }
 
 void WatchlistPanel::onDoubleClicked(const QModelIndex& index) {
