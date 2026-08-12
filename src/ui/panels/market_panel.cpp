@@ -29,6 +29,18 @@ namespace st {
 namespace {
 constexpr int kTopN = 30;
 constexpr int kRefreshMs = 30000;  // 全 A 股池（~5000 只）批量拉取较重，30s 刷新
+
+/// 涨幅/跌幅榜列宽：名称自适应拉伸，其余固定宽度（配合模型 TextAlignmentRole 居中）
+void applyRankHeader(QTableView* view) {
+    auto* h = view->horizontalHeader();
+    h->setSectionResizeMode(QHeaderView::Fixed);
+    h->setSectionResizeMode(1, QHeaderView::Stretch);  // 名称自适应
+    h->setStretchLastSection(false);
+    view->setColumnWidth(0, 62);   // 代码
+    view->setColumnWidth(2, 70);   // 现价
+    view->setColumnWidth(3, 84);   // 涨跌幅
+    view->setColumnWidth(4, 70);   // 换手率
+}
 }  // namespace
 
 MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
@@ -81,8 +93,7 @@ MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
     gainersView_->setModel(gainersModel_);
     gainersView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     gainersView_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    gainersView_->horizontalHeader()->setStretchLastSection(true);
-    gainersView_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    applyRankHeader(gainersView_);  // 名称自适应拉伸，其余固定居中
     tabs_->addTab(gainersView_, tr("涨幅榜"));
     connect(gainersView_, &QTableView::doubleClicked,
             this, &MarketPanel::onGainersDoubleClicked);
@@ -92,8 +103,7 @@ MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
     losersView_->setModel(losersModel_);
     losersView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     losersView_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    losersView_->horizontalHeader()->setStretchLastSection(true);
-    losersView_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    applyRankHeader(losersView_);  // 名称自适应拉伸，其余固定居中
     tabs_->addTab(losersView_, tr("跌幅榜"));
     connect(losersView_, &QTableView::doubleClicked,
             this, &MarketPanel::onLosersDoubleClicked);

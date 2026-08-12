@@ -35,8 +35,11 @@ SectorListPage::SectorListPage(IDataProvider* provider, SectorType type, QWidget
     model_ = new SectorListModel(this);
     table_ = new QTableView(stack_);
     table_->setModel(model_);
-    table_->horizontalHeader()->setStretchLastSection(true);
-    table_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);  // 板块名称自适应
+    table_->horizontalHeader()->setStretchLastSection(false);
+    table_->setColumnWidth(1, 80);   // 涨跌幅
+    table_->setColumnWidth(2, 96);   // 成交额
     table_->verticalHeader()->setVisible(false);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);

@@ -51,6 +51,8 @@ QVariant SectorListModel::data(const QModelIndex& index, int role) const {
                     : QColor(QString::fromUtf8(kDownColor));
             }
             return {};  // 名称/成交额跟随应用主题默认色（模板同步涨跌幅榜，去掉硬编码灰）
+        case Qt::TextAlignmentRole:
+            return Qt::AlignCenter;  // 各列居中
         default:
             return {};
     }

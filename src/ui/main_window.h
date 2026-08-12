@@ -71,6 +71,7 @@ private:
     void openNewChartWindow(const StockCode& code, const QString& name);
     void openStockChart(const StockCode& code, const QString& name);  // 统一开图（股票：含右侧面板）
     void syncWatchlistButton();  // 图表「加入自选」按钮状态 = 当前股票是否在自选
+    void openMarketWindow();  // 市场窗口（独立面板，视图→市场 打开）
 
     std::unique_ptr<IDataProvider> provider_;
     std::unique_ptr<ShortcutManager> shortcuts_;
@@ -78,9 +79,9 @@ private:
 
     QDockWidget* chipDock_ = nullptr;  // 筹码分布（默认收起，视图菜单按需打开）
     QDockWidget* customIndexDock_ = nullptr;  // 自定义指数（与板块 tab 并列）
-    QDockWidget* marketDock_ = nullptr;      // 市场 dock（视图菜单开关，默认隐藏）
     QDockWidget* watchlistDock_ = nullptr;   // 自选股 dock（左主位）
     class WatchlistPanel* watchlistPanel_ = nullptr;
+    QMainWindow* marketWindow_ = nullptr;  // 市场窗口（独立面板，视图→市场 打开）
     QuantWindow* quantWindow_ = nullptr;
     FundsWindow* fundsWindow_ = nullptr;  // 资金数据（顶部「资金」菜单打开）
     JournalWindow* journalWindow_ = nullptr;  // 交易日志（顶部「日志」菜单打开）

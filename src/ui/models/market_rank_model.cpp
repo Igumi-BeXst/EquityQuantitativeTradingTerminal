@@ -42,6 +42,7 @@ QVariant MarketRankModel::data(const QModelIndex& index, int role) const {
         }
         return {};
     }
+    if (role == Qt::TextAlignmentRole) return Qt::AlignCenter;  // 各列居中
     if (role != Qt::DisplayRole) return {};
 
     switch (index.column()) {

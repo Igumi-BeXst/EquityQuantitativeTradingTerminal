@@ -72,8 +72,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     restoreState(settings_->value(QStringLiteral("ui/state")).toByteArray());
     // 筹码分布默认收起（不随历史布局常驻），需要时 视图→筹码分布 打开
     if (chipDock_) chipDock_->hide();
-    // 市场 dock 默认隐藏（视图→市场 打开；自选股占左主位）
-    if (marketDock_) marketDock_->hide();
 
     // 搜索/指数点击 → 中央图表打开对应标的
     connect(searchBar_, &StockSearchBar::stockSelected, this,
@@ -251,23 +249,6 @@ void MainWindow::createDocks() {
     addDockWidget(Qt::LeftDockWidgetArea, watchlistDock_);
     connect(watchlistPanel_, &WatchlistPanel::openChart, this, &MainWindow::openStockChart);
 
-    // 左: 市场面板（涨幅/跌幅榜 + 市场宽度；默认隐藏，视图→市场 开启）
-    marketDock_ = new QDockWidget(tr("市场"), this);
-    marketDock_->setObjectName(QStringLiteral("marketDock"));
-    marketPanel_ = new MarketPanel(provider_.get(), marketDock_);
-    marketDock_->setWidget(marketPanel_);
-    addDockWidget(Qt::LeftDockWidgetArea, marketDock_);
-    connect(marketPanel_, &MarketPanel::openChart, this, &MainWindow::openStockChart);
-
-    // 板块行双击 → 中央图表打开板块指数 K 线（与指数条行为一致：只开图，不动右侧面板）
-    connect(marketPanel_, &MarketPanel::openSectorChart, this,
-            [this](const StockCode& code, const QString& name) {
-                centralStack_->setCurrentWidget(centralChart_);
-                centralChart_->loadStock(code, name.isEmpty()
-                    ? QString::fromStdString(code.displayCode()) : name);
-                refreshTradeMarks();
-            });
-
     // 左: 自定义指数（独立 Dock，与自选股竖排；建/编/删 + 实时点位 + 打开图表）
     customIndexDock_ = new QDockWidget(tr("自定义指数"), this);
     customIndexDock_->setObjectName(QStringLiteral("customIndexDock"));
@@ -384,7 +365,7 @@ void MainWindow::createMenus() {
     });
     // 筹码分布不进视图菜单（仍可通过图表「筹码分布」按钮开关）
     if (customIndexDock_) viewMenu->addAction(customIndexDock_->toggleViewAction());
-    if (marketDock_) viewMenu->addAction(marketDock_->toggleViewAction());
+    viewMenu->addAction(tr("市场(&M)"), this, &MainWindow::openMarketWindow);
     viewMenu->addAction(tr("重置布局(&R)"), this, &MainWindow::resetLayout);
 
     // 量化
@@ -522,6 +503,33 @@ void MainWindow::openFundsWindow() {
     fundsWindow_->show();
     fundsWindow_->raise();
     fundsWindow_->activateWindow();
+}
+
+void MainWindow::openMarketWindow() {
+    // 市场窗口为独立面板（视图→市场 打开，仿资金/量化窗口模式）
+    if (!marketWindow_) {
+        marketWindow_ = new QMainWindow();
+        marketWindow_->setAttribute(Qt::WA_DeleteOnClose);
+        marketWindow_->setWindowTitle(tr("市场"));
+        marketWindow_->resize(560, 720);
+        marketPanel_ = new MarketPanel(provider_.get(), marketWindow_);
+        marketWindow_->setCentralWidget(marketPanel_);
+        // 涨幅/跌幅榜双击 → 主窗口中央图（含右侧面板联动）
+        connect(marketPanel_, &MarketPanel::openChart, this, &MainWindow::openStockChart);
+        // 板块行双击 → 板块指数 K 线（与指数条行为一致：只开图，不动右侧面板）
+        connect(marketPanel_, &MarketPanel::openSectorChart, this,
+                [this](const StockCode& code, const QString& name) {
+                    centralStack_->setCurrentWidget(centralChart_);
+                    centralChart_->loadStock(code, name.isEmpty()
+                        ? QString::fromStdString(code.displayCode()) : name);
+                    refreshTradeMarks();
+                });
+        connect(marketWindow_, &QObject::destroyed, this,
+                [this] { marketWindow_ = nullptr; marketPanel_ = nullptr; });
+    }
+    marketWindow_->show();
+    marketWindow_->raise();
+    marketWindow_->activateWindow();
 }
 
 void MainWindow::openJournalWindow() {
