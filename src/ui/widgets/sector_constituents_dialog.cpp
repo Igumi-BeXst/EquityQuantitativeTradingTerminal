@@ -2,6 +2,7 @@
 #include "data/eastmoney_sector_constituents.h"
 #include "core/thread_pool.h"
 #include "ui/models/market_rank_model.h"
+#include "ui/models/market_rank_sort_proxy.h"
 #include <QHeaderView>
 #include <QLabel>
 #include <QMetaObject>
@@ -28,11 +29,15 @@ SectorConstituentsDialog::SectorConstituentsDialog(IDataProvider* provider,
     layout->addWidget(title_);
 
     model_ = new MarketRankModel(this);
+    proxy_ = new MarketRankSortProxy(this);
+    proxy_->setSourceModel(model_);
     table_ = new QTableView(this);
-    table_->setModel(model_);
+    table_->setModel(proxy_);
     table_->setColumnHidden(4, true);  // 隐藏换手率列（TDX 行情无此数据）
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table_->setSortingEnabled(true);   // 点击列头排序
+    table_->sortByColumn(3, Qt::DescendingOrder);  // 默认涨跌幅降序
     table_->horizontalHeader()->setStretchLastSection(true);
     table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     table_->verticalHeader()->setVisible(false);
@@ -40,8 +45,10 @@ SectorConstituentsDialog::SectorConstituentsDialog(IDataProvider* provider,
     layout->addWidget(table_, 1);
 
     connect(table_, &QTableView::doubleClicked, this, [this](const QModelIndex& idx) {
-        if (!idx.isValid() || !model_) return;
-        const auto& item = model_->itemAt(idx.row());
+        if (!idx.isValid() || !proxy_ || !model_) return;
+        const auto src = proxy_->mapToSource(idx);  // 代理行 → 源行
+        if (!src.isValid()) return;
+        const auto& item = model_->itemAt(src.row());
         if (item.code.isValid()) emit openChart(item.code, QString::fromStdString(item.name));
     });
 

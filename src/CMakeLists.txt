@@ -147,6 +147,7 @@ add_library(st_ui STATIC
     ui/models/stock_list_model.cpp
     ui/models/trade_table_model.cpp
     ui/models/market_rank_model.cpp
+    ui/models/market_rank_sort_proxy.cpp
     ui/models/sector_list_model.cpp
     ui/models/screen_result_model.cpp
     ui/models/grid_search_table_model.cpp

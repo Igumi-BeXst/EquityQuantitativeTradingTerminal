@@ -39,6 +39,7 @@ private:
     QLabel* title_ = nullptr;
     QTableView* table_ = nullptr;
     MarketRankModel* model_ = nullptr;
+    class MarketRankSortProxy* proxy_ = nullptr;  // 列头排序代理
     int fetchSeq_ = 0;
     bool fetching_ = false;
     std::vector<StockCode> codes_;            // 当前成分股

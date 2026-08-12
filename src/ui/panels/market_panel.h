@@ -65,6 +65,8 @@ private:
     QTabWidget* tabs_ = nullptr;
     MarketRankModel* gainersModel_ = nullptr;
     MarketRankModel* losersModel_ = nullptr;
+    class MarketRankSortProxy* gainersProxy_ = nullptr;  // 列头排序代理
+    class MarketRankSortProxy* losersProxy_ = nullptr;
     QTableView* gainersView_ = nullptr;
     QTableView* losersView_ = nullptr;
     QLabel* adv_ = nullptr;

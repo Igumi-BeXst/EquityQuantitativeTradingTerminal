@@ -1,6 +1,7 @@
 #include "ui/panels/market_panel.h"
 #include "ui/utils/table_csv_export.h"
 #include "ui/models/market_rank_model.h"
+#include "ui/models/market_rank_sort_proxy.h"
 #include "ui/panels/sector_panel.h"          // SectorListPage
 #include "ui/widgets/sector_constituents_dialog.h"
 #include "data/eastmoney_sector_provider.h"  // SectorType
@@ -89,20 +90,28 @@ MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
     tabs_ = new QTabWidget(this);
 
     gainersModel_ = new MarketRankModel(this);
+    gainersProxy_ = new MarketRankSortProxy(this);
+    gainersProxy_->setSourceModel(gainersModel_);
     gainersView_ = new QTableView();
-    gainersView_->setModel(gainersModel_);
+    gainersView_->setModel(gainersProxy_);
     gainersView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     gainersView_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    gainersView_->setSortingEnabled(true);       // 点击列头排序
+    gainersView_->sortByColumn(3, Qt::DescendingOrder);  // 默认涨跌幅降序
     applyRankHeader(gainersView_);  // 名称自适应拉伸，其余固定居中
     tabs_->addTab(gainersView_, tr("涨幅榜"));
     connect(gainersView_, &QTableView::doubleClicked,
             this, &MarketPanel::onGainersDoubleClicked);
 
     losersModel_ = new MarketRankModel(this);
+    losersProxy_ = new MarketRankSortProxy(this);
+    losersProxy_->setSourceModel(losersModel_);
     losersView_ = new QTableView();
-    losersView_->setModel(losersModel_);
+    losersView_->setModel(losersProxy_);
     losersView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     losersView_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    losersView_->setSortingEnabled(true);       // 点击列头排序
+    losersView_->sortByColumn(3, Qt::AscendingOrder);   // 默认涨跌幅升序
     applyRankHeader(losersView_);  // 名称自适应拉伸，其余固定居中
     tabs_->addTab(losersView_, tr("跌幅榜"));
     connect(losersView_, &QTableView::doubleClicked,
@@ -285,15 +294,19 @@ void MarketPanel::applyTurnover(const std::vector<QuoteFundamentals>& funds) {
 }
 
 void MarketPanel::onGainersDoubleClicked(const QModelIndex& index) {
-    if (!index.isValid()) return;
-    const auto& item = gainersModel_->itemAt(index.row());
+    if (!index.isValid() || !gainersProxy_ || !gainersModel_) return;
+    const auto src = gainersProxy_->mapToSource(index);  // 代理行 → 源行
+    if (!src.isValid()) return;
+    const auto& item = gainersModel_->itemAt(src.row());
     emit openChart(item.code, QString::fromUtf8(item.name.c_str(),
                                                static_cast<int>(item.name.size())));
 }
 
 void MarketPanel::onLosersDoubleClicked(const QModelIndex& index) {
-    if (!index.isValid()) return;
-    const auto& item = losersModel_->itemAt(index.row());
+    if (!index.isValid() || !losersProxy_ || !losersModel_) return;
+    const auto src = losersProxy_->mapToSource(index);  // 代理行 → 源行
+    if (!src.isValid()) return;
+    const auto& item = losersModel_->itemAt(src.row());
     emit openChart(item.code, QString::fromUtf8(item.name.c_str(),
                                                static_cast<int>(item.name.size())));
 }
