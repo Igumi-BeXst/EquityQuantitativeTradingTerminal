@@ -131,6 +131,7 @@ add_library(st_ui STATIC
     ui/panels/journal_window.cpp
     ui/panels/chart_window.cpp
     ui/panels/task_window.cpp
+    ui/panels/watchlist_panel.cpp
     ui/panels/pattern_panel.cpp
     ui/panels/advisor_panel.cpp
     ui/panels/sentiment_panel.cpp
