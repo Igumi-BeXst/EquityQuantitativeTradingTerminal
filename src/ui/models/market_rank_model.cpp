@@ -37,7 +37,7 @@ QVariant MarketRankModel::data(const QModelIndex& index, int role) const {
     const auto& item = items_[static_cast<size_t>(index.row())];
 
     if (role == Qt::ForegroundRole) {
-        if (index.column() == 3) {
+        if (index.column() == 2 || index.column() == 3) {  // 现价/涨跌幅：对比昨收红涨绿跌
             return QColor(item.changePct >= 0 ? "#e54648" : "#2e9e5b");
         }
         return {};
