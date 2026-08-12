@@ -6,13 +6,13 @@
 #include <QLabel>
 #include <QTableWidget>
 #include <QVBoxLayout>
+#include <optional>
 
 namespace st {
 
 namespace {
 const QColor kUpColor("#e54648");
 const QColor kDownColor("#2e9e5b");
-const QColor kNeutralColor("#d4d4d4");
 
 QString formatVolume(double volume) {   // 股 → 手/万/亿（对齐图表浮框）
     const double hands = volume / 100.0;
@@ -54,13 +54,12 @@ RangeStatsDialog::RangeStatsDialog(const std::vector<Bar>& bars, int from, int t
     table_->setShowGrid(false);
 
     auto addRow = [this](const QString& name, const QString& value,
-                         const QColor& color = kNeutralColor) {
+                         const std::optional<QColor>& color = std::nullopt) {
         const int row = table_->rowCount();
         table_->insertRow(row);
         auto* ni = new QTableWidgetItem(name);
         auto* vi = new QTableWidgetItem(value);
-        ni->setForeground(kNeutralColor);
-        vi->setForeground(color);
+        if (color) vi->setForeground(*color);
         vi->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         table_->setItem(row, 0, ni);
         table_->setItem(row, 1, vi);
@@ -78,7 +77,10 @@ RangeStatsDialog::RangeStatsDialog(const std::vector<Bar>& bars, int from, int t
     addRow(tr("区间最低"), tr("%1  (%2)").arg(rs->low, 0, 'f', 2).arg(dstr(rs->lowDate)));
     addRow(tr("累计成交量"), formatVolume(rs->totalVolume));
     addRow(tr("累计成交额"), formatAmount(rs->totalAmount));
-    addRow(tr("区间换手率"), tr("%1%").arg(rs->turnoverSum * 100.0, 0, 'f', 2));
+    const bool hasTurnover = rs->turnoverSum > 0.0;
+    addRow(tr("区间换手率"),
+           hasTurnover ? tr("%1%").arg(rs->turnoverSum * 100.0, 0, 'f', 2)
+                       : tr("—"));
     addRow(tr("均价"), tr("%1").arg(rs->avgPrice, 0, 'f', 2));
 
     layout->addWidget(table_);
