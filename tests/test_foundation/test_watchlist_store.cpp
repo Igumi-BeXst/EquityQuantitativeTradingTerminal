@@ -11,14 +11,28 @@ namespace {
 TEST(WatchlistStoreTest, SaveLoadRoundTrip) {
     const std::string path = "watchlist_test_roundtrip.json";
     std::remove(path.c_str());
-    std::vector<StockCode> codes;
-    codes.emplace_back(std::string_view("SH600000"));
-    codes.emplace_back(std::string_view("SZ000001"));
-    WatchlistStore::save(path, codes);
+    std::vector<WatchlistStore::Entry> entries;
+    entries.push_back({StockCode(std::string_view("SH600000")), "浦发银行"});
+    entries.push_back({StockCode(std::string_view("SZ000001")), "平安银行"});
+    WatchlistStore::save(path, entries);
     auto loaded = WatchlistStore::load(path);
     ASSERT_EQ(loaded.size(), 2u);
-    EXPECT_EQ(loaded[0].fullCode(), "SH600000");
-    EXPECT_EQ(loaded[1].fullCode(), "SZ000001");
+    EXPECT_EQ(loaded[0].code.fullCode(), "SH600000");
+    EXPECT_EQ(loaded[0].name, "浦发银行");
+    EXPECT_EQ(loaded[1].code.fullCode(), "SZ000001");
+    EXPECT_EQ(loaded[1].name, "平安银行");
+    std::remove(path.c_str());
+}
+
+TEST(WatchlistStoreTest, LoadLegacyCodesFormat) {
+    // 旧格式 {"codes":[...]}（无名称）→ 兼容解析，name 为空
+    const std::string path = "watchlist_test_legacy.json";
+    std::remove(path.c_str());
+    { std::ofstream f(path); f << "{\"codes\":[\"SH600000\",\"SZ000001\"]}" << std::endl; }
+    auto loaded = WatchlistStore::load(path);
+    ASSERT_EQ(loaded.size(), 2u);
+    EXPECT_EQ(loaded[0].code.fullCode(), "SH600000");
+    EXPECT_TRUE(loaded[0].name.empty());
     std::remove(path.c_str());
 }
 

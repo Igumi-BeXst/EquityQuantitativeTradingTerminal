@@ -56,31 +56,50 @@ WatchlistPanel::WatchlistPanel(IDataProvider* provider, QWidget* parent)
     connect(timer_, &QTimer::timeout, this, &WatchlistPanel::refresh);
     timer_->start();
 
-    load();      // 从 watchlist.json 恢复
-    resolveNames();  // 异步回填股票中文名（watchlist.json 只存代码，名称从股票列表解析）
+    load();      // 恢复 + 缺失名称即时查（缓存）→ 未命中再异步补齐
     refresh();   // 立即拉一次行情
 }
 
 void WatchlistPanel::load() {
-    auto codes = WatchlistStore::load(path_);
+    auto entries = WatchlistStore::load(path_);
     items_.clear();
-    items_.reserve(codes.size());
-    for (auto& c : codes) {
+    items_.reserve(entries.size());
+    bool missing = false;
+    for (auto& e : entries) {
         WatchItem it;
-        it.code = std::move(c);
-        it.name = QString::fromStdString(it.code.displayCode());  // 名称先占位，行情后回填
+        it.code = std::move(e.code);
+        if (!e.name.empty()) {
+            // 已持久化名称 → 即时显示（无占位窗口）
+            it.name = QString::fromUtf8(e.name.c_str(), static_cast<int>(e.name.size()));
+        } else if (provider_) {
+            // 无缓存名称 → 即时同步查（TDX 股票列表缓存命中即快；冷缓存一次拉取）
+            if (auto info = provider_->getStockInfo(it.code)) {
+                it.name = QString::fromUtf8(info->name.c_str(),
+                                            static_cast<int>(info->name.size()));
+            }
+        }
+        if (it.name.isEmpty()) {
+            it.name = QString::fromStdString(it.code.displayCode());  // 兜底占位
+            missing = true;
+        }
         items_.push_back(std::move(it));
     }
     if (model_) model_->setItems(items_);
     stack_->setCurrentWidget(items_.empty()
         ? static_cast<QWidget*>(emptyLabel_) : static_cast<QWidget*>(table_));
+    if (missing) resolveNames();  // 仍有缺失 → 异步补齐 + 持久化
 }
 
 void WatchlistPanel::save() {
-    std::vector<StockCode> codes;
-    codes.reserve(items_.size());
-    for (const auto& it : items_) codes.push_back(it.code);
-    WatchlistStore::save(path_, codes);
+    std::vector<WatchlistStore::Entry> entries;
+    entries.reserve(items_.size());
+    for (const auto& it : items_) {
+        WatchlistStore::Entry e;
+        e.code = it.code;
+        e.name = it.name.toUtf8().constData();  // 持久化当前名称（重启后即时显示）
+        entries.push_back(std::move(e));
+    }
+    WatchlistStore::save(path_, entries);
 }
 
 void WatchlistPanel::resolveNames() {
@@ -112,6 +131,7 @@ void WatchlistPanel::onNamesReady(int seq,
         if (nit != names.end()) it.name = QString::fromStdString(nit->second);
     }
     if (model_) model_->setItems(items_);
+    save();  // 持久化已解析名称（重启后即时显示，避免占位窗口）
 }
 
 bool WatchlistPanel::contains(const StockCode& code) const {
@@ -185,7 +205,17 @@ void WatchlistPanel::onQuotesReady(int seq, std::vector<Quote> quotes) {
 void WatchlistPanel::onDoubleClicked(const QModelIndex& index) {
     if (!index.isValid() || !model_) return;
     const auto& it = model_->itemAt(index.row());
-    if (it.code.isValid()) emit openChart(it.code, it.name);
+    if (!it.code.isValid()) return;
+    // 名称仍为占位代码（异步解析未完成）→ 双击时即时查真实名称（TDX 股票列表缓存命中即快）
+    QString name = it.name;
+    if (name == QString::fromStdString(it.code.displayCode()) && provider_) {
+        if (auto info = provider_->getStockInfo(it.code)) {
+            name = QString::fromUtf8(info->name.c_str(), static_cast<int>(info->name.size()));
+            if (!name.isEmpty()) emit openChart(it.code, name);
+            return;
+        }
+    }
+    emit openChart(it.code, name);
 }
 
 void WatchlistPanel::onContextMenu(const QPoint& pos) {
