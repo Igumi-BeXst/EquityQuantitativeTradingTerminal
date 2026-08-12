@@ -50,11 +50,10 @@ SectorConstituentsDialog::SectorConstituentsDialog(IDataProvider* provider,
 void SectorConstituentsDialog::fetchConstituents() {
     if (!provider_ || fetching_) return;
     fetching_ = true;
-    const int seq = ++fetchSeq_;
     const QString board = boardName_;
     IDataProvider* provider = provider_;
     QPointer<SectorConstituentsDialog> guard(this);
-    ThreadPool::submitIO([provider, guard, seq, board] {
+    ThreadPool::submitIO([provider, guard, board] {
         EastMoneySectorConstituents em;
         auto codes = em.fetchConstituents(board.toStdString());
         // 名称 map：TDX 股票列表缓存（SH+SZ），供成分股中文名
@@ -65,9 +64,8 @@ void SectorConstituentsDialog::fetchConstituents() {
                 names[s.code.fullCode()] = s.name;
             }
         }
-        QMetaObject::invokeMethod(guard, [guard, seq, codes = std::move(codes),
+        QMetaObject::invokeMethod(guard, [guard, codes = std::move(codes),
                                           names = std::move(names)]() mutable {
-            guard->fetchSeq_ = seq;
             guard->fetching_ = false;
             guard->names_ = std::move(names);
             guard->onCodesReady(std::move(codes));
