@@ -87,6 +87,7 @@ add_library(st_engine STATIC
     engine/analyzer/chip_distribution.cpp
     engine/analyzer/treemap.cpp
     engine/analyzer/overlay_analysis.cpp
+    engine/analyzer/range_statistics.cpp
     engine/analyzer/custom_index.cpp
     engine/analyzer/custom_index_store.cpp
     engine/journal/trade_journal.cpp

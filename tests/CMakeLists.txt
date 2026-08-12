@@ -61,6 +61,7 @@ if(BUILD_WITH_QT)
         test_engine/test_chip_distribution.cpp
         test_engine/test_treemap.cpp
         test_engine/test_overlay_analysis.cpp
+        test_engine/test_range_statistics.cpp
         test_engine/test_custom_index.cpp
         test_engine/test_custom_index_store.cpp
         test_engine/test_trade_journal.cpp
