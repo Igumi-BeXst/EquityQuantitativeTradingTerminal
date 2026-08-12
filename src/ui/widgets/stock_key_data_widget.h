@@ -56,7 +56,8 @@ private:
     };
 
     IDataProvider* provider_ = nullptr;
-    std::shared_ptr<AKShareProvider> fundProvider_;  // 基本面专用数据源（东财 ulist，不依赖主源）；shared 供异步按值捕获
+    std::shared_ptr<AKShareProvider> fundProvider_;  // 基本面专用数据源（东财 ulist 主源）；shared 供异步按值捕获
+    std::shared_ptr<class TencentProvider> tencentProvider_;  // 腾讯备源（东财不可用时）
     StockCode code_;
     QString name_;
     QTimer* timer_ = nullptr;

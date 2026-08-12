@@ -1,6 +1,7 @@
 #pragma once
 
 #include "data/idata_provider.h"
+#include "data/quote_fundamentals.h"
 #include "foundation/tick.h"
 #include "foundation/types.h"
 #include <memory>
@@ -45,6 +46,14 @@ public:
     /// 批量获取实时行情（同步，测试/CLI 用）。每次请求 ≤50 码，自动分块。
     std::vector<Quote> batchQuote(const std::vector<StockCode>& codes);
 
+    /// 单只股票基本面快照（腾讯 qt.gtimg.cn 行情派生：换手率/市盈/市值/股本）
+    /// ——东财 ulist 接口不可用时的备源。
+    std::optional<QuoteFundamentals> getQuoteFundamentals(const StockCode& code);
+
+    /// 批量基本面快照（分块 ≤50，同 batchQuote）
+    std::vector<QuoteFundamentals> batchQuoteFundamentals(
+        const std::vector<StockCode>& codes);
+
     /// 手动立即刷新一次已订阅实时行情（F5）
     void refreshQuotes();
 
@@ -58,6 +67,17 @@ public:
 
     /// 解析单条记录的名称字段（GBK→UTF-8 转码）
     static std::string parseQuoteName(const std::string& record);
+
+    /// 解析单条行情记录 → QuoteFundamentals
+    /// 字段（相对 14 位时间戳 t）: t+8 换手率% t+9 市盈TTM
+    ///   t+10 为空（部分个股）→ 市值偏移 s=1，否则 s=0
+    ///   流通市值 t+13+s(亿) 总市值 t+14+s(亿) 流通股本 t+39(股) 总股本 t+40-s(股)
+    ///   市盈(静) 留 0（偏移不稳定）
+    static QuoteFundamentals parseFundamentals(const std::string& record,
+                                               const StockCode& code);
+
+    /// 解析批量行情响应 → QuoteFundamentals 列表
+    static std::vector<QuoteFundamentals> parseFundamentalsBatch(const std::string& body);
 
     /// 腾讯代码格式: SH600519 → sh600519
     static std::string toTencentCode(const StockCode& code);

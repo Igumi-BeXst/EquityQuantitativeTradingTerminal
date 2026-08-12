@@ -7,6 +7,7 @@
 #include "data/eastmoney_sector_provider.h"  // SectorType
 #include "data/idata_provider.h"
 #include "data/akshare_provider.h"
+#include "data/tencent_provider.h"
 #include "data/curated_stocks.h"
 #include "data/tdx/tdx_models.h"
 #include "core/thread_pool.h"
@@ -49,7 +50,8 @@ void applyRankHeader(QTableView* view) {
 
 MarketPanel::MarketPanel(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider),
-      fundProvider_(std::make_shared<AKShareProvider>()) {
+      fundProvider_(std::make_shared<AKShareProvider>()),
+      tencentProvider_(std::make_shared<TencentProvider>()) {
     // 池 + 名称表（精选股票）
     for (const auto& c : kCuratedSH) {
         StockCode sc(Market::SH, c.code);
@@ -299,15 +301,18 @@ void MarketPanel::onQuotesReady(const std::vector<Quote>& quotes) {
 }
 
 void MarketPanel::requestTurnover(const std::vector<MarketRankItem>& items) {
-    if (!fundProvider_ || items.empty()) return;
+    if ((!fundProvider_ && !tencentProvider_) || items.empty()) return;
     std::vector<StockCode> codes;
     codes.reserve(items.size());
     for (const auto& it : items) codes.push_back(it.code);
     // 安全异步：shared_ptr 按值捕获 + QPointer 守卫（面板销毁后 provider 仍存活）
-    const auto provider = fundProvider_;
+    const auto em = fundProvider_;      // 东财主源
+    const auto tq = tencentProvider_;   // 腾讯备源
     QPointer<MarketPanel> guard(this);
-    ThreadPool::submitIO([provider, guard, codes] {
-        auto funds = provider->batchQuoteFundamentals(codes);
+    ThreadPool::submitIO([em, tq, guard, codes] {
+        auto funds = em ? em->batchQuoteFundamentals(codes)
+                        : std::vector<QuoteFundamentals>{};
+        if (funds.empty() && tq) funds = tq->batchQuoteFundamentals(codes);  // 东财失败回退腾讯
         QMetaObject::invokeMethod(guard,
             [guard, funds = std::move(funds)]() mutable {
                 guard->applyTurnover(funds);

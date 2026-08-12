@@ -405,6 +405,106 @@ std::vector<Quote> TencentProvider::batchQuote(const std::vector<StockCode>& cod
     return result;
 }
 
+// --- 基本面快照（腾讯行情派生）——东财 ulist 不可用时的备源 ---
+
+QuoteFundamentals TencentProvider::parseFundamentals(const std::string& record,
+                                                     const StockCode& code) {
+    QuoteFundamentals out;
+    out.code = code;
+    std::vector<std::string> f;
+    std::istringstream iss(record);
+    std::string tok;
+    while (std::getline(iss, tok, '~')) f.push_back(tok);
+
+    // 与 parseQuoteWithName 相同的 14 位时间戳锚定（股票@30 / 指数@32）
+    int timeIdx = -1;
+    for (int i = 0; i < static_cast<int>(f.size()); ++i) {
+        const auto& s = f[static_cast<size_t>(i)];
+        if (s.size() == 14) {
+            bool digits = true;
+            for (unsigned char c : s) {
+                if (!std::isdigit(c)) { digits = false; break; }
+            }
+            if (digits) { timeIdx = i; break; }
+        }
+    }
+    if (timeIdx < 0) return out;
+    const size_t ti = static_cast<size_t>(timeIdx);
+    const auto at = [&](int off) -> double {
+        const size_t i = static_cast<size_t>(timeIdx + off);
+        return i < f.size() ? parseNumber(f[i]) : 0.0;
+    };
+    // 条件空字段：t+10 为空（部分个股如茅台）→ 后续市值/股本布局 +1 偏移
+    // 工行/浦发等 t+10 = 最高价（非空）→ 不偏移。实测两型均以本规则可解析。
+    const int s = (ti + 10 < f.size() && f[ti + 10].empty()) ? 1 : 0;
+    out.turnoverRate = at(8);       // 换手率 %
+    out.peTtm = at(9);              // 市盈(TTM)
+    out.floatCap = at(13 + s) * 1e8;  // 流通市值 亿 → 元
+    out.marketCap = at(14 + s) * 1e8; // 总市值 亿 → 元
+    out.totalShares = at(40 - s);   // 总股本 股
+    out.floatShares = at(39);       // 流通股本 股（固定偏移，工行/茅台实测一致）
+    if (out.totalShares > 0.0) {
+        out.turnoverRateReal = out.turnoverRate * out.floatShares / out.totalShares;
+    }
+    // 市盈(静) 实测偏移仍不稳定（个股间不一致），留 0 → UI 显示 "—"
+    out.valid = out.turnoverRate > 0.0 || out.marketCap > 0.0;
+    return out;
+}
+
+std::vector<QuoteFundamentals> TencentProvider::parseFundamentalsBatch(
+    const std::string& body) {
+    std::vector<QuoteFundamentals> result;
+    size_t startPos = 0;
+    while (startPos < body.size()) {
+        auto vpos = body.find("v_", startPos);
+        if (vpos == std::string::npos) break;
+        auto eq = body.find('=', vpos);
+        if (eq == std::string::npos) break;
+        auto semi = body.find(';', eq);
+        if (semi == std::string::npos) break;
+        std::string rec = body.substr(eq + 1, semi - eq - 1);
+        std::string tc = body.substr(vpos + 2, eq - vpos - 2);
+        std::string marketPrefix = tc.substr(0, 2);
+        Market m = (marketPrefix == "sz") ? Market::SZ : Market::SH;
+        std::string codeStr = tc.substr(2);
+        StockCode scode(m, codeStr);
+        auto f = parseFundamentals(rec, scode);
+        if (f.valid) result.push_back(std::move(f));
+        startPos = semi + 1;
+    }
+    return result;
+}
+
+std::optional<QuoteFundamentals> TencentProvider::getQuoteFundamentals(
+    const StockCode& code) {
+    if (code.market() != Market::SH && code.market() != Market::SZ) return std::nullopt;
+    std::string url = "https://qt.gtimg.cn/q=" + toTencentCode(code);
+    auto body = fetch(url);
+    if (body.empty()) return std::nullopt;
+    auto parsed = parseFundamentalsBatch(body);
+    if (parsed.empty()) return std::nullopt;
+    return parsed.front();
+}
+
+std::vector<QuoteFundamentals> TencentProvider::batchQuoteFundamentals(
+    const std::vector<StockCode>& codes) {
+    std::vector<QuoteFundamentals> out;
+    for (size_t n = 0; n < codes.size(); n += kQuoteChunk) {
+        std::string u = "https://qt.gtimg.cn/q=";
+        bool first = true;
+        for (size_t j = n; j < codes.size() && j < n + kQuoteChunk; ++j) {
+            if (!first) u += ",";
+            first = false;
+            u += toTencentCode(codes[j]);
+        }
+        auto body = fetch(u);
+        if (body.empty()) continue;
+        auto recs = parseFundamentalsBatch(body);
+        for (auto& r : recs) out.push_back(std::move(r));
+    }
+    return out;
+}
+
 std::optional<StockInfo> TencentProvider::getStockInfo(const StockCode& code) {
     std::string url = "https://qt.gtimg.cn/q=" + toTencentCode(code);
     auto body = fetch(url);

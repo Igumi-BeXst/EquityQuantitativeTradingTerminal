@@ -56,7 +56,7 @@ private:
     void onOpenSectorChart(const StockCode& code, const QString& name);
     void onOpenConstituents(const QString& name);
 
-    /// 异步拉取显示股票的东财换手率，回填排名表
+    /// 异步拉取显示股票的换手率（东财 ulist，失败回退腾讯），回填排名表
     void requestTurnover(const std::vector<MarketRankItem>& items);
     void applyTurnover(const std::vector<QuoteFundamentals>& funds);
 
@@ -65,8 +65,9 @@ private:
 
     IDataProvider* provider_ = nullptr;
     qint64 lastPoolLoadSec_ = 0;  // 上次全量池加载时间（epoch 秒；0=未加载）
-    // 基本面专用数据源（东财 ulist，不依赖主源）；shared 供异步按值捕获
+    // 基本面专用数据源（东财 ulist 主源 + 腾讯备源）；shared 供异步按值捕获
     std::shared_ptr<AKShareProvider> fundProvider_;
+    std::shared_ptr<class TencentProvider> tencentProvider_;
     QTimer* timer_ = nullptr;
     bool refreshing_ = false;
     int gen_ = 0;

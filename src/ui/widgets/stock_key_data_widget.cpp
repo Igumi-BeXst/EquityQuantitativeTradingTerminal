@@ -1,5 +1,6 @@
 #include "ui/widgets/stock_key_data_widget.h"
 #include "data/idata_provider.h"
+#include "data/tencent_provider.h"
 #include "core/thread_pool.h"
 #include "foundation/utils/datetime.h"
 #include <QLabel>
@@ -49,7 +50,8 @@ double round2(double v) { return std::round(v * 100.0) / 100.0; }
 
 StockKeyDataWidget::StockKeyDataWidget(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider),
-      fundProvider_(std::make_shared<AKShareProvider>()) {
+      fundProvider_(std::make_shared<AKShareProvider>()),
+      tencentProvider_(std::make_shared<TencentProvider>()) {
     auto* scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);
     auto* body = new QWidget;
@@ -187,12 +189,14 @@ void StockKeyDataWidget::requestFundamentals() {
     // 安全异步：shared_ptr 按值捕获（widget 销毁后 provider 仍存活）+ QPointer 守卫回主线程。
     // provider 移入主线程回调，确保 AKShareProvider 在 IO 线程用完、回主线程后才析构
     // （避免析构时跨线程访问成员 QNAM clearAccessCache）。
-    auto provider = fundProvider_;
+    const auto em = fundProvider_;      // 东财主源
+    const auto tq = tencentProvider_;   // 腾讯备源
     QPointer<StockKeyDataWidget> guard(this);
-    ThreadPool::submitIO([provider, guard, code] {
-        auto f = provider->getQuoteFundamentals(code);
+    ThreadPool::submitIO([em, tq, guard, code] {
+        auto f = em->getQuoteFundamentals(code);
+        if (!f && tq) f = tq->getQuoteFundamentals(code);  // 东财失败回退腾讯
         QMetaObject::invokeMethod(guard,
-            [guard, f = std::move(f), provider = std::move(provider)]() mutable {
+            [guard, f = std::move(f), em, tq]() mutable {
                 guard->fundFetching_ = false;
                 guard->onFundamentalsFetched(std::move(f));
             }, Qt::QueuedConnection);

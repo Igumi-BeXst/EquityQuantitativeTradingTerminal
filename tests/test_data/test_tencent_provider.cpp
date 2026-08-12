@@ -269,3 +269,77 @@ TEST(QuotePollerTest, DedupAddCode) {
     poller.addCode(StockCode(Market::SZ, "000001"));
     EXPECT_EQ(poller.codeCount(), 2);
 }
+
+// ============================================================
+// parseFundamentals — 基本面字段解析（东财 ulist 不可用时的腾讯备源）
+// ============================================================
+namespace {
+
+// 构造 74 字段腾讯行情记录（时间戳@30）。
+// shifted=true 模拟茅台式布局（t+10 空字段 → 市值 +1 偏移）：
+//   换手率@t+8 市盈TTM@t+9 流通市值@t+13+s 总市值@t+14+s
+//   流通股本@t+39（固定） 总股本@t+40-s
+std::string fundamentalsRecord(bool shifted) {
+    const int s = shifted ? 1 : 0;
+    std::string rec;
+    for (int i = 0; i < 74; ++i) {
+        if (i == 30) rec += "20260812161432";
+        else if (i == 38) rec += "0.28";
+        else if (i == 39) rec += "20.30";
+        else if (i == 40) rec += shifted ? "" : "7.59";          // t+10 条件字段
+        else if (i == 43 + s) rec += "16788.60";                 // 流通市值(亿)
+        else if (i == 44 + s) rec += "16788.60";                 // 总市值(亿)
+        else if (i == 69) rec += "500000000";                    // 流通股本 5亿
+        else if (i == 70 - s) rec += "1000000000";               // 总股本 10亿（s=1 时与流通同格→同值）
+        else rec += "0";
+        if (i != 73) rec += "~";
+    }
+    return rec;
+}
+
+}  // namespace
+
+TEST(TencentFundamentalsTest, ParsesTurnoverPeCapShares) {
+    // s=0（工行式，t+10 非空）：流通/总股本分列不同格
+    auto f = TencentProvider::parseFundamentals(
+        fundamentalsRecord(false), StockCode(Market::SH, "601398"));
+    EXPECT_TRUE(f.valid);
+    EXPECT_NEAR(f.turnoverRate, 0.28, 1e-6);
+    EXPECT_NEAR(f.peTtm, 20.30, 1e-6);
+    EXPECT_NEAR(f.floatCap, 16788.60 * 1e8, 1e-3);
+    EXPECT_NEAR(f.marketCap, 16788.60 * 1e8, 1e-3);
+    EXPECT_NEAR(f.floatShares, 500000000.0, 1e-3);
+    EXPECT_NEAR(f.totalShares, 1000000000.0, 1e-3);
+    // 换手率(实) = 换手率 × 流通/总 = 0.28 × 5亿/10亿 = 0.14
+    EXPECT_NEAR(f.turnoverRateReal, 0.14, 1e-6);
+    // 市盈(静) 未解析（偏移不可靠），保持 0
+    EXPECT_EQ(f.peStatic, 0.0);
+}
+
+TEST(TencentFundamentalsTest, ParsesShiftedLayout) {
+    // s=1（茅台式，t+10 空字段 → 市值 +1 偏移；流通=总股本同格同值）
+    auto f = TencentProvider::parseFundamentals(
+        fundamentalsRecord(true), StockCode(Market::SH, "600519"));
+    EXPECT_TRUE(f.valid);
+    EXPECT_NEAR(f.turnoverRate, 0.28, 1e-6);
+    EXPECT_NEAR(f.floatCap, 16788.60 * 1e8, 1e-3);
+    EXPECT_NEAR(f.marketCap, 16788.60 * 1e8, 1e-3);
+    EXPECT_NEAR(f.floatShares, 500000000.0, 1e-3);
+    EXPECT_NEAR(f.totalShares, 500000000.0, 1e-3);  // s=1 时总股本落在流通股本田
+    EXPECT_NEAR(f.turnoverRateReal, 0.28, 1e-6);    // 流通=总 → 实=名义
+}
+
+TEST(TencentFundamentalsTest, InvalidWhenNoTimestampOrAllZero) {
+    StockCode code(Market::SH, "600519");
+    // 无时间戳 → invalid
+    auto f1 = TencentProvider::parseFundamentals("1~x~600519~9.17", code);
+    EXPECT_FALSE(f1.valid);
+    // 全 0 字段（有时间戳但无行情值）→ invalid
+    std::string rec;
+    for (int i = 0; i < 74; ++i) {
+        rec += (i == 30) ? "20260812161432" : "0";
+        if (i != 73) rec += "~";
+    }
+    auto f2 = TencentProvider::parseFundamentals(rec, code);
+    EXPECT_FALSE(f2.valid);
+}
