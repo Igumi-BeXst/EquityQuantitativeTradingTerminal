@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-08-12 — P10 第十五轮：自选股列表 + 板块成分股下钻 + 市场收编视图菜单
+- 自选股: WatchlistStore（foundation 层 JSON 持久化，纯 C++17 可单测）+ WatchlistModel（3 列 QAbstractTableModel 行情表 涨跌幅红涨绿跌）+ WatchlistPanel（左侧主 Dock + 10s 交互优先级刷新 + 双击开图 / 右键移除）
+- 图表同步: 周期栏「加入自选」checkable 按钮 —— 已在自选显示「已在自选」；经 currentCodeChanged / watchlistChanged 双重同步，切换股时按钮状态随自选列表自动更新
+- 板块成分股下钻: SectorConstituentsDialog —— 板块行右键「查看成分股」→ 模态弹窗 4 列（代码/名称/最新价/涨跌幅%）降序 + 双击开图
+- 市场收编: 市场 Dock 收编到「视图→市场」菜单（默认隐藏 toggleViewAction）；自定义指数 Dock 在自选股下方竖排
+- 测试: Foundation 52 → 55（+3 WatchlistStore），总计 392 → 395 全绿（纯 UI 装配 / foundation 存储层，无引擎/数据层变更）
+
 ## 2026-08-11 — P10 第十四轮：市场窗口合并板块窗口（4 平级 tab + 统一错峰刷新 + 板块双击开图）
 - 功能: MarketPanel 改为 4-tab（涨幅榜/跌幅榜/行业板块/概念板块）+ 市场宽度固定底栏；板块窗口独立 Dock 移除，自定义指数 Dock 独立竖排（在市场 Dock 下方）
 - 数据: 行业/概念板块表用 TDX 板块指数全量源（880xxx）+ 虚拟化 QTableView + SectorListModel/SectorListPage 组件（固定类型列）

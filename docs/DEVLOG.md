@@ -1,5 +1,28 @@
 # 开发日志 (Development Log)
 
+## 2026-08-12 — P10 第十五轮：自选股列表 + 板块成分股下钻 + 市场收编视图菜单
+
+### 需求
+补齐需求文档「自选股」与「板块成分股下钻」功能项。用户选定本轮 = 自选股列表（主 Dock 持久化 watchlist.json + 行情表 + 图表按钮双向同步）+ 板块成分股弹窗（右键「查看成分股」→ 弹窗行情表 + 双击开图）+ 市场窗口收编视图菜单（默认隐藏 toggleViewAction + 自定义指数 Dock 下移）。
+
+### 实施
+- `foundation/watchlist_store.{h,cpp}`（NEW）：WatchlistStore —— JSON 持久化自选股列表到 configDir/watchlist.json（QStringList 按添加顺序，save/load/add/remove/contains/isEmpty/list/clear 操作，阻塞 IO 简化无回调错误），无 Qt Widget 依赖，纯 C++17 可单测
+- `ui/models/watchlist_model.{h,cpp}`（NEW）：WatchlistModel —— QAbstractTableModel（3 列「代码/名称/涨跌幅%」，quoteMap_ cache 从 WatchlistPanel 刷新灌入，涨跌幅列红涨绿跌 / 颜色文字统一），`stockFromIndex(index)` 获取 StockCode
+- `ui/panels/watchlist_panel.{h,cpp}`（NEW）：WatchlistPanel —— 左侧主 Dock（QDockWidget「自选股」+ QTableView + 右键菜单「移除自选」+ 双击开图 emitStockSelected）+ 10s 交互优先级定时刷新（yieldToInteractive 抢占 TDX 批量刷新 + seq 去陈旧）+ `refresh()` + `syncCurrentStock(code)`（当前图表代码变化触发 UI 按钮态同步）
+- `ui/widgets/central_chart_widget.{h,cpp}`：周期栏新增「加入自选」checkable QPushButton——已是自选股显示「已在自选」checked 态 + 按下切换 add/remove + tooltip 提示；`onWatchlistChanged()` 与 `currentCodeChanged` 信号双重同步；通过 WatchlistStore/LogManager 依赖注入传入
+- `ui/panels/sector_constituents_dialog.{h,cpp}`（NEW）：SectorConstituentsDialog —— 板块行右键「查看成分股」→ 模态弹窗（QDialog「板块名 成分股」+ QTableWidget 4 列「代码/名称/最新价/涨跌幅%」+ 按涨跌幅降序红涨绿跌 + 双击行开图 emitStockSelected + 窗口标题含板块名称）+ `loadSector(code, name)`（TDX getSectorConstituents + batchQuoteInteractive 灌行情）
+- UI 装配：MainWindow — 自选股 Dock 左侧主位（`addDockWidget(Qt::LeftDockWidgetArea, watchlistPanel_)`）；市场 Dock 收编到「视图→市场」菜单（默认隐藏 toggleViewAction）；自定义指数 Dock 在自选股下方竖排（`splitDockWidget(watchlistDock_, customIndexPanel_, Qt::Vertical)`）；板块成分股右键菜单通过 MarketPanel 角色列过滤转发 connect
+- 测试：WatchlistStoreTest 3 例（test_foundation）——SaveLoadRoundTrip / LoadEmptyWhenMissingOrBad / SaveEmptyProducesValidFile
+
+### 验证
+- 构建零警告；Foundation 52 → **55**（+3 WatchlistStore），总计 392 → **395** 全绿
+- GUI 冒烟由用户手动执行（见 task-6-report.md 附录清单）
+
+### 已知限制
+- 自选股行情刷新依赖 TDX batchQuoteInteractive 交互优先级（10s 定时，批量报价大时可能延迟）
+- 板块成分股弹窗初始加载无缓存（每次打开重拉数据）
+- 自选股 Dock 右侧无盘口/关键数据联动（绑定主窗口中央图表交互；v2 可加信号）
+
 ## 2026-08-11 — P10 第十四轮：市场窗口合并板块窗口
 
 ### 需求
