@@ -1,5 +1,25 @@
 # 开发日志 (Development Log)
 
+## 2026-08-15 — P10 第十八轮：参数优化热力图（AI 量化工作流 · 第 2 轮）
+
+### 需求
+按 [AI 量化工作流 4 轮路线设计](docs/superpowers/specs/2026-08-13-ai-quant-workflow-design.md) 第 2 轮：网格搜索结果从表格升级为**热力图**（2 参数网格，悬停显示参数组合与目标值，最优组合高亮，双击格应用参数）。注：用户曾要求移除热力图、后改为「先做出来看看效果」——本轮按恢复实现。
+
+### 实施
+- `engine/optimizer/grid_heatmap.{h,cpp}`（NEW）：`HeatmapMatrix`（x/y 轴参数名 + 升序去重行列值 + values[y][x] 目标值矩阵）+ `buildHeatmap(results, xParam, yParam)` 纯函数——空/同参/参数名不存在 → nullopt；缺格 NaN；同格 last wins
+- `ui/widgets/grid_heatmap_widget.{h,cpp}`（NEW）：GridHeatmapWidget 自绘热力图——优红劣绿灰中渐变着色（objective 方向自适应：MaxDrawdown 越小越好自动反转）、缺格深色、最优组合白框高亮、格子够大显示数值、悬停 QToolTip（参数组合 + 目标值）、双击格子 cellActivated、右侧优→劣图例
+- `ui/panels/optimization_panel.{h,cpp}`：结果区改 QTabWidget「结果表/热力图」双视图；onResult 构建矩阵喂热力图（单参数/空结果禁用 tab）；双击热力图格 → 应用该组参数到回测面板（与表格单击一致）；英文参数名透传（lastP1Param_/lastP2Param_）
+- 测试：GridHeatmapTest **8 例**（test_engine）——3×3 矩阵/乱序去重/缺格 NaN/单列退化/重复格 last wins/同参拒绝/未知参数/空结果
+
+### 验证
+- 构建零警告（globalPos→globalPosition 修复 C4996）；Engine 166 → **174**，总计 420 → **428** 全绿；GUI 冒烟 8s 存活
+- 手动冒烟由用户执行（优化运行 → 热力图 tab 出图、悬停浮框、最优格高亮、双击应用参数、单参数禁用）
+
+### 已知限制
+- 仅 2 参数网格可出图（GridSearchConfig 本就 1~2 参数）；单参数时热力图 tab 禁用（v2 可做 1D 折线）
+- 热力图不随结果表联动选中（表选行不反映到热力图；v2 可加）
+- 颜色映射按当前结果集 min/max 归一化（跨轮次不可比）
+
 ## 2026-08-14 — P10 第十七轮：AI 综合信号面板（AI 量化工作流 · 第 1 轮）
 
 ### 需求

@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-08-15 — P10 第十八轮：参数优化热力图（AI 量化工作流第 2 轮）
+- 引擎: `grid_heatmap`（engine/optimizer，纯 C++17）——`HeatmapMatrix` + `buildHeatmap`（升序去重坐标轴/缺格 NaN/同格 last wins/无效参数 nullopt）
+- 组件: `GridHeatmapWidget`（ui/widgets 自绘）——优红劣绿灰中渐变（MaxDrawdown 方向自适应反转）、缺格深色、最优组合白框、悬停浮框（参数+目标值）、双击格应用参数、右侧优→劣图例
+- 面板: 优化面板结果区改「结果表/热力图」双 tab；单参数/空结果自动禁用热力图
+- 测试: Engine 166 → 174（+8 GridHeatmapTest），总计 420 → 428 全绿；构建零警告
+- 已知限制: 仅 2 参数出图（单参数 v2 做 1D 折线）；热力图与结果表无选中联动；颜色按当次结果归一化
+
 ## 2026-08-14 — P10 第十七轮：AI 综合信号面板（AI 量化工作流第 1 轮）
 - 引擎: `composite_signal`（intelligence/signal，纯 C++17）——`composeSignal` 融合形态+情绪+技术 → 评级/得分/置信度/分项/中文摘要；默认权重 形态0.4/情绪0.3/技术0.3 可覆盖；缺失分项按权重折减置信度（分层修正：设计文档 engine/analyzer → intelligence/signal，避免 engine 依赖 intelligence）
 - 面板: `AiSignalPanel` 主窗口右侧 Dock（与筹码 tabify）——评级大字+得分/置信度/日期+一句话结论+分项分数条（自绘 -1~+1 红正绿负）+ 历史信号表（会话内 50 条双击开图）；绑定搜索/市场/量化/资金/日志 5 处开图路径 + 视图菜单开关
