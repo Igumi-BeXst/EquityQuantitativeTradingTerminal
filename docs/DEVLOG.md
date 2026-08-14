@@ -1,5 +1,18 @@
 # 开发日志 (Development Log)
 
+## 2026-08-15 — P10 第二十四轮：优化建议 tab 网格结果表列宽均分 + 居中
+
+### 需求（用户明确范围）
+只对量化工作台**优化建议 tab 的网格结果表**做列宽均分 + 居中对齐（此前全局均分轮已回退，本轮按精确范围重做）。
+
+### 实施
+- `ui/panels/advisor_panel.cpp`：结果表 header `Stretch`（列宽均分）+ **view 级 CenterDelegate**（`initStyleOption` 覆写 `displayAlignment=AlignCenter`）——不动共享模型（GridSearchTableModel 同时被参数优化使用），不影响其他面板
+- 注：构建日志 findstr 曾误报（/showIncludes 输出含 `system_error` 字样匹配 "error"），实际零警告
+
+### 验证
+- 构建零警告；456/456 全绿（纯 UI 样式，无新增单测）；GUI 冒烟 8s 存活
+- 手动复测由用户执行（优化建议跑网格 → 结果表均分居中，参数优化 tab 不受影响）
+
 ## 2026-08-15 — P10 第二十一轮：策略模板共享目录（全策略面板自动同步）
 
 ### 需求（用户反馈）

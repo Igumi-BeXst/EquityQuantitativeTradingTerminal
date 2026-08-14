@@ -1,5 +1,9 @@
 # 变更记录
 
+## 2026-08-15 — P10 第二十四轮：优化建议 tab 网格结果表均分 + 居中
+- 仅优化建议面板：结果表列宽均分（header Stretch）+ 单元格居中（view 级 CenterDelegate，不动共享模型）
+- 测试 456 全绿；构建零警告
+
 ## 2026-08-15 — P10 第二十一轮：策略模板共享目录（全策略面板自动同步）
 - 新增 `ui/strategy_catalog.h` 单一数据源：StrategySpec（类别/说明/参数键名/默认值/范围）+ all/byId/makeParams
 - 5 面板去硬编码：策略/优化/优化建议/压力/模拟下拉遍历目录自动同步 6 策略；参数标签/范围/默认值按 spec 切换；模拟交易 makeStrategy 统一走 GridSearchOptimizer
