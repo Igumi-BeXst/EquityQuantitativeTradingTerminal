@@ -373,9 +373,10 @@ void MainWindow::createMenus() {
     });
     fileMenu->addAction(tr("退出(&X)"), QKeySequence::Quit, this, &QWidget::close);
 
-    // 市场/资金数据：菜单栏顶层直接点击即开（不经下拉菜单）
+    // 市场/资金数据/量化工作台：菜单栏顶层直接点击即开（不经下拉菜单）
     menuBar()->addAction(tr("市场(&M)"), this, &MainWindow::openMarketWindow);
     menuBar()->addAction(tr("资金数据(&D)"), this, &MainWindow::openFundsWindow);
+    menuBar()->addAction(tr("量化工作台(&Q)"), this, &MainWindow::openQuantWindow);
 
     // 视图
     auto* viewMenu = menuBar()->addMenu(tr("视图(&V)"));
@@ -389,10 +390,6 @@ void MainWindow::createMenus() {
     if (customIndexDock_) viewMenu->addAction(customIndexDock_->toggleViewAction());
     if (aiSignalDock_) viewMenu->addAction(aiSignalDock_->toggleViewAction());
     viewMenu->addAction(tr("重置布局(&R)"), this, &MainWindow::resetLayout);
-
-    // 量化
-    auto* quantMenu = menuBar()->addMenu(tr("量化(&Q)"));
-    quantMenu->addAction(tr("量化工作台(&W)"), this, &MainWindow::openQuantWindow);
 
     // 日志（交易日志窗口）
     auto* journalMenu = menuBar()->addMenu(tr("日志(&L)"));
