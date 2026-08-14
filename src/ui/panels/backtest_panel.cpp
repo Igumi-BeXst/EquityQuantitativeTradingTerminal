@@ -72,9 +72,8 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
     // ---- 配置表单 ----
     auto* form = new QGroupBox(tr("回测配置"));
     auto* fl = new QFormLayout(form);
-    // 紧凑表单：标签左对齐、字段保持自身宽度（避免标签与控件间距过大）
+    // 标签左对齐（控件保持默认拉伸宽度，不收缩）
     fl->setLabelAlignment(Qt::AlignLeft);
-    fl->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
     fl->setHorizontalSpacing(10);
     fl->setVerticalSpacing(6);
     strategyCombo_ = new QComboBox();
@@ -97,7 +96,6 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
 
     // 股票池（精选 129 只，多选）
     stockList_ = new QListWidget();
-    stockList_->setMinimumWidth(280);
     stockList_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     stockList_->setMaximumHeight(120);
     auto addPool = [this](Market m, const std::vector<CuratedStock>& table) {

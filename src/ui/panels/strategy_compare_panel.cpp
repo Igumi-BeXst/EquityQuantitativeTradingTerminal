@@ -70,14 +70,12 @@ StrategyComparePanel::StrategyComparePanel(IDataProvider* provider, QWidget* par
 
     auto* form = new QGroupBox(tr("策略对比"));
     auto* fl = new QFormLayout(form);
-    // 紧凑表单：标签左对齐、字段保持自身宽度（避免标签与控件间距过大）
+    // 标签左对齐（控件保持默认拉伸宽度，不收缩）
     fl->setLabelAlignment(Qt::AlignLeft);
-    fl->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
     fl->setHorizontalSpacing(10);
     fl->setVerticalSpacing(6);
 
     strategyList_ = new QListWidget;
-    strategyList_->setMinimumWidth(280);
     strategyList_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     strategyList_->setMaximumHeight(100);
     for (size_t i = 0; i < kPresets.size(); ++i) {
@@ -90,7 +88,6 @@ StrategyComparePanel::StrategyComparePanel(IDataProvider* provider, QWidget* par
 
     // 股票池（精选 129 只，多选）
     stockList_ = new QListWidget;
-    stockList_->setMinimumWidth(280);
     stockList_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     stockList_->setMaximumHeight(90);
     auto addPool = [this](Market m, const std::vector<CuratedStock>& table) {
