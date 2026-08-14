@@ -1,5 +1,10 @@
 # 变更记录
 
+## 2026-08-15 — 修复轮②：AI 因子勾选未生效（全选/单选情绪 AI 分相同）
+- 根因: `AiScreenerConfig.useSentiment` 硬编码 true + 形态勾选状态从未传入引擎 → 勾选组合不影响结果
+- 修复: 配置增 `usePattern`（对齐设计文档）+ UI 真实传递两个勾选状态；`usePattern=false` → 形态分项缺失折减
+- 测试: Intelligence 73 → 75（+2：PatternDisabled / PatternToggleChangesScore），总计 438 → 440 全绿；构建零警告
+
 ## 2026-08-15 — 修复轮：选股日期区间 bug（P7 遗留）+ 热力图轴标签 + 结果上下文
 - **选股全 -- 根因**：`addTradingDays(负天数)` 原实现直接返回原日期 → 选股/回看 start=end=当天 → TDX 严格区间返回空 → 因子全 nullopt（默认 50 分）+ AI 分 0；修复支持负天数（向前数非周末日，与向后对称）+ 2 例单测
 - 热力图: x 轴刻度移到图表底部（不再压表格）；y 轴名竖排防截断

@@ -1,5 +1,23 @@
 # 开发日志 (Development Log)
 
+## 2026-08-15 — 修复轮②：AI 因子勾选未生效（全选与单选情绪 AI 分相同）
+
+### 背景（用户复测反馈）
+选股面板「全选两个 AI 因子」与「单选情绪」得到的 AI 分**一样**。
+
+### 根因
+`aiEnabled()` 只判断「是否任一勾选」；worker 里 `AiScreenerConfig.useSentiment` **硬编码 true**，且**形态勾选状态从未传入引擎**——`runAiScreener` 总是计算 形态+情绪+技术 全部分项 → 两种勾选组合结果相同。
+
+### 修复
+- `intelligence/screener/ai_screener.h`：`AiScreenerConfig` 增 `usePattern`（对齐设计文档 `{usePattern, useSentiment, factors}`）；字段序  weights/usePattern/useSentiment
+- `ai_screener.cpp`：`usePattern=false` → 传入空 patterns（形态分项缺失、权重折减，技术指标恒参与）
+- `screener_panel.cpp`：worker 捕获真实勾选状态 `usePattern/useSentiment` 并传入配置（移除硬编码 true）
+- 测试：AiScreenerTest **+2**（PatternDisabled：usePattern=false → patternScore nullopt 且情绪保留；PatternToggleChangesScore：全选 vs 单选情绪的 compositeScore 必须不同、多头形态贡献正分 → 全选更高）；修正 SentimentDisabled 聚合初始化（字段序变化导致 false 误赋 usePattern）
+
+### 验证
+- 构建零警告；Intelligence 73 → **75**，总计 438 → **440** 全绿；GUI 冒烟 8s 存活
+- 手动复测由用户执行（形态/情绪勾选组合 → AI 分应各不相同）
+
 ## 2026-08-15 — 修复轮：选股/回看日期区间根因 + 热力图轴标签 + 优化结果上下文
 
 ### 背景（用户复测反馈）
