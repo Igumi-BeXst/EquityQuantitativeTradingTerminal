@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-08-15 — P10 第十九轮：AI 选股工作流（AI 量化工作流第 3 轮）
+- 引擎: `ai_screener`（intelligence/screener，纯 C++17）——`runAiScreener` 复用 `composeSignal` 分项逻辑（形态 detectAt(3)+RSI/MACD/动量+情绪）→ AI 综合分 0~100 + 三可选分项 + 一句话结论；权重可配、情绪缺失降级、按综合分降序
+- 面板: 选股配置加「AI 因子: 形态/情绪」勾选（情绪仅拉池前 30 只，限量防网络阻塞）；结果表新增「AI 分」列（红涨绿跌）并可按 AI 分排序；取消勾选 → 与旧版完全一致
+- 模型: ScreenResultModel 可选 AI 列（空 aiScores = 不显示），列布局 排名/代码/名称/总分/AI分/因子明细
+- 测试: Intelligence 65 → 73（+8 AiScreenerTest），总计 428 → 436 全绿；构建零警告
+- 已知限制: AI 分不融合现有 11 因子（总分列独立保留）；情绪限量前 30 只；情绪权重 UI 未暴露（v2）
+
 ## 2026-08-15 — P10 第十八轮：参数优化热力图（AI 量化工作流第 2 轮）
 - 引擎: `grid_heatmap`（engine/optimizer，纯 C++17）——`HeatmapMatrix` + `buildHeatmap`（升序去重坐标轴/缺格 NaN/同格 last wins/无效参数 nullopt）
 - 组件: `GridHeatmapWidget`（ui/widgets 自绘）——优红劣绿灰中渐变（MaxDrawdown 方向自适应反转）、缺格深色、最优组合白框、悬停浮框（参数+目标值）、双击格应用参数、右侧优→劣图例

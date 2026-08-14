@@ -1,5 +1,25 @@
 # 开发日志 (Development Log)
 
+## 2026-08-15 — P10 第十九轮：AI 选股工作流（AI 量化工作流 · 第 3 轮）
+
+### 需求
+按 [AI 量化工作流 4 轮路线设计](docs/superpowers/specs/2026-08-13-ai-quant-workflow-design.md) 第 3 轮：选股面板增加「AI 因子」配置（形态/情绪勾选）→ 复用第 1 轮 `composeSignal` 分项逻辑对池内股票算 AI 综合分（0~100）→ 结果表新增「AI 分」列并按 AI 分排序；情绪数据限量拉取（池前 30 只，其余降级缺失）。
+
+### 实施
+- `intelligence/screener/ai_screener.{h,cpp}`（NEW）：`AiScreenerConfig`（权重可配，默认 形态0.4/情绪0.3/技术0.3）+ `AiScore`（综合分 + 三可选分项 + 一句话结论）+ `runAiScreener(pool, barsByCode, sentiments, cfg)` 纯函数——复用 `signal::composeSignal`（设计文档「第 3 轮复用其分项逻辑」：形态 detectAt(3) + RSI/MACD/动量 + 情绪）；三数组等长防御、bars 空跳过、情绪缺失降级；分项/综合 = (score+1)/2×100 映射；按综合分降序 stable_sort
+- `ui/models/screen_result_model.{h,cpp}`：可选「AI 分」列——`setResults` 增 `aiScores` 参数（空=无列）；列布局 排名/代码/名称/总分/**AI 分**/因子明细；AI 分红涨绿跌着色（≥60 红/≥40 灰/<40 绿，与总分一致）
+- `ui/panels/screener_panel.{h,cpp}`：选股配置加「AI 因子: [x]形态 [x]情绪」行（提示「情绪仅拉取池中前 30 只」）；IO 阶段拉 bars 时对池前 30 只同步 `fetchNews(code,10)` → `averageScore`（sentiments 与池对齐，其余 nullopt）；worker 跑完 StockScreener 后额外 `runAiScreener`（bars 从 cache 取回）→ AI 分按 code 对齐结果行 → 启用 AI 时按 AI 分降序重排（同分保持总分顺序）
+- 测试：AiScreenerTest **8 例**（test_intelligence）——排序/分数映射范围/情绪禁用/情绪缺失降级/自定义权重主导/空池/空 bars 跳过/分项映射精确值
+
+### 验证
+- 构建零警告；Intelligence 65 → **73**，总计 428 → **436** 全绿；GUI 冒烟 8s 存活
+- 手动冒烟由用户执行（选股面板 AI 因子勾选/取消、结果表 AI 分列与排序、情绪限量、无情绪降级）
+
+### 已知限制
+- v1 不把现有 11 因子融合进 AI 分（StockScreener 流程独立，总分列保留；AI 分 = 形态+情绪+技术）；「AI 分排序」= 结果表按 compositeScore 降序
+- 情绪限量池前 30 只（按池子顺序，非按排名——排序前无法预知 topN）；全部取消 AI 勾选 → 行为与旧版完全一致
+- 情绪权重未暴露 UI（v2 可加）
+
 ## 2026-08-15 — P10 第十八轮：参数优化热力图（AI 量化工作流 · 第 2 轮）
 
 ### 需求
