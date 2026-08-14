@@ -10,11 +10,13 @@ ScreenResultModel::ScreenResultModel(QObject* parent)
 void ScreenResultModel::setResults(
     const std::vector<ScreenResult>& results,
     const std::vector<std::string>& factorNames,
-    const std::unordered_map<std::string, std::string>& nameByCode) {
+    const std::unordered_map<std::string, std::string>& nameByCode,
+    const std::vector<double>& aiScores) {
     beginResetModel();
     results_ = results;
     factorNames_ = factorNames;
     nameByCode_ = nameByCode;
+    aiScores_ = aiScores;
     endResetModel();
 }
 
@@ -28,7 +30,8 @@ int ScreenResultModel::rowCount(const QModelIndex& parent) const {
 }
 
 int ScreenResultModel::columnCount(const QModelIndex& parent) const {
-    return parent.isValid() ? 0 : kFixedColumns + static_cast<int>(factorNames_.size());
+    if (parent.isValid()) return 0;
+    return factorBase() + static_cast<int>(factorNames_.size());
 }
 
 QVariant ScreenResultModel::headerData(int section, Qt::Orientation orientation,
@@ -43,8 +46,11 @@ QVariant ScreenResultModel::headerData(int section, Qt::Orientation orientation,
             default: return {};
         }
     }
-    const int fi = section - kFixedColumns;
-    if (fi < static_cast<int>(factorNames_.size())) {
+    if (section == kFixedColumns && aiColumn() >= 0) {
+        return tr("AI 分");   // AI 启用时的第 5 列
+    }
+    const int fi = section - factorBase();
+    if (fi >= 0 && fi < static_cast<int>(factorNames_.size())) {
         return QString::fromStdString(factorNames_[static_cast<size_t>(fi)]);
     }
     return {};
@@ -68,7 +74,10 @@ QVariant ScreenResultModel::data(const QModelIndex& index, int role) const {
             }
             case 3: return QString::number(r.totalScore, 'f', 2);
             default: {
-                const int fi = col - kFixedColumns;
+                if (col == aiColumn() && row < static_cast<int>(aiScores_.size())) {
+                    return QString::number(aiScores_[static_cast<size_t>(row)], 'f', 2);
+                }
+                const int fi = col - factorBase();
                 if (fi >= 0 && fi < static_cast<int>(r.factorResults.size())) {
                     const auto& fr = r.factorResults[static_cast<size_t>(fi)];
                     return fr.rawValue.has_value()
@@ -79,9 +88,14 @@ QVariant ScreenResultModel::data(const QModelIndex& index, int role) const {
             }
         }
     }
-    if (role == Qt::ForegroundRole && col == 3) {
-        if (r.totalScore >= 60.0) return QColor("#e54648");
-        if (r.totalScore >= 40.0) return QColor("#bbbbbb");
+    if (role == Qt::ForegroundRole && (col == 3 || col == aiColumn())) {
+        double v = r.totalScore;
+        if (col == aiColumn()) {
+            if (row >= static_cast<int>(aiScores_.size())) return {};
+            v = aiScores_[static_cast<size_t>(row)];
+        }
+        if (v >= 60.0) return QColor("#e54648");
+        if (v >= 40.0) return QColor("#bbbbbb");
         return QColor("#2e9e5b");
     }
     if (role == Qt::TextAlignmentRole && col >= 0 && col < 2) {
