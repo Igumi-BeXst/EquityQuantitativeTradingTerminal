@@ -1,5 +1,6 @@
 #include "ui/panels/optimization_panel.h"
 #include "ui/models/grid_search_table_model.h"
+#include "ui/widgets/grid_heatmap_widget.h"
 #include "data/idata_provider.h"
 #include "data/data_cache.h"
 #include "data/curated_stocks.h"
@@ -15,6 +16,7 @@
 #include <QProgressBar>
 #include <QTableView>
 #include <QListWidget>
+#include <QTabWidget>
 #include <QFormLayout>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -27,6 +29,7 @@
 #include <QThreadPool>
 #include <QVariantMap>
 #include <algorithm>
+#include <cmath>
 
 namespace st {
 
@@ -139,8 +142,15 @@ OptimizationPanel::OptimizationPanel(IDataProvider* provider, QWidget* parent)
     resultView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     resultView_->horizontalHeader()->setStretchLastSection(true);
     resultView_->setMinimumHeight(180);
-    layout->addWidget(new QLabel(tr("优化结果（单击行应用参数到回测）")));
-    layout->addWidget(resultView_);
+
+    // 结果表 ↔ 热力图 双视图
+    resultTabs_ = new QTabWidget;
+    resultTabs_->addTab(resultView_, tr("结果表"));
+    heatmap_ = new GridHeatmapWidget;
+    resultTabs_->addTab(heatmap_, tr("热力图"));
+    resultTabs_->setTabEnabled(1, false);   // 单参数/空结果时禁用
+    layout->addWidget(new QLabel(tr("优化结果（单击行/双击热力图格应用参数到回测）")));
+    layout->addWidget(resultTabs_);
 
     layout->addStretch();
     scroll->setWidget(root);
@@ -154,6 +164,15 @@ OptimizationPanel::OptimizationPanel(IDataProvider* provider, QWidget* parent)
                 if (params.empty()) return;
                 QVariantMap map;
                 for (const auto& [name, val] : params) map[QString::fromStdString(name)] = val;
+                emit applyParams(strategyCombo_->currentData().toString(), map);
+            });
+    // 热力图双击格子 → 应用该组参数到回测面板
+    connect(heatmap_, &GridHeatmapWidget::cellActivated, this,
+            [this](double x, double y) {
+                if (lastP1Param_.isEmpty() || lastP2Param_.isEmpty()) return;
+                QVariantMap map;
+                map[lastP1Param_] = static_cast<int>(std::lround(x));
+                map[lastP2Param_] = static_cast<int>(std::lround(y));
                 emit applyParams(strategyCombo_->currentData().toString(), map);
             });
 
@@ -266,10 +285,13 @@ void OptimizationPanel::onAllDataFetched() {
 
     const QString p1Name = p1Label_->text();
     const QString p2Name = p2Label_->text();
+    const QString p1Param = QString::fromStdString(cfg.ranges[0].name);
+    const QString p2Param = QString::fromStdString(cfg.ranges[1].name);
 
     // 安全异步：QPointer 守卫 + cache shared_ptr 按值捕获
     QPointer<OptimizationPanel> guard(this);
-    ThreadPool::submitWorker([guard, cache, cfg = std::move(cfg), p1Name, p2Name]() mutable {
+    ThreadPool::submitWorker(
+        [guard, cache, cfg = std::move(cfg), p1Name, p2Name, p1Param, p2Param]() mutable {
         GridSearchOptimizer opt;
         opt.setProgressCallback([guard](double p) {
             QMetaObject::invokeMethod(guard, [guard, p] {
@@ -278,20 +300,43 @@ void OptimizationPanel::onAllDataFetched() {
         });
         auto results = opt.run(cfg);
         QMetaObject::invokeMethod(guard, [guard, results = std::move(results),
-                                        p1Name, p2Name]() mutable {
-            guard->onResult(results, p1Name, p2Name);
+                                        p1Name, p2Name, p1Param, p2Param]() mutable {
+            guard->onResult(results, p1Name, p2Name, p1Param, p2Param);
         }, Qt::QueuedConnection);
     });
 }
 
 void OptimizationPanel::onResult(const std::vector<GridSearchResult>& results,
-                                 const QString& p1Name, const QString& p2Name) {
+                                 const QString& p1Name, const QString& p2Name,
+                                 const QString& p1Param, const QString& p2Param) {
     running_ = false;
     runBtn_->setEnabled(true);
     progress_->setValue(100);
     progress_->setVisible(false);
 
     resultModel_->setResults(results, p1Name, p2Name);
+    lastP1Param_ = p1Param;
+    lastP2Param_ = p2Param;
+
+    // 热力图：两参数且 ≥2 组结果才可用；最优组合白框高亮
+    heatmap_->clear();
+    const bool heatmapUsable = results.size() > 1;
+    if (heatmapUsable) {
+        auto hm = buildHeatmap(results, p1Param.toStdString(), p2Param.toStdString());
+        if (hm) {
+            double bestX = 0.0, bestY = 0.0;
+            for (const auto& [name, val] : results.front().params) {
+                if (name == p1Param.toStdString()) bestX = static_cast<double>(val);
+                else if (name == p2Param.toStdString()) bestY = static_cast<double>(val);
+            }
+            const bool betterIsHigher = !GridSearchOptimizer::objectiveMinimized(currentObjective());
+            const QString objName = objectiveCombo_->currentText();
+            heatmap_->setData(*hm, bestX, bestY, betterIsHigher,
+                              p1Name, p2Name, objName);
+        }
+    }
+    resultTabs_->setTabEnabled(1, heatmapUsable && heatmap_->hasData());
+
     if (!results.empty()) {
         const auto& best = results.front();
         LogManager::instance()->log(LogLevel::Info,

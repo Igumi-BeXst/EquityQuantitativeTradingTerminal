@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/optimizer/grid_search.h"
+#include "engine/optimizer/grid_heatmap.h"
 #include "foundation/stock_code.h"
 #include <QWidget>
 #include <memory>
@@ -14,14 +15,16 @@ class QPushButton;
 class QProgressBar;
 class QTableView;
 class QListWidget;
+class QTabWidget;
 
 namespace st {
 
 class IDataProvider;
 class DataCache;
 class GridSearchTableModel;
+class GridHeatmapWidget;
 
-/// 参数优化面板 — 两参数范围 + 目标函数 → 网格搜索 → 结果表（点行应用到回测）
+/// 参数优化面板 — 两参数范围 + 目标函数 → 网格搜索 → 结果表/热力图（点行/双击格应用回测）
 class OptimizationPanel : public QWidget {
     Q_OBJECT
 
@@ -39,7 +42,8 @@ private slots:
 
 private:
     void onResult(const std::vector<GridSearchResult>& results,
-                  const QString& p1Name, const QString& p2Name);
+                  const QString& p1Name, const QString& p2Name,
+                  const QString& p1Param, const QString& p2Param);
     std::vector<StockCode> selectedSymbols() const;
     Objective currentObjective() const;
     void resetToIdle();
@@ -66,6 +70,10 @@ private:
     QProgressBar* progress_ = nullptr;
     QTableView* resultView_ = nullptr;
     GridSearchTableModel* resultModel_ = nullptr;
+    QTabWidget* resultTabs_ = nullptr;
+    GridHeatmapWidget* heatmap_ = nullptr;
+    QString lastP1Param_;  // 最近一次搜索的英文参数名（热力图点击应用用）
+    QString lastP2Param_;
 
     bool running_ = false;
 };
