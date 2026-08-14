@@ -42,6 +42,7 @@
 #include <QMetaObject>
 #include <QPointer>
 #include <algorithm>
+#include <unordered_map>
 
 namespace st {
 
@@ -416,6 +417,16 @@ void BacktestPanel::onResult(const BacktestResult& result) {
 
     setMetrics(result.performance, result);
     equityCurve_->setData(result.performance.equityCurve);
+    // 名称映射（精选池静态表；非池内代码显示 "--"）
+    std::unordered_map<std::string, std::string> nameByCode;
+    const auto addTable = [&](Market m, const std::vector<CuratedStock>& table) {
+        for (const auto& c : table) {
+            nameByCode[StockCode(m, c.code).fullCode()] = c.name;
+        }
+    };
+    addTable(Market::SH, kCuratedSH);
+    addTable(Market::SZ, kCuratedSZ);
+    tradeModel_->setNameByCode(std::move(nameByCode));
     tradeModel_->setTrades(result.trades);
     hasResult_ = true;
     lastPerf_ = result.performance;

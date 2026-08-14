@@ -7,9 +7,7 @@
 class QListWidget;
 class QLabel;
 class QSpinBox;
-class QPushButton;
-
-namespace st {
+class QPushButton;namespace st {
 
 /// 策略面板 — 内置策略模板库 + 参数编辑，应用到回测面板
 class StrategyPanel : public QWidget {
@@ -44,8 +42,10 @@ private:
     QLabel* desc_ = nullptr;
     QLabel* p1Label_ = nullptr;
     QSpinBox* p1_ = nullptr;
+    QLabel* p1DescLabel_ = nullptr;   // 参数 1 说明（常显小字，替代悬停）
     QLabel* p2Label_ = nullptr;
     QSpinBox* p2_ = nullptr;
+    QLabel* p2DescLabel_ = nullptr;   // 参数 2 说明
     QPushButton* applyBtn_ = nullptr;
 };
 

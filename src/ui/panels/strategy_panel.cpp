@@ -78,10 +78,27 @@ StrategyPanel::StrategyPanel(QWidget* parent) : QWidget(parent) {
     auto* form = new QFormLayout();
     p1Label_ = new QLabel();
     p1_ = new QSpinBox();
+    p1DescLabel_ = new QLabel();
+    p1DescLabel_->setWordWrap(true);
+    p1DescLabel_->setStyleSheet(QStringLiteral("color:#888888; font-size:11px;"));
+    auto* p1Box = new QVBoxLayout();
+    p1Box->setContentsMargins(0, 0, 0, 0);
+    p1Box->setSpacing(2);
+    p1Box->addWidget(p1_);
+    p1Box->addWidget(p1DescLabel_);
+    form->addRow(p1Label_, p1Box);
+
     p2Label_ = new QLabel();
     p2_ = new QSpinBox();
-    form->addRow(p1Label_, p1_);
-    form->addRow(p2Label_, p2_);
+    p2DescLabel_ = new QLabel();
+    p2DescLabel_->setWordWrap(true);
+    p2DescLabel_->setStyleSheet(QStringLiteral("color:#888888; font-size:11px;"));
+    auto* p2Box = new QVBoxLayout();
+    p2Box->setContentsMargins(0, 0, 0, 0);
+    p2Box->setSpacing(2);
+    p2Box->addWidget(p2_);
+    p2Box->addWidget(p2DescLabel_);
+    form->addRow(p2Label_, p2Box);
     layout->addLayout(form);
 
     auto* btnRow = new QHBoxLayout();
@@ -120,11 +137,9 @@ void StrategyPanel::onTemplateChanged() {
     p2_->setRange(s.p2Min, s.p2Max);
     p1_->setValue(s.p1);
     p2_->setValue(s.p2);
-    // 参数说明向导：悬停显示
-    p1_->setToolTip(s.p1Desc);
-    p2_->setToolTip(s.p2Desc);
-    p1Label_->setToolTip(s.p1Desc);
-    p2Label_->setToolTip(s.p2Desc);
+    // 参数说明常显（灰色小字，替代悬停 tooltip）
+    p1DescLabel_->setText(s.p1Desc);
+    p2DescLabel_->setText(s.p2Desc);
 }
 
 void StrategyPanel::onApplyClicked() {

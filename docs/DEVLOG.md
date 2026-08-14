@@ -1,5 +1,20 @@
 # 开发日志 (Development Log)
 
+## 2026-08-15 — 修复轮④：策略向导参数说明常显 + 回测成交表名称列
+
+### 背景（用户测试第 4 轮反馈）
+1. 策略面板参数说明**悬停不显示**（tooltip 在 QSpinBox 子控件上触发不可靠）
+2. 回测 tab 成交明细表**没有股票名称**列
+
+### 实施
+- `ui/panels/strategy_panel.{h,cpp}`：参数说明从悬停 tooltip 改为**常显灰色小字**（p1DescLabel_/p2DescLabel_ 置于各自 SpinBox 下方，wordwrap + 11px 灰字，模板切换即更新）——不再依赖悬停
+- `ui/models/trade_table_model.{h,cpp}`：成交表 10 → **11 列**，代码后插「名称」列（`setNameByCode` 注入全码→名称映射，空映射显示 "--"；方向列 ForegroundRole 索引 2→3）
+- `ui/panels/backtest_panel.cpp`：onResult 用精选池静态表构建名称映射注入成交表（与选股/自选面板同源）
+
+### 验证
+- 构建零警告；456/456 全绿（纯 UI 改动，无新增单测）；GUI 冒烟 8s 存活
+- 手动复测由用户执行（策略面板参数说明常显、回测成交表名称列）
+
 ## 2026-08-15 — P10 第二十轮：策略模板增强 + 向导（AI 量化工作流 · 第 4 轮）
 
 ### 需求
