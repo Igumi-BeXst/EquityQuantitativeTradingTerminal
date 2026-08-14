@@ -30,6 +30,7 @@
 #include <QVariantMap>
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 
 namespace st {
 
@@ -149,6 +150,10 @@ OptimizationPanel::OptimizationPanel(IDataProvider* provider, QWidget* parent)
     heatmap_ = new GridHeatmapWidget;
     resultTabs_->addTab(heatmap_, tr("热力图"));
     resultTabs_->setTabEnabled(1, false);   // 单参数/空结果时禁用
+    resultInfoLabel_ = new QLabel(tr("尚未运行优化"));
+    resultInfoLabel_->setWordWrap(true);
+    resultInfoLabel_->setStyleSheet(QStringLiteral("color:#999999;"));
+    layout->addWidget(resultInfoLabel_);
     layout->addWidget(new QLabel(tr("优化结果（单击行/双击热力图格应用参数到回测）")));
     layout->addWidget(resultTabs_);
 
@@ -226,6 +231,33 @@ void OptimizationPanel::onRunClicked() {
     progress_->setValue(0);
     cache_->clear();
     resultModel_->setResults({}, {}, {});
+
+    // 结果上下文信息行：明确本结果对应的股票池 / 目标函数 / 日期区间
+    {
+        std::unordered_map<std::string, std::string> nameByCode;
+        const auto addTable = [&](Market m, const std::vector<CuratedStock>& table) {
+            for (const auto& c : table) {
+                nameByCode[StockCode(m, c.code).fullCode()] = c.name;
+            }
+        };
+        addTable(Market::SH, kCuratedSH);
+        addTable(Market::SZ, kCuratedSZ);
+        QStringList names;
+        for (const auto& code : symbols) {
+            auto it = nameByCode.find(code.fullCode());
+            names << (it != nameByCode.end()
+                          ? QString::fromUtf8(it->second.c_str())
+                          : QString::fromStdString(code.displayCode()));
+        }
+        const QString poolText = names.size() > 3
+            ? names.mid(0, 3).join(QStringLiteral("、"))
+                  + QStringLiteral(" 等 %1 只").arg(names.size())
+            : names.join(QStringLiteral("、"));
+        resultInfoLabel_->setText(tr("股票池: %1 · 目标: %2 · 区间: %3 ~ %4")
+            .arg(poolText, objectiveCombo_->currentText(),
+                 startDate_->date().toString(Qt::ISODate),
+                 endDate_->date().toString(Qt::ISODate)));
+    }
 
     const auto start = utils::parseDate(startDate_->date().toString(Qt::ISODate).toStdString());
     const auto end = utils::parseDate(endDate_->date().toString(Qt::ISODate).toStdString());

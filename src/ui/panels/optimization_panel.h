@@ -72,6 +72,7 @@ private:
     GridSearchTableModel* resultModel_ = nullptr;
     QTabWidget* resultTabs_ = nullptr;
     GridHeatmapWidget* heatmap_ = nullptr;
+    QLabel* resultInfoLabel_ = nullptr;  // 结果上下文：股票池/目标函数/日期区间
     QString lastP1Param_;  // 最近一次搜索的英文参数名（热力图点击应用用）
     QString lastP2Param_;
 

@@ -111,13 +111,24 @@ bool isWeekend(DateTime dt) {
 }
 
 DateTime addTradingDays(DateTime dt, int n) {
-    if (n <= 0) return dt;
+    if (n == 0) return dt;
     int added = 0;
     auto current = dt;
-    while (added < n) {
-        current += hours(24);
-        if (!isWeekend(current)) {
-            added++;
+    if (n > 0) {
+        // 向后：从 dt 次日开始数 n 个非周末日
+        while (added < n) {
+            current += hours(24);
+            if (!isWeekend(current)) {
+                added++;
+            }
+        }
+    } else {
+        // 向前：从 dt 前一日开始数 |n| 个非周末日（回看区间起点）
+        while (added > n) {
+            current -= hours(24);
+            if (!isWeekend(current)) {
+                added--;
+            }
         }
     }
     return current;

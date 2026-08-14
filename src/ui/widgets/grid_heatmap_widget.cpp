@@ -161,10 +161,11 @@ void GridHeatmapWidget::paintEvent(QPaintEvent*) {
 
     // 坐标轴刻度 + 轴名
     p.setPen(QColor("#d4d4d4"));
+    // x 刻度：画在最后一行格子下方（底部留白区），不压在表格上
+    const double xLabelY = rects->back().front().bottom() + 4;
     for (int xi = 0; xi < static_cast<int>(m_->xValues.size()); ++xi) {
-        const QRectF& cell = rects->at(0).at(static_cast<size_t>(xi));
-        p.drawText(QRectF(cell.left(), rects->at(0).front().bottom() + 4,
-                          cell.width(), 14), Qt::AlignCenter,
+        const QRectF& cell = rects->back().at(static_cast<size_t>(xi));
+        p.drawText(QRectF(cell.left(), xLabelY, cell.width(), 14), Qt::AlignCenter,
                    QString::number(m_->xValues[static_cast<size_t>(xi)], 'g', 6));
     }
     for (int yi = 0; yi < static_cast<int>(m_->yValues.size()); ++yi) {
@@ -173,10 +174,15 @@ void GridHeatmapWidget::paintEvent(QPaintEvent*) {
                    Qt::AlignRight | Qt::AlignVCenter,
                    QString::number(m_->yValues[static_cast<size_t>(yi)], 'g', 6));
     }
+    // 轴名：x 横排在底部，y 竖排（防中文长名截断）
     p.drawText(QRectF(0, height() - 14, width(), 14), Qt::AlignCenter,
                tr("%1 →").arg(xLabel_));
-    p.drawText(QRectF(0, 20, kMarginLeft - 8, 16), Qt::AlignRight,
+    p.save();
+    p.translate(10, height() / 2.0);
+    p.rotate(-90);
+    p.drawText(QRectF(-height() / 2.0, 0, height(), 14), Qt::AlignCenter,
                tr("← %1").arg(yLabel_));
+    p.restore();
 
     // 右侧图例（优→劣 渐变条）
     const QRectF legend(static_cast<qreal>(width()) - 58, 26, 16,
