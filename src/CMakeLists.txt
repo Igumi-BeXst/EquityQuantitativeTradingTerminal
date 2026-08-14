@@ -101,6 +101,7 @@ add_library(st_intelligence STATIC
     intelligence/screener/pattern_factor.cpp
     intelligence/sentiment/sentiment_analyzer.cpp
     intelligence/sentiment/eastmoney_news_provider.cpp
+    intelligence/signal/composite_signal.cpp
 )
 target_link_libraries(st_intelligence PUBLIC st_engine st_core st_foundation)
 
@@ -135,6 +136,7 @@ add_library(st_ui STATIC
     ui/panels/task_window.cpp
     ui/panels/watchlist_panel.cpp
     ui/panels/pattern_panel.cpp
+    ui/panels/ai_signal_panel.cpp
     ui/panels/advisor_panel.cpp
     ui/panels/sentiment_panel.cpp
     ui/panels/log_panel.cpp

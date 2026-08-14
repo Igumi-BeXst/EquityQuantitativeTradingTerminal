@@ -79,6 +79,7 @@ if(BUILD_WITH_QT)
         test_intelligence/test_pattern_factor.cpp
         test_intelligence/test_sentiment_analyzer.cpp
         test_intelligence/test_eastmoney_news_provider.cpp
+        test_intelligence/test_composite_signal.cpp
     )
     target_link_libraries(test_intelligence PRIVATE st_intelligence st_engine st_data GTest::gtest GTest::gtest_main)
     gtest_discover_tests(test_intelligence)
