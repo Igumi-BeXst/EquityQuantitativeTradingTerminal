@@ -72,10 +72,22 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
     // ---- 配置表单 ----
     auto* form = new QGroupBox(tr("回测配置"));
     auto* fl = new QFormLayout(form);
-    // 标签左对齐（控件保持默认拉伸宽度，不收缩）
-    fl->setLabelAlignment(Qt::AlignLeft);
-    fl->setHorizontalSpacing(10);
     fl->setVerticalSpacing(6);
+    // 标签+控件紧贴行（无标签列，间距 6px；控件拉伸占满保持宽度）
+    auto labeled = [](QLabel* label, QWidget* field) {
+        auto* row = new QHBoxLayout();
+        row->setSpacing(6);
+        row->addWidget(label);
+        row->addWidget(field, 1);
+        return row;
+    };
+    auto labeledL = [](QLabel* label, QLayout* field) {
+        auto* row = new QHBoxLayout();
+        row->setSpacing(6);
+        row->addWidget(label);
+        row->addLayout(field, 1);
+        return row;
+    };
     strategyCombo_ = new QComboBox();
     strategyCombo_->addItem(tr("[趋势] 双均线 MACross"), QStringLiteral("MACross"));
     strategyCombo_->addItem(tr("[趋势] 海龟 Turtle"), QStringLiteral("Turtle"));
@@ -83,14 +95,14 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
     strategyCombo_->addItem(tr("[突破] 收盘突破 Breakout"), QStringLiteral("Breakout"));
     strategyCombo_->addItem(tr("[均值回归] 均值回归 MeanReversion"), QStringLiteral("MeanReversion"));
     strategyCombo_->addItem(tr("[反转] RSI Rsi"), QStringLiteral("Rsi"));
-    fl->addRow(tr("策略"), strategyCombo_);
+    fl->addRow(labeled(new QLabel(tr("策略")), strategyCombo_));
 
     p1Label_ = new QLabel(tr("快线周期"));
     p2Label_ = new QLabel(tr("慢线周期"));
     p1_ = new QSpinBox(); p1_->setRange(1, 200); p1_->setValue(5);
     p2_ = new QSpinBox(); p2_->setRange(2, 300); p2_->setValue(20);
-    fl->addRow(p1Label_, p1_);
-    fl->addRow(p2Label_, p2_);
+    fl->addRow(labeled(p1Label_, p1_));
+    fl->addRow(labeled(p2Label_, p2_));
     connect(strategyCombo_, &QComboBox::currentIndexChanged,
             this, &BacktestPanel::onStrategyChanged);
 
@@ -112,7 +124,7 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
     for (int i = 0; i < std::min(3, stockList_->count()); ++i) {
         stockList_->item(i)->setSelected(true);
     }
-    fl->addRow(tr("股票池"), stockList_);
+    fl->addRow(labeled(new QLabel(tr("股票池")), stockList_));
 
     startDate_ = new QDateEdit(QDate(2023, 1, 1));
     startDate_->setCalendarPopup(true);
@@ -122,14 +134,14 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
     dateRow->addWidget(startDate_);
     dateRow->addWidget(new QLabel(tr("~")));
     dateRow->addWidget(endDate_);
-    fl->addRow(tr("日期"), dateRow);
+    fl->addRow(labeledL(new QLabel(tr("日期")), dateRow));
 
     capital_ = new QDoubleSpinBox();
     capital_->setRange(1000, 1e9);
     capital_->setValue(100000.0);
     capital_->setDecimals(0);
     capital_->setSingleStep(10000);
-    fl->addRow(tr("初始资金"), capital_);
+    fl->addRow(labeled(new QLabel(tr("初始资金")), capital_));
 
     auto* runRow = new QHBoxLayout();
     runBtn_ = new QPushButton(tr("运行回测"));

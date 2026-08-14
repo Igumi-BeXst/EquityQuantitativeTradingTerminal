@@ -70,10 +70,22 @@ StrategyComparePanel::StrategyComparePanel(IDataProvider* provider, QWidget* par
 
     auto* form = new QGroupBox(tr("策略对比"));
     auto* fl = new QFormLayout(form);
-    // 标签左对齐（控件保持默认拉伸宽度，不收缩）
-    fl->setLabelAlignment(Qt::AlignLeft);
-    fl->setHorizontalSpacing(10);
     fl->setVerticalSpacing(6);
+    // 标签+控件紧贴行（无标签列，间距 6px；控件拉伸占满保持宽度）
+    auto labeled = [](QLabel* label, QWidget* field) {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(6);
+        row->addWidget(label);
+        row->addWidget(field, 1);
+        return row;
+    };
+    auto labeledL = [](QLabel* label, QLayout* field) {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(6);
+        row->addWidget(label);
+        row->addLayout(field, 1);
+        return row;
+    };
 
     strategyList_ = new QListWidget;
     strategyList_->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -84,7 +96,7 @@ StrategyComparePanel::StrategyComparePanel(IDataProvider* provider, QWidget* par
         strategyList_->addItem(item);
     }
     for (int i = 0; i < 2; ++i) strategyList_->item(i)->setSelected(true);
-    fl->addRow(tr("策略"), strategyList_);
+    fl->addRow(labeled(new QLabel(tr("策略")), strategyList_));
 
     // 股票池（精选 129 只，多选）
     stockList_ = new QListWidget;
@@ -101,7 +113,7 @@ StrategyComparePanel::StrategyComparePanel(IDataProvider* provider, QWidget* par
     };
     addPool(Market::SH, kCuratedSH);
     addPool(Market::SZ, kCuratedSZ);
-    fl->addRow(tr("股票池"), stockList_);
+    fl->addRow(labeled(new QLabel(tr("股票池")), stockList_));
 
     startDate_ = new QDateEdit(QDate(2023, 1, 1));
     startDate_->setCalendarPopup(true);
@@ -111,14 +123,14 @@ StrategyComparePanel::StrategyComparePanel(IDataProvider* provider, QWidget* par
     dateRow->addWidget(startDate_);
     dateRow->addWidget(new QLabel(tr("~")));
     dateRow->addWidget(endDate_);
-    fl->addRow(tr("日期"), dateRow);
+    fl->addRow(labeledL(new QLabel(tr("日期")), dateRow));
 
     capital_ = new QDoubleSpinBox;
     capital_->setRange(1000, 1e9);
     capital_->setValue(100000.0);
     capital_->setDecimals(0);
     capital_->setSingleStep(10000);
-    fl->addRow(tr("初始资金"), capital_);
+    fl->addRow(labeled(new QLabel(tr("初始资金")), capital_));
 
     auto* runRow = new QHBoxLayout;
     runBtn_ = new QPushButton(tr("开始对比"));

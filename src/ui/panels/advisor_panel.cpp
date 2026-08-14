@@ -73,17 +73,29 @@ AdvisorPanel::AdvisorPanel(IDataProvider* provider, QWidget* parent)
     // ---- 配置区 ----
     auto* form = new QGroupBox(tr("参数网格 + 优化建议"));
     auto* fl = new QFormLayout(form);
-    // 标签左对齐（控件保持默认拉伸宽度，不收缩）
-    fl->setLabelAlignment(Qt::AlignLeft);
-    fl->setHorizontalSpacing(10);
     fl->setVerticalSpacing(6);
+    // 标签+控件紧贴行（无标签列，间距 6px；控件拉伸占满保持宽度）
+    auto labeled = [](QLabel* label, QWidget* field) {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(6);
+        row->addWidget(label);
+        row->addWidget(field, 1);
+        return row;
+    };
+    auto labeledL = [](QLabel* label, QLayout* field) {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(6);
+        row->addWidget(label);
+        row->addLayout(field, 1);
+        return row;
+    };
 
     strategyCombo_ = new QComboBox;
     for (const auto& s : strategy_catalog::all()) {
         strategyCombo_->addItem(QStringLiteral("[%1] %2").arg(s.category, s.display),
                                 s.id);
     }
-    fl->addRow(tr("策略"), strategyCombo_);
+    fl->addRow(labeled(new QLabel(tr("策略")), strategyCombo_));
     connect(strategyCombo_, &QComboBox::currentIndexChanged,
             this, &AdvisorPanel::onStrategyChanged);
 
@@ -101,9 +113,9 @@ AdvisorPanel::AdvisorPanel(IDataProvider* provider, QWidget* parent)
         return row;
     };
     p1Label_ = new QLabel(tr("快线周期"));
-    fl->addRow(p1Label_, makeRangeRow(p1From_, p1To_, p1Step_));
+    fl->addRow(labeledL(p1Label_, makeRangeRow(p1From_, p1To_, p1Step_)));
     p2Label_ = new QLabel(tr("慢线周期"));
-    fl->addRow(p2Label_, makeRangeRow(p2From_, p2To_, p2Step_));
+    fl->addRow(labeledL(p2Label_, makeRangeRow(p2From_, p2To_, p2Step_)));
 
     objectiveCombo_ = new QComboBox;
     objectiveCombo_->addItem(tr("总收益"));
@@ -111,7 +123,7 @@ AdvisorPanel::AdvisorPanel(IDataProvider* provider, QWidget* parent)
     objectiveCombo_->addItem(tr("最大回撤"));
     objectiveCombo_->addItem(tr("卡玛"));
     objectiveCombo_->addItem(tr("盈亏比"));
-    fl->addRow(tr("目标函数"), objectiveCombo_);
+    fl->addRow(labeled(new QLabel(tr("目标函数")), objectiveCombo_));
 
     stockList_ = new QListWidget;
     stockList_->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -129,7 +141,7 @@ AdvisorPanel::AdvisorPanel(IDataProvider* provider, QWidget* parent)
     for (int i = 0; i < std::min(3, stockList_->count()); ++i) {
         stockList_->item(i)->setSelected(true);
     }
-    fl->addRow(tr("股票池"), stockList_);
+    fl->addRow(labeled(new QLabel(tr("股票池")), stockList_));
 
     startDate_ = new QDateEdit(QDate(2023, 1, 1));
     startDate_->setCalendarPopup(true);
@@ -139,14 +151,14 @@ AdvisorPanel::AdvisorPanel(IDataProvider* provider, QWidget* parent)
     dateRow->addWidget(startDate_);
     dateRow->addWidget(new QLabel(tr("~")));
     dateRow->addWidget(endDate_);
-    fl->addRow(tr("日期"), dateRow);
+    fl->addRow(labeledL(new QLabel(tr("日期")), dateRow));
 
     capital_ = new QDoubleSpinBox;
     capital_->setRange(1000, 1e9);
     capital_->setValue(100000.0);
     capital_->setDecimals(0);
     capital_->setSingleStep(10000);
-    fl->addRow(tr("初始资金"), capital_);
+    fl->addRow(labeled(new QLabel(tr("初始资金")), capital_));
 
     auto* runRow = new QHBoxLayout;
     runBtn_ = new QPushButton(tr("开始优化建议"));
