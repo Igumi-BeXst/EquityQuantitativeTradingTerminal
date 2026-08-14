@@ -50,9 +50,11 @@ std::vector<AiScore> runAiScreener(
         const auto rsi = st::indicators::rsi(closes, 14);
         const auto macd = st::indicators::macd(closes);
 
-        // 形态（近 3 根窗口）
+        // 形态（近 3 根窗口；usePattern=false 时不参与 → 分项缺失折减）
         st::pattern::PatternRecognizer recognizer;
-        auto patterns = recognizer.detectAt(st::BarSeries(bars), 3).items;
+        auto patterns = cfg.usePattern
+            ? recognizer.detectAt(st::BarSeries(bars), 3).items
+            : std::vector<st::pattern::PatternSignal>{};
 
         // 情绪（无数据 / 禁用 → 空 summary 触发分项缺失）
         st::sentiment::SentimentScore senti;

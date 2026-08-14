@@ -283,12 +283,14 @@ void ScreenerPanel::onAllDataFetched(
 
     // ② Worker 池选股（安全异步：按值捕获 shared_ptr cache + QPointer 守卫，
     //    面板销毁后任务仍安全；不能用裸 this/裸 cache_ 指针——会 use-after-free）
-    const bool useAi = aiEnabled();
+    const bool usePattern = aiPatternCheck_->isChecked();
+    const bool useSentiment = aiSentimentCheck_->isChecked();
+    const bool useAi = usePattern || useSentiment;
     const auto cache = cache_;
     QPointer<ScreenerPanel> guard(this);
     ThreadPool::submitWorker(
         [guard, cache, selected = std::move(selected), factorNames, symbols, cfg,
-         sentiments = std::move(sentiments), useAi]() mutable {
+         sentiments = std::move(sentiments), useAi, usePattern, useSentiment]() mutable {
             StockScreener screener;
             screener.setConfig(cfg);
             screener.setDataCache(cache.get());
@@ -310,7 +312,8 @@ void ScreenerPanel::onAllDataFetched(
                     barsByCode.push_back(cache->getBars(code, BarPeriod::Daily));
                 }
                 st::screener::AiScreenerConfig aiCfg;
-                aiCfg.useSentiment = true;   // 情绪是否勾选已在 IO 阶段决定（未拉取 → nullopt 降级）
+                aiCfg.usePattern = usePattern;      // 形态勾选状态真实传入
+                aiCfg.useSentiment = useSentiment;  // 情绪勾选状态真实传入（IO 阶段已按同条件限量拉取）
                 auto ai = st::screener::runAiScreener(symbols, barsByCode, sentiments, aiCfg);
                 std::unordered_map<std::string, double> scoreByCode;
                 for (const auto& s : ai) {

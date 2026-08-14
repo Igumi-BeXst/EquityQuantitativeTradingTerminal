@@ -71,11 +71,41 @@ TEST(AiScreenerTest, ScoreMappingRange) {
     EXPECT_LE(scores[0].compositeScore, 100.0);
 }
 
+TEST(AiScreenerTest, PatternDisabled) {
+    // usePattern=false → 形态分项缺失；情绪分项保留
+    const StockCode a(std::string_view("SH600519"));
+    AiScreenerConfig cfg;
+    cfg.usePattern = false;
+    auto scores = runAiScreener(
+        {a}, {makeBars(true)}, {senti(0.6)}, cfg);
+    ASSERT_EQ(scores.size(), 1u);
+    EXPECT_FALSE(scores[0].patternScore.has_value());
+    ASSERT_TRUE(scores[0].sentimentScore.has_value());
+    EXPECT_NEAR(*scores[0].sentimentScore, 80.0, 1e-9);
+}
+
+TEST(AiScreenerTest, PatternToggleChangesScore) {
+    // 回归：全选（形态+情绪）与单选情绪（usePattern=false）的 AI 分必须不同
+    const StockCode a(std::string_view("SH600519"));
+    auto both = runAiScreener(
+        {a}, {makeBars(true)}, {senti(0.6)}, AiScreenerConfig{});
+    AiScreenerConfig cfg;
+    cfg.usePattern = false;
+    auto sentimentOnly = runAiScreener(
+        {a}, {makeBars(true)}, {senti(0.6)}, cfg);
+    ASSERT_EQ(both.size(), 1u);
+    ASSERT_EQ(sentimentOnly.size(), 1u);
+    EXPECT_NE(both[0].compositeScore, sentimentOnly[0].compositeScore);
+    // 多头形态贡献正分 → 全选分数更高
+    EXPECT_GT(both[0].compositeScore, sentimentOnly[0].compositeScore);
+}
+
 TEST(AiScreenerTest, SentimentDisabled) {
     const StockCode a(std::string_view("SH600519"));
+    AiScreenerConfig cfg;
+    cfg.useSentiment = false;
     auto scores = runAiScreener(
-        {a}, {makeBars(true)}, {senti(0.6)},
-        AiScreenerConfig{/*weights=*/{}, /*useSentiment=*/false});
+        {a}, {makeBars(true)}, {senti(0.6)}, cfg);
     ASSERT_EQ(scores.size(), 1u);
     EXPECT_FALSE(scores[0].sentimentScore.has_value());
     EXPECT_TRUE(scores[0].patternScore.has_value());
