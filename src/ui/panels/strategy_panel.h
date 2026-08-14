@@ -30,9 +30,11 @@ private slots:
 private:
     struct Spec {
         QString id;
+        QString category;   // 类别（趋势/动量/突破/均值回归/反转）
         QString display;
         QString desc;
-        QString p1Name, p2Name;
+        QString p1Name, p1Desc;
+        QString p2Name, p2Desc;
         int p1, p2, p1Min, p1Max, p2Min, p2Max;
     };
     static std::vector<Spec> builtinTemplates();

@@ -8,6 +8,10 @@
 #include "engine/strategy/istrategy.h"
 #include "engine/strategy/templates/ma_cross_strategy.h"
 #include "engine/strategy/templates/turtle_strategy.h"
+#include "engine/strategy/templates/momentum_strategy.h"
+#include "engine/strategy/templates/breakout_strategy.h"
+#include "engine/strategy/templates/mean_reversion_strategy.h"
+#include "engine/strategy/templates/rsi_strategy.h"
 #include "core/thread_pool.h"
 #include "core/log_manager.h"
 #include "core/app_paths.h"
@@ -68,8 +72,12 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
     auto* form = new QGroupBox(tr("回测配置"));
     auto* fl = new QFormLayout(form);
     strategyCombo_ = new QComboBox();
-    strategyCombo_->addItem(tr("双均线 MACross"), QStringLiteral("MACross"));
-    strategyCombo_->addItem(tr("海龟 Turtle"), QStringLiteral("Turtle"));
+    strategyCombo_->addItem(tr("[趋势] 双均线 MACross"), QStringLiteral("MACross"));
+    strategyCombo_->addItem(tr("[趋势] 海龟 Turtle"), QStringLiteral("Turtle"));
+    strategyCombo_->addItem(tr("[动量] 动量 Momentum"), QStringLiteral("Momentum"));
+    strategyCombo_->addItem(tr("[突破] 收盘突破 Breakout"), QStringLiteral("Breakout"));
+    strategyCombo_->addItem(tr("[均值回归] 均值回归 MeanReversion"), QStringLiteral("MeanReversion"));
+    strategyCombo_->addItem(tr("[反转] RSI Rsi"), QStringLiteral("Rsi"));
     fl->addRow(tr("策略"), strategyCombo_);
 
     p1Label_ = new QLabel(tr("快线周期"));
@@ -182,13 +190,20 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
 }
 
 void BacktestPanel::onStrategyChanged() {
-    const bool isMa = strategyCombo_->currentIndex() == 0;
-    p1Label_->setText(isMa ? tr("快线周期") : tr("入场周期"));
-    p2Label_->setText(isMa ? tr("慢线周期") : tr("出场周期"));
-    if (isMa) {
+    const QString id = strategyCombo_->currentData().toString();
+    updateParamLabels();
+    if (id == QStringLiteral("MACross")) {
         p1_->setValue(5); p2_->setValue(20);
-    } else {
+    } else if (id == QStringLiteral("Turtle")) {
         p1_->setValue(20); p2_->setValue(10);
+    } else if (id == QStringLiteral("Momentum")) {
+        p1_->setValue(20); p2_->setValue(10);
+    } else if (id == QStringLiteral("Breakout")) {
+        p1_->setValue(20); p2_->setValue(10);
+    } else if (id == QStringLiteral("MeanReversion")) {
+        p1_->setValue(20); p2_->setValue(30);
+    } else if (id == QStringLiteral("Rsi")) {
+        p1_->setValue(30); p2_->setValue(70);
     }
 }
 
@@ -199,13 +214,32 @@ void BacktestPanel::loadStrategy(const QString& id, const QVariantMap& params) {
     if (params.contains("slowPeriod")) p2_->setValue(params["slowPeriod"].toInt());
     if (params.contains("entryPeriod")) p1_->setValue(params["entryPeriod"].toInt());
     if (params.contains("exitPeriod")) p2_->setValue(params["exitPeriod"].toInt());
+    if (params.contains("lookbackPeriod")) p1_->setValue(params["lookbackPeriod"].toInt());
+    if (params.contains("maPeriod")) p1_->setValue(params["maPeriod"].toInt());
+    if (params.contains("deviationPct")) p2_->setValue(params["deviationPct"].toInt());
+    if (params.contains("buyLevel")) p1_->setValue(params["buyLevel"].toInt());
+    if (params.contains("sellLevel")) p2_->setValue(params["sellLevel"].toInt());
     updateParamLabels();
 }
 
 void BacktestPanel::updateParamLabels() {
-    const bool isMa = strategyCombo_->currentIndex() == 0;
-    p1Label_->setText(isMa ? tr("快线周期") : tr("入场周期"));
-    p2Label_->setText(isMa ? tr("慢线周期") : tr("出场周期"));
+    const QString id = strategyCombo_->currentData().toString();
+    if (id == QStringLiteral("MACross")) {
+        p1Label_->setText(tr("快线周期"));
+        p2Label_->setText(tr("慢线周期"));
+    } else if (id == QStringLiteral("Turtle") || id == QStringLiteral("Breakout")) {
+        p1Label_->setText(tr("入场/突破周期"));
+        p2Label_->setText(tr("出场周期"));
+    } else if (id == QStringLiteral("Momentum")) {
+        p1Label_->setText(tr("动量回看"));
+        p2Label_->setText(tr("离场均线"));
+    } else if (id == QStringLiteral("MeanReversion")) {
+        p1Label_->setText(tr("均线周期"));
+        p2Label_->setText(tr("超跌阈值‰"));
+    } else if (id == QStringLiteral("Rsi")) {
+        p1Label_->setText(tr("买入线"));
+        p2Label_->setText(tr("卖出线"));
+    }
 }
 
 std::vector<StockCode> BacktestPanel::selectedSymbols() const {
@@ -231,16 +265,47 @@ BacktestConfig BacktestPanel::makeConfig(const std::vector<StockCode>& symbols) 
 }
 
 std::shared_ptr<IStrategy> BacktestPanel::makeStrategy() const {
-    const bool isMa = strategyCombo_->currentIndex() == 0;
-    if (isMa) {
+    const QString id = strategyCombo_->currentData().toString();
+    if (id == QStringLiteral("MACross")) {
         auto s = std::make_shared<MACrossStrategy>();
         s->fastPeriod_ = p1_->value();
         s->slowPeriod_ = p2_->value();
         return s;
     }
-    auto s = std::make_shared<TurtleStrategy>();
-    s->entryPeriod_ = p1_->value();
-    s->exitPeriod_ = p2_->value();
+    if (id == QStringLiteral("Turtle") || id == QStringLiteral("Breakout")) {
+        if (id == QStringLiteral("Turtle")) {
+            auto s = std::make_shared<TurtleStrategy>();
+            s->entryPeriod_ = p1_->value();
+            s->exitPeriod_ = p2_->value();
+            return s;
+        }
+        auto s = std::make_shared<BreakoutStrategy>();
+        s->entryPeriod_ = p1_->value();
+        s->exitPeriod_ = p2_->value();
+        return s;
+    }
+    if (id == QStringLiteral("Momentum")) {
+        auto s = std::make_shared<MomentumStrategy>();
+        s->lookbackPeriod_ = p1_->value();
+        s->exitPeriod_ = p2_->value();
+        return s;
+    }
+    if (id == QStringLiteral("MeanReversion")) {
+        auto s = std::make_shared<MeanReversionStrategy>();
+        s->maPeriod_ = p1_->value();
+        s->deviationPct_ = p2_->value();
+        return s;
+    }
+    if (id == QStringLiteral("Rsi")) {
+        auto s = std::make_shared<RsiStrategy>();
+        s->buyLevel_ = p1_->value();
+        s->sellLevel_ = p2_->value();
+        return s;
+    }
+    // 默认回退双均线
+    auto s = std::make_shared<MACrossStrategy>();
+    s->fastPeriod_ = p1_->value();
+    s->slowPeriod_ = p2_->value();
     return s;
 }
 
