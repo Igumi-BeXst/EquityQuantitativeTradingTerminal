@@ -57,6 +57,7 @@ if(BUILD_WITH_QT)
         test_engine/test_factors.cpp
         test_engine/test_screener.cpp
         test_engine/test_grid_search.cpp
+        test_engine/test_grid_heatmap.cpp
         test_engine/test_analyzer.cpp
         test_engine/test_chip_distribution.cpp
         test_engine/test_treemap.cpp

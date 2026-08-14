@@ -81,6 +81,7 @@ add_library(st_engine STATIC
     engine/market/market_scanner.cpp
     engine/market/market_breadth.cpp
     engine/optimizer/grid_search.cpp
+    engine/optimizer/grid_heatmap.cpp
     engine/analyzer/strategy_comparator.cpp
     engine/analyzer/stress_test.cpp
     engine/analyzer/monte_carlo.cpp
@@ -146,6 +147,7 @@ add_library(st_ui STATIC
     ui/widgets/custom_index_editor.cpp
     ui/widgets/custom_index_panel.cpp
     ui/widgets/sector_constituents_dialog.cpp
+    ui/widgets/grid_heatmap_widget.cpp
     ui/widgets/reminder_popup.cpp
     ui/panels/sector_panel.cpp
     ui/models/stock_list_model.cpp
