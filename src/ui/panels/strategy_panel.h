@@ -1,15 +1,17 @@
 #pragma once
 
+#include "ui/strategy_catalog.h"
 #include <QWidget>
 #include <QVariantMap>
-#include <vector>
 
 class QListWidget;
 class QLabel;
 class QSpinBox;
-class QPushButton;namespace st {
+class QPushButton;
 
-/// 策略面板 — 内置策略模板库 + 参数编辑，应用到回测面板
+namespace st {
+
+/// 策略面板 — 内置策略模板库（共享目录）+ 参数编辑，应用到回测面板
 class StrategyPanel : public QWidget {
     Q_OBJECT
 
@@ -26,23 +28,13 @@ private slots:
     void onResetClicked();
 
 private:
-    struct Spec {
-        QString id;
-        QString category;   // 类别（趋势/动量/突破/均值回归/反转）
-        QString display;
-        QString desc;
-        QString p1Name, p1Desc;
-        QString p2Name, p2Desc;
-        int p1, p2, p1Min, p1Max, p2Min, p2Max;
-    };
-    static std::vector<Spec> builtinTemplates();
-    const Spec* currentSpec() const;
+    const strategy_catalog::StrategySpec* currentSpec() const;
 
     QListWidget* list_ = nullptr;
     QLabel* desc_ = nullptr;
     QLabel* p1Label_ = nullptr;
     QSpinBox* p1_ = nullptr;
-    QLabel* p1DescLabel_ = nullptr;   // 参数 1 说明（常显小字，替代悬停）
+    QLabel* p1DescLabel_ = nullptr;   // 参数 1 说明（常显小字）
     QLabel* p2Label_ = nullptr;
     QSpinBox* p2_ = nullptr;
     QLabel* p2DescLabel_ = nullptr;   // 参数 2 说明

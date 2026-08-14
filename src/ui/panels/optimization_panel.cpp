@@ -1,4 +1,5 @@
 #include "ui/panels/optimization_panel.h"
+#include "ui/strategy_catalog.h"
 #include "ui/models/grid_search_table_model.h"
 #include "ui/widgets/grid_heatmap_widget.h"
 #include "data/idata_provider.h"
@@ -56,8 +57,10 @@ OptimizationPanel::OptimizationPanel(IDataProvider* provider, QWidget* parent)
     auto* fl = new QFormLayout(form);
 
     strategyCombo_ = new QComboBox;
-    strategyCombo_->addItem(tr("双均线 MACross"), QStringLiteral("MACross"));
-    strategyCombo_->addItem(tr("海龟 Turtle"), QStringLiteral("Turtle"));
+    for (const auto& s : strategy_catalog::all()) {
+        strategyCombo_->addItem(QStringLiteral("[%1] %2").arg(s.category, s.display),
+                                s.id);
+    }
     fl->addRow(tr("策略"), strategyCombo_);
     connect(strategyCombo_, &QComboBox::currentIndexChanged,
             this, &OptimizationPanel::onStrategyChanged);
@@ -185,16 +188,21 @@ OptimizationPanel::OptimizationPanel(IDataProvider* provider, QWidget* parent)
 }
 
 void OptimizationPanel::onStrategyChanged() {
-    const bool isMa = strategyCombo_->currentIndex() == 0;
-    p1Label_->setText(isMa ? tr("快线周期") : tr("入场周期"));
-    p2Label_->setText(isMa ? tr("慢线周期") : tr("出场周期"));
-    if (isMa) {
-        p1From_->setValue(2); p1To_->setValue(30); p1Step_->setValue(2);
-        p2From_->setValue(10); p2To_->setValue(60); p2Step_->setValue(10);
-    } else {
-        p1From_->setValue(10); p1To_->setValue(40); p1Step_->setValue(5);
-        p2From_->setValue(5); p2To_->setValue(20); p2Step_->setValue(5);
-    }
+    const auto* s = strategy_catalog::byId(strategyCombo_->currentData().toString());
+    if (!s) return;
+    p1Label_->setText(s->p1Name);
+    p2Label_->setText(s->p2Name);
+    // 搜索范围：默认值 ~ 默认值+20（步长 2），避免组合爆炸
+    p1From_->setRange(s->p1Min, s->p1Max);
+    p1To_->setRange(s->p1Min, s->p1Max);
+    p2From_->setRange(s->p2Min, s->p2Max);
+    p2To_->setRange(s->p2Min, s->p2Max);
+    p1From_->setValue(s->p1);
+    p1To_->setValue(std::min(s->p1Max, s->p1 + 20));
+    p1Step_->setValue(2);
+    p2From_->setValue(s->p2);
+    p2To_->setValue(std::min(s->p2Max, s->p2 + 20));
+    p2Step_->setValue(2);
 }
 
 Objective OptimizationPanel::currentObjective() const {
@@ -292,14 +300,13 @@ void OptimizationPanel::onAllDataFetched() {
 
     GridSearchConfig cfg;
     cfg.strategyId = strategyCombo_->currentData().toString().toStdString();
+    const auto* spec = strategy_catalog::byId(strategyCombo_->currentData().toString());
+    const QString p1Key = spec ? spec->p1Key : QStringLiteral("fastPeriod");
+    const QString p2Key = spec ? spec->p2Key : QStringLiteral("slowPeriod");
     cfg.ranges = {
-        {"", p1From_->value(), p1To_->value(), p1Step_->value()},
-        {"", p2From_->value(), p2To_->value(), p2Step_->value()},
+        {p1Key.toStdString(), p1From_->value(), p1To_->value(), p1Step_->value()},
+        {p2Key.toStdString(), p2From_->value(), p2To_->value(), p2Step_->value()},
     };
-    // 参数名：MACross→fastPeriod/slowPeriod，Turtle→entryPeriod/exitPeriod
-    const bool isMa = strategyCombo_->currentIndex() == 0;
-    cfg.ranges[0].name = isMa ? "fastPeriod" : "entryPeriod";
-    cfg.ranges[1].name = isMa ? "slowPeriod" : "exitPeriod";
     cfg.symbols = symbols;
     cfg.startDate = utils::parseDate(startDate_->date().toString(Qt::ISODate).toStdString());
     cfg.endDate = utils::parseDate(endDate_->date().toString(Qt::ISODate).toStdString());

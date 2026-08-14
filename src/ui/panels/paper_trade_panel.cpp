@@ -1,12 +1,13 @@
 #include "ui/panels/paper_trade_panel.h"
+#include "ui/strategy_catalog.h"
 #include "ui/models/trade_table_model.h"
 #include "data/idata_provider.h"
 #include "data/curated_stocks.h"
 #include "engine/paper_trade/paper_trade_engine.h"
 #include "engine/journal/trade_journal.h"
+#include "engine/optimizer/grid_search.h"
 #include "engine/strategy/istrategy.h"
 #include "engine/strategy/templates/ma_cross_strategy.h"
-#include "engine/strategy/templates/turtle_strategy.h"
 #include "core/thread_pool.h"
 #include "core/log_manager.h"
 #include "foundation/utils/datetime.h"
@@ -56,8 +57,10 @@ PaperTradePanel::PaperTradePanel(IDataProvider* provider, QWidget* parent)
     fl->addRow(tr("股票"), stockCombo_);
 
     strategyCombo_ = new QComboBox;
-    strategyCombo_->addItem(tr("双均线 MACross"), QStringLiteral("MACross"));
-    strategyCombo_->addItem(tr("海龟 Turtle"), QStringLiteral("Turtle"));
+    for (const auto& s : strategy_catalog::all()) {
+        strategyCombo_->addItem(QStringLiteral("[%1] %2").arg(s.category, s.display),
+                                s.id);
+    }
     fl->addRow(tr("策略"), strategyCombo_);
 
     p1Label_ = new QLabel(tr("快线周期"));
@@ -149,30 +152,26 @@ StockCode PaperTradePanel::selectedCode() const {
 }
 
 std::shared_ptr<IStrategy> PaperTradePanel::makeStrategy() const {
-    const bool isMa = strategyCombo_->currentIndex() == 0;
-    if (isMa) {
-        auto s = std::make_shared<MACrossStrategy>();
-        s->fastPeriod_ = p1_->value();
-        s->slowPeriod_ = p2_->value();
-        return s;
-    }
-    auto s = std::make_shared<TurtleStrategy>();
-    s->entryPeriod_ = p1_->value();
-    s->exitPeriod_ = p2_->value();
-    return s;
+    // 统一走 GridSearchOptimizer::makeStrategy（共享策略注册表）
+    const auto* spec = strategy_catalog::byId(strategyCombo_->currentData().toString());
+    if (!spec) return std::make_shared<MACrossStrategy>();
+    const auto params = strategy_catalog::makeParams(*spec, p1_->value(), p2_->value());
+    std::vector<std::pair<std::string, int>> pairs;
+    pairs.emplace_back(spec->p1Key.toStdString(), params[spec->p1Key].toInt());
+    pairs.emplace_back(spec->p2Key.toStdString(), params[spec->p2Key].toInt());
+    auto s = GridSearchOptimizer::makeStrategy(spec->id.toStdString(), pairs);
+    return s ? s : std::make_shared<MACrossStrategy>();
 }
 
 void PaperTradePanel::onStrategyChanged() {
-    const bool isMa = strategyCombo_->currentIndex() == 0;
-    p1Label_->setText(isMa ? tr("快线周期") : tr("入场周期"));
-    p2Label_->setText(isMa ? tr("慢线周期") : tr("出场周期"));
-    if (isMa) {
-        p1_->setValue(5);
-        p2_->setValue(20);
-    } else {
-        p1_->setValue(20);
-        p2_->setValue(10);
-    }
+    const auto* s = strategy_catalog::byId(strategyCombo_->currentData().toString());
+    if (!s) return;
+    p1Label_->setText(s->p1Name);
+    p2Label_->setText(s->p2Name);
+    p1_->setRange(s->p1Min, s->p1Max);
+    p2_->setRange(s->p2Min, s->p2Max);
+    p1_->setValue(s->p1);
+    p2_->setValue(s->p2);
 }
 
 void PaperTradePanel::onToggleClicked() {

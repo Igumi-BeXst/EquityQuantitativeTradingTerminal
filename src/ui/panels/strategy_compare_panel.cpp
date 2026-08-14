@@ -37,14 +37,18 @@ struct Preset {
     std::vector<std::pair<std::string, int>> params;
 };
 
-// 内置策略预设（6 个）
+// 内置策略预设（10 个：6 策略 × 代表性参数）
 const std::vector<Preset> kPresets = {
     {"MA 5/20", "MACross", {{"fastPeriod", 5}, {"slowPeriod", 20}}},
     {"MA 10/60", "MACross", {{"fastPeriod", 10}, {"slowPeriod", 60}}},
-    {"MA 30/120", "MACross", {{"fastPeriod", 30}, {"slowPeriod", 120}}},
     {"Turtle 20/10", "Turtle", {{"entryPeriod", 20}, {"exitPeriod", 10}}},
     {"Turtle 40/20", "Turtle", {{"entryPeriod", 40}, {"exitPeriod", 20}}},
-    {"Turtle 60/30", "Turtle", {{"entryPeriod", 60}, {"exitPeriod", 30}}},
+    {"动量 20/10", "Momentum", {{"lookbackPeriod", 20}, {"exitPeriod", 10}}},
+    {"动量 30/15", "Momentum", {{"lookbackPeriod", 30}, {"exitPeriod", 15}}},
+    {"突破 20/10", "Breakout", {{"entryPeriod", 20}, {"exitPeriod", 10}}},
+    {"均值回归 20/30", "MeanReversion", {{"maPeriod", 20}, {"deviationPct", 30}}},
+    {"RSI 30/70", "Rsi", {{"buyLevel", 30}, {"sellLevel", 70}}},
+    {"RSI 20/80", "Rsi", {{"buyLevel", 20}, {"sellLevel", 80}}},
 };
 
 // 曲线配色

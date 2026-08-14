@@ -1,4 +1,5 @@
 #include "ui/panels/stress_test_panel.h"
+#include "ui/strategy_catalog.h"
 #include "ui/widgets/equity_curve_widget.h"
 #include "data/idata_provider.h"
 #include "data/data_cache.h"
@@ -39,8 +40,10 @@ StressTestPanel::StressTestPanel(IDataProvider* provider, QWidget* parent)
     auto* fl = new QFormLayout(form);
 
     strategyCombo_ = new QComboBox;
-    strategyCombo_->addItem(tr("双均线 MACross"), QStringLiteral("MACross"));
-    strategyCombo_->addItem(tr("海龟 Turtle"), QStringLiteral("Turtle"));
+    for (const auto& s : strategy_catalog::all()) {
+        strategyCombo_->addItem(QStringLiteral("[%1] %2").arg(s.category, s.display),
+                                s.id);
+    }
     fl->addRow(tr("策略"), strategyCombo_);
     connect(strategyCombo_, &QComboBox::currentIndexChanged,
             this, &StressTestPanel::onStrategyChanged);
@@ -133,16 +136,14 @@ StressTestPanel::StressTestPanel(IDataProvider* provider, QWidget* parent)
 }
 
 void StressTestPanel::onStrategyChanged() {
-    const bool isMa = strategyCombo_->currentIndex() == 0;
-    p1Label_->setText(isMa ? tr("快线周期") : tr("入场周期"));
-    p2Label_->setText(isMa ? tr("慢线周期") : tr("出场周期"));
-    if (isMa) {
-        p1_->setValue(5);
-        p2_->setValue(20);
-    } else {
-        p1_->setValue(20);
-        p2_->setValue(10);
-    }
+    const auto* s = strategy_catalog::byId(strategyCombo_->currentData().toString());
+    if (!s) return;
+    p1Label_->setText(s->p1Name);
+    p2Label_->setText(s->p2Name);
+    p1_->setRange(s->p1Min, s->p1Max);
+    p2_->setRange(s->p2Min, s->p2Max);
+    p1_->setValue(s->p1);
+    p2_->setValue(s->p2);
 }
 
 std::vector<StockCode> StressTestPanel::selectedSymbols() const {
@@ -199,14 +200,15 @@ void StressTestPanel::onAllDataFetched() {
         }
     }
 
-    const bool isMa = strategyCombo_->currentIndex() == 0;
+    const auto* spec = strategy_catalog::byId(strategyCombo_->currentData().toString());
     StressTestConfig cfg;
     cfg.strategyId = strategyCombo_->currentData().toString().toStdString();
-    cfg.params = isMa
+    cfg.params = spec
         ? std::vector<std::pair<std::string, int>>{
-              {"fastPeriod", p1_->value()}, {"slowPeriod", p2_->value()}}
+              {spec->p1Key.toStdString(), p1_->value()},
+              {spec->p2Key.toStdString(), p2_->value()}}
         : std::vector<std::pair<std::string, int>>{
-              {"entryPeriod", p1_->value()}, {"exitPeriod", p2_->value()}};
+              {"fastPeriod", p1_->value()}, {"slowPeriod", p2_->value()}};
     cfg.symbols = selectedSymbols();
     cfg.initialCapital = capital_->value();
     cfg.feeConfig = FeeConfig::defaultAShare();
