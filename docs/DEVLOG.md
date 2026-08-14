@@ -1,5 +1,21 @@
 # 开发日志 (Development Log)
 
+## 2026-08-15 — P10 第二十五轮：量化工作台表格列宽均分 + 居中对齐（全量，舆情除外）
+
+### 需求（用户明确范围）
+量化工作台**所有表格类列表**列宽均分 + 居中对齐；**舆情情绪除外**（新闻标题需显示全）。
+
+### 实施
+- 列宽均分：7 个 QTableView header `Stretch`（形态识别/参数优化/优化建议/选股/回测成交/策略对比/模拟成交）
+- 单元格居中：5 个模型 data() 加 `TextAlignmentRole → AlignCenter`（Pattern/GridSearch（优化+建议共用）/ScreenResult/Trade（回测+模拟共用）/Comparison）——共享模型一次覆盖多面板；移除 advisor 面板上一轮遗留的 CenterDelegate（机制统一）
+- **舆情例外**：标题列 `Stretch` 弹性占满 + 左对齐（标题完整显示），评分/情绪列 `ResizeToContents` + item 居中
+- 股票池/策略预设 QListWidget 保持左对齐（上轮确认项，未动）；搜索范围未动
+- 注：构建日志 findstr 误报（`/showIncludes` 输出含 `system_error` 字样匹配 "error"），实际零警告（456 全绿佐证）
+
+### 验证
+- 构建零警告；456/456 全绿（纯 UI 样式，无新增单测）；GUI 冒烟 8s 存活
+- 手动复测由用户执行（各 tab 表格均分居中、舆情标题完整、股票池左对齐不变）
+
 ## 2026-08-15 — P10 第二十四轮：优化建议 tab 网格结果表列宽均分 + 居中
 
 ### 需求（用户明确范围）
