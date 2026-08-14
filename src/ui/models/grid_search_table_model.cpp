@@ -72,6 +72,9 @@ QVariant GridSearchTableModel::data(const QModelIndex& index, int role) const {
     if (role == Qt::ForegroundRole && index.column() == 2) {
         return r.objectiveValue >= 0 ? QColor("#e54648") : QColor("#2e9e5b");
     }
+    if (role == Qt::TextAlignmentRole) {
+        return QVariant(Qt::AlignCenter);
+    }
     return {};
 }
 

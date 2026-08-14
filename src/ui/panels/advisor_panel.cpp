@@ -30,8 +30,6 @@
 #include <QHeaderView>
 #include <QDate>
 #include <QMetaObject>
-#include <QStyledItemDelegate>
-#include <QStyleOptionViewItem>
 #include <QThreadPool>
 #include <QPointer>
 #include <QVariantMap>
@@ -61,17 +59,6 @@ std::string paramsText(const std::vector<std::pair<std::string, int>>& params) {
     }
     return os.str();
 }
-
-/// 单元格居中 delegate（仅本面板结果表生效，不影响其他面板/模型）
-class CenterDelegate : public QStyledItemDelegate {
-public:
-    using QStyledItemDelegate::QStyledItemDelegate;
-    void initStyleOption(QStyleOptionViewItem* option,
-                         const QModelIndex& index) const override {
-        QStyledItemDelegate::initStyleOption(option, index);
-        option->displayAlignment = Qt::AlignCenter;
-    }
-};
 }  // namespace
 
 AdvisorPanel::AdvisorPanel(IDataProvider* provider, QWidget* parent)
@@ -203,7 +190,6 @@ AdvisorPanel::AdvisorPanel(IDataProvider* provider, QWidget* parent)
     resultView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     resultView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     resultView_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    resultView_->setItemDelegate(new CenterDelegate(resultView_));
     resultView_->setMinimumHeight(160);
     layout->addWidget(new QLabel(tr("网格结果（单击行应用参数到回测）")));
     layout->addWidget(resultView_);

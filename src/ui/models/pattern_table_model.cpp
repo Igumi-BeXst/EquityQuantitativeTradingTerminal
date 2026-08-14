@@ -55,6 +55,9 @@ QVariant PatternTableModel::data(const QModelIndex& index, int role) const {
         if (r.direction == Direction::Bullish) return QColor(Qt::red);    // A股红涨
         if (r.direction == Direction::Bearish) return QColor(Qt::green);  // 绿跌
     }
+    if (role == Qt::TextAlignmentRole) {
+        return QVariant(Qt::AlignCenter);
+    }
     return {};
 }
 

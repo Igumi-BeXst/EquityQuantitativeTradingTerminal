@@ -42,7 +42,10 @@ QVariant TradeTableModel::data(const QModelIndex& index, int role) const {
         }
         return {};
     }
-    if (role != Qt::DisplayRole) return {};
+    if (role == Qt::TextAlignmentRole) {
+        return QVariant(Qt::AlignCenter);
+    }
+    if (role != Qt::DisplayRole) return {};;
 
     switch (index.column()) {
         case 0: return QString::fromStdString(utils::toDateTimeString(t.time));

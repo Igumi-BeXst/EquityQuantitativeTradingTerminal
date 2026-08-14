@@ -82,7 +82,10 @@ SentimentPanel::SentimentPanel(IDataProvider* provider, QWidget* parent,
     table_ = new QTableView;
     table_->setModel(tableModel_);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table_->horizontalHeader()->setStretchLastSection(true);
+    // 舆情例外：标题列弹性占满（显示全），评分/情绪列自适应内容
+    table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     layout->addWidget(table_, 1);
 
     connect(analyzeBtn_, &QPushButton::clicked, this, &SentimentPanel::onAnalyzeClicked);
@@ -158,10 +161,14 @@ void SentimentPanel::analyzeItems(const std::vector<st::sentiment::NewsItem>& it
         const auto s = analyzer_.analyze(item);
         const int row = tableModel_->rowCount();
         tableModel_->insertRow(row);  // 先插行再 setItem，避免模型内部状态不一致
+        // 标题列左对齐（显示全），评分/情绪列居中
         tableModel_->setItem(row, 0, new QStandardItem(QString::fromStdString(item.title)));
-        tableModel_->setItem(row, 1, new QStandardItem(QString::number(s.score, 'f', 2)));
+        auto* score = new QStandardItem(QString::number(s.score, 'f', 2));
+        score->setTextAlignment(Qt::AlignCenter);
+        tableModel_->setItem(row, 1, score);
         auto* lbl = new QStandardItem(labelText(s.label));
         lbl->setForeground(s.score >= 0 ? QColor(kUpColor) : QColor(kDownColor));
+        lbl->setTextAlignment(Qt::AlignCenter);
         tableModel_->setItem(row, 2, lbl);
     }
 

@@ -176,7 +176,7 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
     tradesView_->setModel(tradeModel_);
     tradesView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     tradesView_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    tradesView_->horizontalHeader()->setStretchLastSection(true);
+    tradesView_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     tradesView_->setMinimumHeight(120);
     layout->addWidget(new QLabel(tr("成交明细")));
     layout->addWidget(tradesView_);

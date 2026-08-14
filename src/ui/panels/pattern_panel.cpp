@@ -44,7 +44,7 @@ PatternPanel::PatternPanel(IDataProvider* provider, QWidget* parent)
     resultView_->setModel(resultModel_);
     resultView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     resultView_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    resultView_->horizontalHeader()->setStretchLastSection(true);
+    resultView_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     resultView_->setMinimumHeight(140);
 
     chart_ = new KLineChart(provider_);

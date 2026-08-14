@@ -98,7 +98,7 @@ QVariant ScreenResultModel::data(const QModelIndex& index, int role) const {
         if (v >= 40.0) return QColor("#bbbbbb");
         return QColor("#2e9e5b");
     }
-    if (role == Qt::TextAlignmentRole && col >= 0 && col < 2) {
+    if (role == Qt::TextAlignmentRole) {
         return QVariant(Qt::AlignCenter);
     }
     return {};

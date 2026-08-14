@@ -161,7 +161,7 @@ ScreenerPanel::ScreenerPanel(IDataProvider* provider, QWidget* parent)
     resultView_->setModel(resultModel_);
     resultView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     resultView_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    resultView_->horizontalHeader()->setStretchLastSection(true);
+    resultView_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     resultView_->setMinimumHeight(180);
     layout->addWidget(new QLabel(tr("选股结果（双击开图）")));
     layout->addWidget(resultView_);
