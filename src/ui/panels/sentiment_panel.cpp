@@ -1,4 +1,5 @@
 #include "ui/panels/sentiment_panel.h"
+#include "ui/panels/stock_search_bar.h"
 #include "core/log_manager.h"
 #include "core/thread_pool.h"
 #include <QColor>
@@ -30,9 +31,9 @@ QString labelText(st::sentiment::SentimentLabel label) {
 }
 }  // namespace
 
-SentimentPanel::SentimentPanel(QWidget* parent,
-                               std::shared_ptr<st::sentiment::ISentimentProvider> provider)
-    : QWidget(parent), provider_(std::move(provider)) {
+SentimentPanel::SentimentPanel(IDataProvider* provider, QWidget* parent,
+                               std::shared_ptr<st::sentiment::ISentimentProvider> newsProvider)
+    : QWidget(parent), provider_(std::move(newsProvider)) {
     analyzer_.setProvider(provider_);
 
     auto* layout = new QVBoxLayout(this);
@@ -44,14 +45,19 @@ SentimentPanel::SentimentPanel(QWidget* parent,
     hintLabel_->setStyleSheet(QStringLiteral("color:#999999;"));
     layout->addWidget(hintLabel_);
 
+    // 股票搜索栏（代码/名称/拼音，选中自动拉取）
     auto* codeRow = new QHBoxLayout;
-    codeRow->addWidget(new QLabel(tr("股票代码")));
-    codeEdit_ = new QLineEdit;
-    codeEdit_->setPlaceholderText(tr("600519"));
+    codeRow->addWidget(new QLabel(tr("股票")));
+    searchBar_ = new StockSearchBar(provider, this);
     fetchBtn_ = new QPushButton(tr("拉取东财新闻"));
-    codeRow->addWidget(codeEdit_, 1);
+    codeRow->addWidget(searchBar_, 1);
     codeRow->addWidget(fetchBtn_);
     layout->addLayout(codeRow);
+    connect(searchBar_, &StockSearchBar::stockSelected, this,
+            [this](const StockInfo& info) {
+                selectedStock_ = info;
+                onFetchNewsClicked();   // 选中即拉取
+            });
 
     layout->addWidget(new QLabel(tr("或手动输入新闻标题（每行一条）")));
     newsEdit_ = new QPlainTextEdit;
@@ -102,9 +108,13 @@ void SentimentPanel::onAnalyzeClicked() {
 
 void SentimentPanel::onFetchNewsClicked() {
     if (fetching_) return;
-    const StockCode code(codeEdit_->text().trimmed().toStdString());
+    if (!selectedStock_) {
+        LogManager::instance()->log(LogLevel::Warn, "舆情: 请先在搜索栏选择股票");
+        return;
+    }
+    const StockCode code = selectedStock_->code;
     if (!code.isValid()) {
-        LogManager::instance()->log(LogLevel::Warn, "舆情: 请输入有效股票代码");
+        LogManager::instance()->log(LogLevel::Warn, "舆情: 请选择有效股票");
         return;
     }
     if (!provider_) {
@@ -113,7 +123,8 @@ void SentimentPanel::onFetchNewsClicked() {
     }
     fetching_ = true;
     fetchBtn_->setEnabled(false);
-    hintLabel_->setText(tr("正在拉取东财资讯…"));
+    hintLabel_->setText(tr("正在拉取 %1 的东财资讯…")
+        .arg(QString::fromStdString(selectedStock_->name)));
     resetTable();
 
     // 安全异步：捕获 provider/code 按值 + QPointer 守卫投递回主线程

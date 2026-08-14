@@ -31,7 +31,7 @@ QuantWindow::QuantWindow(IDataProvider* provider,
     patternPanel_ = new PatternPanel(provider, tabs);
     advisorPanel_ = new AdvisorPanel(provider, tabs);
     sentimentPanel_ = new SentimentPanel(
-        tabs, std::make_shared<st::sentiment::EastMoneyNewsProvider>());
+        provider, tabs, std::make_shared<st::sentiment::EastMoneyNewsProvider>());
     // 量化面板（原主窗口 quantDock + 策略/回测）
     optimizationPanel_ = new OptimizationPanel(provider, tabs);
     screenerPanel_ = new ScreenerPanel(provider, tabs);
