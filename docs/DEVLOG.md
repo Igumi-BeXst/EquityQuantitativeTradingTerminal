@@ -1,5 +1,18 @@
 # 开发日志 (Development Log)
 
+## 2026-08-15 — 修复轮⑥：表单控件宽度恢复（不收缩）
+
+### 背景（用户复测反馈）
+紧凑化后「选项收缩了」，要求按之前宽度。
+
+### 修复
+- 移除 4 面板 `setFieldGrowthPolicy(FieldsStayAtSizeHint)`（该策略让 QComboBox/QDateEdit 等收缩到 sizeHint）→ 恢复默认拉伸宽度；移除股票池/策略预设 `setMinimumWidth(280)`
+- 保留 `setLabelAlignment(Qt::AlignLeft)` + 水平间距 10 / 垂直间距 6（标签间距紧凑诉求仍满足）
+
+### 验证
+- 构建零警告；456/456 全绿；GUI 冒烟 8s 存活
+- 手动复测由用户执行（控件宽度与之前一致、标签间距紧凑）
+
 ## 2026-08-15 — P10 第二十七轮：优化/建议/回测/对比面板表单紧凑化
 
 ### 需求（用户反馈）
