@@ -1,5 +1,30 @@
 # 开发日志 (Development Log)
 
+## 2026-08-15 — P10 第二十轮：策略模板增强 + 向导（AI 量化工作流 · 第 4 轮）
+
+### 需求
+按 [AI 量化工作流 4 轮路线设计](docs/superpowers/specs/2026-08-13-ai-quant-workflow-design.md) 第 4 轮（收尾轮）：策略模板库扩充 4 个新策略 + StrategyPanel 模板按类别分组 + 参数说明向导（悬停 tooltip）+ 「应用回测」一键跳转。
+
+### 实施
+- 引擎 4 个新策略（`engine/strategy/templates/`，纯 C++ 可单测）：
+  - `momentum_strategy`：Momentum——N 日收益率 > 阈值（默认 5%）买入，收盘跌破 M 日均线离场（lookbackPeriod/exitPeriod 可配）
+  - `breakout_strategy`：Breakout——**收盘价**突破 N 日最高收盘买入、跌破 M 日最低收盘离场（与海龟盘中高低价区分，收盘确认减少假突破）
+  - `mean_reversion_strategy`：MeanReversion——收盘低于均线 X% 买入（超跌反弹）、回到均线上方离场（maPeriod/deviationPct）
+  - `rsi_strategy`：Rsi——RSI 超卖买/超买卖（buyLevel/sellLevel，period 固定 14）
+  - 共享 `strategy_helpers.h`（smaAt/hasPosition，不动 IStrategy/Turtle）；`GridSearchOptimizer::makeStrategy` 注册 4 个 id
+- UI：
+  - `strategy_panel`：Spec 加 category/p1Desc/p2Desc；列表「[类别] 名称」分组（趋势跟踪/动量/突破/均值回归/反转）；参数 spinbox + 标签悬停显示参数说明 tooltip；apply 参数映射扩展 6 个 id
+  - `backtest_panel`：策略下拉扩 6 项（带类别前缀）；makeStrategy 6 分支；onStrategyChanged/updateParamLabels 按 id 设置标签与默认值；loadStrategy 接收新参数名（lookbackPeriod/maPeriod/deviationPct/buyLevel/sellLevel）
+- 测试：StrategyTemplateTest **16 例**（test_engine，手动 ctx 驱动 + 下单记录）——每策略 买入触发/不触发/卖出/数据不足 4 例；修 2 个实现细节（阈值千分数 vs 百分数单位、爬升序列本身即突破的测试数据）
+
+### 验证
+- 构建零警告；Engine 174 → **190**，总计 440 → **456** 全绿；GUI 冒烟 8s 存活
+- 手动冒烟由用户执行（策略面板 6 模板切换/参数说明悬停/应用回测、回测面板 6 策略跑通、优化面板 makeStrategy 兼容）
+
+### 已知限制
+- 每策略暴露 2 个主要参数（Rsi period 固定 14、Momentum 阈值固定 5%，其余参数固定默认）；优化/对比/压力/模拟面板的策略下拉仍为 2 项（v2 扩展）
+- 向导 v1 无 Advisor 建议值（静态向导无回测上下文，v2 可加）
+
 ## 2026-08-15 — 修复轮③：形态识别结果表按最新时间倒序
 
 ### 需求（用户反馈）

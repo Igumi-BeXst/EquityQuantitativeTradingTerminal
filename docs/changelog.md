@@ -1,5 +1,11 @@
 # 变更记录
 
+## 2026-08-15 — P10 第二十轮：策略模板增强 + 向导（AI 量化工作流第 4 轮，收尾）
+- 引擎: 4 个新策略——Momentum（N 日收益阈值+均线离场）/ Breakout（收盘价突破）/ MeanReversion（超跌回归）/ Rsi（超卖买卖）；共享 strategy_helpers；makeStrategy 注册 6 id
+- 向导: StrategyPanel 模板按类别分组（趋势/动量/突破/均值回归/反转）+ 参数说明悬停 tooltip + 应用回测；BacktestPanel 下拉 6 策略 + 参数标签/默认值按 id 切换
+- 测试: Engine 174 → 190（+16 StrategyTemplateTest 手动 ctx 驱动），总计 440 → 456 全绿；构建零警告
+- 已知限制: 每策略暴露 2 主要参数（其余固定默认）；优化/对比/压力/模拟面板下拉 v2 扩展；向导无 Advisor 建议值
+
 ## 2026-08-15 — 修复轮③：形态识别结果表按最新时间倒序
 - PatternTableModel::setRows 反转行序（detect 输出升序 → 表内最新在前）；纯 UI 模型改动，440/440 全绿
 
