@@ -27,6 +27,25 @@
 
 namespace st {
 
+namespace {
+constexpr char kUpColor[] = "#e54648";    // 红（收益正/指标好）
+constexpr char kDownColor[] = "#2e9e5b";  // 绿（收益负/指标差）
+constexpr char kMddWarnColor[] = "#e54648";  // 回撤 > 20% 警示红
+constexpr char kMddOkColor[] = "#2e9e5b";    // 回撤 ≤ 20% 可控绿
+constexpr double kMddWarnThreshold = 20.0;   // 与 Advisor riskWarning 阈值一致
+
+/// 收益类着色：≥0 红，<0 绿
+void colorPnl(QLabel* label, double v) {
+    label->setStyleSheet(QStringLiteral("color:%1;").arg(v >= 0.0 ? kUpColor : kDownColor));
+}
+
+/// 回撤着色：> 阈值警示红，否则可控绿
+void colorMdd(QLabel* label, double v) {
+    label->setStyleSheet(QStringLiteral("color:%1;")
+        .arg(v > kMddWarnThreshold ? kMddWarnColor : kMddOkColor));
+}
+}  // namespace
+
 StressTestPanel::StressTestPanel(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider), cache_(std::make_shared<DataCache>()) {
     auto* scroll = new QScrollArea(this);
@@ -240,13 +259,18 @@ void StressTestPanel::onResult(StressTestOutput output) {
     progress_->setVisible(false);
     output_ = std::move(output);
 
-    // 基线对比
+    // 基线对比（红涨绿跌着色 + 回撤警示）
     if (output_.baseline.success) {
-        baseRet_->setText(QStringLiteral("%1%").arg(output_.baseline.performance.totalReturn, 0, 'f', 2));
-        baseMdd_->setText(QStringLiteral("%1%").arg(output_.baseline.performance.maxDrawdown, 0, 'f', 2));
+        const auto& bp = output_.baseline.performance;
+        baseRet_->setText(QStringLiteral("%1%").arg(bp.totalReturn, 0, 'f', 2));
+        colorPnl(baseRet_, bp.totalReturn);
+        baseMdd_->setText(QStringLiteral("%1%").arg(bp.maxDrawdown, 0, 'f', 2));
+        colorMdd(baseMdd_, bp.maxDrawdown);
     } else {
         baseRet_->setText(tr("失败"));
+        baseRet_->setStyleSheet(QStringLiteral("color:%1;").arg(kDownColor));
         baseMdd_->setText(tr("失败"));
+        baseMdd_->setStyleSheet(QStringLiteral("color:%1;").arg(kDownColor));
     }
 
     displayWindow(windowCombo_->currentData().toString());
@@ -268,19 +292,27 @@ void StressTestPanel::displayWindow(const QString& windowId) {
 
     const auto& p = target->performance;
     ret_->setText(QStringLiteral("%1%").arg(p.totalReturn, 0, 'f', 2));
+    colorPnl(ret_, p.totalReturn);
     annual_->setText(QStringLiteral("%1%").arg(p.annualReturn, 0, 'f', 2));
+    colorPnl(annual_, p.annualReturn);
     sharpe_->setText(QString::number(p.sharpeRatio, 'f', 2));
+    colorPnl(sharpe_, p.sharpeRatio);
     mdd_->setText(QStringLiteral("%1%").arg(p.maxDrawdown, 0, 'f', 2));
-    mdd_->setStyleSheet(QStringLiteral("color:#e54648;"));  // 回撤红色高亮
+    colorMdd(mdd_, p.maxDrawdown);
     winRate_->setText(QStringLiteral("%1%").arg(p.winRate, 0, 'f', 1));
+    colorPnl(winRate_, p.winRate - 50.0);   // 胜率以 50% 为好坏分界
     pf_->setText(QString::number(p.profitFactor, 'f', 2));
+    colorPnl(pf_, p.profitFactor - 1.0);    // 盈亏比以 1.0 为好坏分界
     trades_->setText(QString::number(p.totalTrades));
-    endEquity_->setText(QString::number(target->equityCurve.empty() ? 0.0
-                                                                    : target->equityCurve.back(), 'f', 3));
+    const double endEquity = target->equityCurve.empty() ? 0.0
+                                                         : target->equityCurve.back();
+    endEquity_->setText(QString::number(endEquity, 'f', 3));
+    colorPnl(endEquity_, endEquity - 1.0);  // 净值以 1.0（本金）为分界
 
     if (output_.baseline.success) {
-        deltaRet_->setText(QStringLiteral("%1%").arg(
-            p.totalReturn - output_.baseline.performance.totalReturn, 0, 'f', 2));
+        const double delta = p.totalReturn - output_.baseline.performance.totalReturn;
+        deltaRet_->setText(QStringLiteral("%1%").arg(delta, 0, 'f', 2));
+        colorPnl(deltaRet_, delta);
     }
 
     std::vector<EquityCurveWidget::EquitySeries> series;
