@@ -66,6 +66,10 @@ add_library(st_engine STATIC
     engine/strategy/strategy_manager.cpp
     engine/strategy/templates/turtle.cpp
     engine/strategy/templates/ma_cross_strategy.cpp
+    engine/strategy/templates/momentum_strategy.cpp
+    engine/strategy/templates/breakout_strategy.cpp
+    engine/strategy/templates/mean_reversion_strategy.cpp
+    engine/strategy/templates/rsi_strategy.cpp
     engine/backtest/backtest_engine.cpp
     engine/backtest/order_matcher.cpp
     engine/backtest/fee_calculator.cpp

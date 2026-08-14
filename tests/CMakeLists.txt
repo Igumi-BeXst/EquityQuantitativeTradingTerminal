@@ -53,6 +53,7 @@ if(BUILD_WITH_QT)
         test_engine/test_performance.cpp
         test_engine/test_fee_calculator.cpp
         test_engine/test_paper_trade.cpp
+        test_engine/test_strategy_templates.cpp
         test_engine/test_market.cpp
         test_engine/test_factors.cpp
         test_engine/test_screener.cpp

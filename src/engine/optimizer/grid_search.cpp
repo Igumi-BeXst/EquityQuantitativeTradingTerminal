@@ -1,6 +1,10 @@
 #include "engine/optimizer/grid_search.h"
 #include "engine/strategy/templates/ma_cross_strategy.h"
 #include "engine/strategy/templates/turtle_strategy.h"
+#include "engine/strategy/templates/momentum_strategy.h"
+#include "engine/strategy/templates/breakout_strategy.h"
+#include "engine/strategy/templates/mean_reversion_strategy.h"
+#include "engine/strategy/templates/rsi_strategy.h"
 #include <algorithm>
 #include <atomic>
 #include <functional>
@@ -54,6 +58,30 @@ std::shared_ptr<IStrategy> GridSearchOptimizer::makeStrategy(
         auto s = std::make_shared<TurtleStrategy>();
         s->entryPeriod_ = getParam("entryPeriod", 20);
         s->exitPeriod_ = getParam("exitPeriod", 10);
+        return s;
+    }
+    if (id == "Momentum") {
+        auto s = std::make_shared<MomentumStrategy>();
+        s->lookbackPeriod_ = getParam("lookbackPeriod", 20);
+        s->exitPeriod_ = getParam("exitPeriod", 10);
+        return s;
+    }
+    if (id == "Breakout") {
+        auto s = std::make_shared<BreakoutStrategy>();
+        s->entryPeriod_ = getParam("entryPeriod", 20);
+        s->exitPeriod_ = getParam("exitPeriod", 10);
+        return s;
+    }
+    if (id == "MeanReversion") {
+        auto s = std::make_shared<MeanReversionStrategy>();
+        s->maPeriod_ = getParam("maPeriod", 20);
+        s->deviationPct_ = getParam("deviationPct", 30);
+        return s;
+    }
+    if (id == "Rsi") {
+        auto s = std::make_shared<RsiStrategy>();
+        s->buyLevel_ = getParam("buyLevel", 30);
+        s->sellLevel_ = getParam("sellLevel", 70);
         return s;
     }
     return nullptr;
