@@ -73,6 +73,11 @@ AdvisorPanel::AdvisorPanel(IDataProvider* provider, QWidget* parent)
     // ---- 配置区 ----
     auto* form = new QGroupBox(tr("参数网格 + 优化建议"));
     auto* fl = new QFormLayout(form);
+    // 紧凑表单：标签左对齐、字段保持自身宽度（避免标签与控件间距过大）
+    fl->setLabelAlignment(Qt::AlignLeft);
+    fl->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+    fl->setHorizontalSpacing(10);
+    fl->setVerticalSpacing(6);
 
     strategyCombo_ = new QComboBox;
     for (const auto& s : strategy_catalog::all()) {
@@ -110,6 +115,7 @@ AdvisorPanel::AdvisorPanel(IDataProvider* provider, QWidget* parent)
     fl->addRow(tr("目标函数"), objectiveCombo_);
 
     stockList_ = new QListWidget;
+    stockList_->setMinimumWidth(280);
     stockList_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     stockList_->setMaximumHeight(90);
     auto addPool = [this](Market m, const std::vector<CuratedStock>& table) {

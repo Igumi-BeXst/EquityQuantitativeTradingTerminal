@@ -55,6 +55,11 @@ OptimizationPanel::OptimizationPanel(IDataProvider* provider, QWidget* parent)
 
     auto* form = new QGroupBox(tr("参数优化"));
     auto* fl = new QFormLayout(form);
+    // 紧凑表单：标签左对齐、字段保持自身宽度（避免标签与控件间距过大）
+    fl->setLabelAlignment(Qt::AlignLeft);
+    fl->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+    fl->setHorizontalSpacing(10);
+    fl->setVerticalSpacing(6);
 
     strategyCombo_ = new QComboBox;
     for (const auto& s : strategy_catalog::all()) {
@@ -93,6 +98,7 @@ OptimizationPanel::OptimizationPanel(IDataProvider* provider, QWidget* parent)
 
     // 股票池
     stockList_ = new QListWidget;
+    stockList_->setMinimumWidth(280);
     stockList_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     stockList_->setMaximumHeight(110);
     auto addPool = [this](Market m, const std::vector<CuratedStock>& table) {
