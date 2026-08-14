@@ -32,6 +32,7 @@ class QuantWindow;
 class MarketDepthWidget;
 class StockKeyDataWidget;
 class ChipPanel;
+class AiSignalPanel;
 class TaskScheduler;
 class TaskWindow;
 struct ScheduledTask;
@@ -78,6 +79,7 @@ private:
     std::unique_ptr<QSettings> settings_;
 
     QDockWidget* chipDock_ = nullptr;  // 筹码分布（默认收起，视图菜单按需打开）
+    QDockWidget* aiSignalDock_ = nullptr;  // AI 综合信号（与筹码 tabify）
     QDockWidget* customIndexDock_ = nullptr;  // 自定义指数（与板块 tab 并列）
     QDockWidget* watchlistDock_ = nullptr;   // 自选股 dock（左主位）
     class WatchlistPanel* watchlistPanel_ = nullptr;
@@ -91,6 +93,7 @@ private:
     MarketDepthWidget* marketDepth_ = nullptr;
     StockKeyDataWidget* keyData_ = nullptr;
     ChipPanel* chipPanel_ = nullptr;
+    AiSignalPanel* aiSignalPanel_ = nullptr;
     CustomIndexPanel* customIndexPanel_ = nullptr;
     MarketIndexStrip* indexStrip_ = nullptr;
     StockSearchBar* searchBar_ = nullptr;

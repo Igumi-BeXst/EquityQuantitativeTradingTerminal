@@ -19,6 +19,7 @@
 #include "ui/widgets/market_depth_widget.h"
 #include "ui/widgets/stock_key_data_widget.h"
 #include "ui/widgets/chip_panel.h"
+#include "ui/panels/ai_signal_panel.h"
 #include "ui/widgets/custom_index_panel.h"
 #include "ui/widgets/reminder_popup.h"
 #include "data/idata_provider.h"
@@ -87,6 +88,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         }
         if (chipPanel_) {
             chipPanel_->setStock(info.code, QString::fromStdString(info.name));
+        }
+        if (aiSignalPanel_) {
+            aiSignalPanel_->setStock(info.code, QString::fromStdString(info.name));
         }
         statusBar()->showMessage(
             QStringLiteral("已选择 %1 (%2)")
@@ -291,6 +295,20 @@ void MainWindow::createDocks() {
     chipDock_->setMinimumWidth(260);
     chipDock_->setMaximumWidth(400);
 
+    // 右: AI 综合信号（与筹码 tabify 同一槽位，默认显示）
+    // 形态+情绪+技术融合评级，绑定中央图表开图路径 → setStock 自动跟随。
+    aiSignalDock_ = new QDockWidget(tr("AI 综合信号"), this);
+    aiSignalDock_->setObjectName(QStringLiteral("aiSignalDock"));
+    aiSignalPanel_ = new AiSignalPanel(provider_.get(), aiSignalDock_);
+    aiSignalDock_->setWidget(aiSignalPanel_);
+    addDockWidget(Qt::RightDockWidgetArea, aiSignalDock_);
+    tabifyDockWidget(chipDock_, aiSignalDock_);
+    aiSignalDock_->raise();
+    aiSignalDock_->setMinimumWidth(260);
+    aiSignalDock_->setMaximumWidth(400);
+    // 历史信号行双击 → 主窗口中央图（复用统一开图路径，含右侧面板联动）
+    connect(aiSignalPanel_, &AiSignalPanel::openChart, this, &MainWindow::openStockChart);
+
     // 中央图表周期栏「筹码分布」按钮（叠加对比旁）↔ 本 Dock 联动
     connect(centralChart_, &CentralChartWidget::chipDockToggled, this, [this] {
         if (chipDock_) chipDock_->toggleViewAction()->trigger();
@@ -369,6 +387,7 @@ void MainWindow::createMenus() {
     });
     // 筹码分布不进视图菜单（仍可通过图表「筹码分布」按钮开关）
     if (customIndexDock_) viewMenu->addAction(customIndexDock_->toggleViewAction());
+    if (aiSignalDock_) viewMenu->addAction(aiSignalDock_->toggleViewAction());
     viewMenu->addAction(tr("重置布局(&R)"), this, &MainWindow::resetLayout);
 
     // 量化
@@ -474,6 +493,7 @@ void MainWindow::openQuantWindow() {
             if (marketDepth_) marketDepth_->setStock(code, QString());
             if (keyData_) keyData_->setStock(code, QString());
             if (chipPanel_) chipPanel_->setStock(code, QString());
+            if (aiSignalPanel_) aiSignalPanel_->setStock(code, QString());
         });
     }
     quantWindow_->show();
@@ -496,6 +516,7 @@ void MainWindow::openFundsWindow() {
             if (marketDepth_) marketDepth_->setStock(code, name);
             if (keyData_) keyData_->setStock(code, name);
             if (chipPanel_) chipPanel_->setStock(code, name);
+            if (aiSignalPanel_) aiSignalPanel_->setStock(code, name);
             if (fundsWindow_) fundsWindow_->setCurrentStock(code, name);
         });
     }
@@ -546,6 +567,7 @@ void MainWindow::openJournalWindow() {
             if (marketDepth_) marketDepth_->setStock(code, name);
             if (keyData_) keyData_->setStock(code, name);
             if (chipPanel_) chipPanel_->setStock(code, name);
+            if (aiSignalPanel_) aiSignalPanel_->setStock(code, name);
         });
     }
     journalWindow_->show();
@@ -676,6 +698,7 @@ void MainWindow::openStockChart(const StockCode& code, const QString& name) {
     if (marketDepth_) marketDepth_->setStock(code, name);
     if (keyData_) keyData_->setStock(code, name);
     if (chipPanel_) chipPanel_->setStock(code, name);
+    if (aiSignalPanel_) aiSignalPanel_->setStock(code, name);
 }
 
 void MainWindow::syncWatchlistButton() {
