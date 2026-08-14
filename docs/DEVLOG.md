@@ -1,5 +1,28 @@
 # 开发日志 (Development Log)
 
+## 2026-08-15 — P10 第二十一轮：策略模板共享目录（全策略面板自动同步）
+
+### 需求（用户反馈）
+策略 tab 的 6 个模板要**自动同步**到其他与策略有关的 tab（优化/优化建议/压力测试/模拟交易/策略对比）。
+
+### 实施
+- `ui/strategy_catalog.h`（NEW）：**策略模板共享目录（单一数据源）**——`StrategySpec`（id/类别/显示名/说明/参数名+键名/参数说明/默认值/范围）+ `all()`/`byId()`/`makeParams()`；新增策略只需在此登记 + 引擎注册，全部面板自动同步
+- 5 个面板改造（去硬编码、统一走目录 + makeStrategy）：
+  - `strategy_panel`：builtinTemplates 删除，直接引用 `catalog::all()`；apply 用 `makeParams`
+  - `optimization_panel` / `advisor_panel`：下拉遍历目录；onStrategyChanged 按 spec 设置标签/范围（搜索范围=默认值~默认值+20 步长 2，防组合爆炸）；GridSearch 参数名用 spec 键名（原来硬编码 fastPeriod/entryPeriod）
+  - `stress_test_panel`：下拉/标签/默认值按 spec；cfg.params 键名用 spec
+  - `paper_trade_panel`：makeStrategy 统一走 `GridSearchOptimizer::makeStrategy`（消除本地 MACross/Turtle 分支）；下拉/标签/默认值按 spec
+  - `strategy_compare_panel`：预设 6 → **10 个**（新增动量×2/突破/均值回归/RSI×2），StrategyComparator 本就走 makeStrategy 自动支持
+- 受益面：BacktestPanel/GridSearch/StressTest/StrategyComparator 全部经 makeStrategy 统一构造
+
+### 验证
+- 构建零警告；456/456 全绿（纯 UI 装配重构，无引擎逻辑变更，无新增单测）；GUI 冒烟 8s 存活
+- 手动复测由用户执行（5 面板下拉均见 6 策略、参数标签随策略切换、优化/建议跑新策略网格）
+
+### 已知限制
+- 策略对比面板为预设组合列表（非下拉），模板同步以「预设扩充」体现
+- 优化/建议面板搜索范围统一「默认值~+20 步长 2」（可手动调整）
+
 ## 2026-08-15 — 修复轮④：策略向导参数说明常显 + 回测成交表名称列
 
 ### 背景（用户测试第 4 轮反馈）
