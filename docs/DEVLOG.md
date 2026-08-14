@@ -1,5 +1,18 @@
 # 开发日志 (Development Log)
 
+## 2026-08-15 — P10 第二十七轮：优化/建议/回测/对比面板表单紧凑化
+
+### 需求（用户反馈）
+参数优化（快慢周期、日期）、优化建议（均线周期、超跌阈值、日期）、回测（日期）、策略对比（日期）等**选择栏与标签隔得太远**。
+
+### 实施
+- 4 面板 QFormLayout 紧凑设置：`setLabelAlignment(Qt::AlignLeft)`（标签左对齐）+ `setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint)`（字段保持自身宽度，不再被拉伸）+ 水平间距 10 / 垂直间距 6
+- 副作用防护：股票池/策略预设 QListWidget `setMinimumWidth(280)`（FieldsStayAtSizeHint 下不拉伸，保最小宽度可读）
+
+### 验证
+- 构建零警告；456/456 全绿（纯 UI 布局，无新增单测）；GUI 冒烟 8s 存活
+- 手动复测由用户执行（4 面板标签与控件紧凑相邻、股票池宽度正常）
+
 ## 2026-08-15 — P10 第二十六轮：压力测试数据红绿着色
 
 ### 需求（用户反馈）
