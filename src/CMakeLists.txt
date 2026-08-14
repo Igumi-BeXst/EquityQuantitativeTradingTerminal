@@ -257,3 +257,7 @@ target_link_libraries(quant_repro PRIVATE st_ui st_engine st_data st_core st_fou
 add_executable(funds_calib tools_funds_calib.cpp)
 target_link_libraries(funds_calib PRIVATE st_data st_core st_foundation Qt6::Core)
 
+# 策略模板真实数据验证工具（P10 第二十轮验证用）
+add_executable(strategy_check tools_strategy_check.cpp)
+target_link_libraries(strategy_check PRIVATE st_engine st_data st_core st_foundation Qt6::Core)
+
