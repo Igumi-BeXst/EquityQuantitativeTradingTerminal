@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-08-14 — P10 第十七轮：AI 综合信号面板（AI 量化工作流第 1 轮）
+- 引擎: `composite_signal`（intelligence/signal，纯 C++17）——`composeSignal` 融合形态+情绪+技术 → 评级/得分/置信度/分项/中文摘要；默认权重 形态0.4/情绪0.3/技术0.3 可覆盖；缺失分项按权重折减置信度（分层修正：设计文档 engine/analyzer → intelligence/signal，避免 engine 依赖 intelligence）
+- 面板: `AiSignalPanel` 主窗口右侧 Dock（与筹码 tabify）——评级大字+得分/置信度/日期+一句话结论+分项分数条（自绘 -1~+1 红正绿负）+ 历史信号表（会话内 50 条双击开图）；绑定搜索/市场/量化/资金/日志 5 处开图路径 + 视图菜单开关
+- 数据: 日K（TDX）+ 东财新闻（仅个股，指数跳过情绪分项）；安全异步（IO→Worker→QPointer+gen 守卫）
+- 测试: Intelligence 52 → 65（+13 CompositeSignalTest），总计 407 → 420 全绿；构建零警告
+- 已知限制: 情绪依赖东财接口（失败降级缺失）；历史信号仅本会话；评级权重 UI 未暴露（v2）
+
 ## 2026-08-12 — P10 第十六轮：K线区间统计（全套指标 + 弹窗表格）
 - 区间统计引擎: `RangeStats` + `computeRangeStats`（engine/analyzer/range_statistics，纯 C++17 无 Qt 依赖）——闭区间 [from,to] 统计，无效 bar 跳过、基准=首个有效 open、量额比均价、除零守卫，全无效区间返回 nullopt
 - 图表交互: KLineChart DrawMode 加 Range（控制条「区间统计」按钮）——拖拽选区高亮（半透明块+两端虚线+首末日期）、松开发 `rangeSelected(bars,from,to)`；弹窗关闭高亮保留；切股/切周期/清除标注/退出模式清选区；坐标锚定 bar 索引随平移缩放稳定

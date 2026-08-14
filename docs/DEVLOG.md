@@ -1,5 +1,29 @@
 # 开发日志 (Development Log)
 
+## 2026-08-14 — P10 第十七轮：AI 综合信号面板（AI 量化工作流 · 第 1 轮）
+
+### 需求
+按 [AI 量化工作流 4 轮路线设计](docs/superpowers/specs/2026-08-13-ai-quant-workflow-design.md) 第 1 轮：单只股票上融合 K线形态 + 舆情情绪 + 技术指标（RSI/MACD/动量）→ 综合信号评级（强烈买入/买入/观望/卖出/强烈卖出）+ 置信度 + 分项明细 + 历史信号记录，主窗口右侧 Dock，绑定中央图表开图路径自动跟随。
+
+### 实施
+- `intelligence/signal/composite_signal.{h,cpp}`（NEW）：`SignalRating/SignalComponent/CompositeSignal` + `composeSignal` 纯函数——**分层修正**：设计文档写 engine/analyzer，但入参含 `pattern::PatternSignal`/`sentiment::SentimentScore`（intelligence 类型）而 st_engine 不链接 st_intelligence → 放 `intelligence/signal/`（intelligence 依赖 engine 方向合法，避免循环依赖）
+  - 打分规则：形态取 |direction×confidence| 最大者（多形态不叠加）；情绪=score；技术=RSI/MACD/动量三子分平均（RSI <30→+1 超卖 / >70→-1 超买 / 中部线性；MACD 金叉+hist>0→+0.5 / 死叉→-0.5；动量 ±3%=满分）
+  - 权重默认 形态 0.4 / 情绪 0.3 / 技术 0.3（可覆盖）；缺失分项（无形态/无新闻/指标 NaN）按权重折减覆盖度；confidence = 覆盖度 × 一致度(1-极差/2)；评级阈值 |score|≥0.5 Strong、≥0.2 普通；中文摘要含驱动分项
+- `ui/panels/ai_signal_panel.{h,cpp}`（NEW）：AiSignalPanel Dock——评级大字（强买红/买浅红/观望灰/卖浅绿/强卖绿）+ 得分/置信度/信号日期 + 一句话结论 + 分项自绘条（SignalBarWidget：-1~+1 横条 0 轴居中红正绿负 + 数值 + 说明）+ 历史信号表（本会话 50 条，双击开图）；安全异步：IO 拉日K(2015→now)+东财新闻（仅 A 股个股，指数跳过情绪）→ Worker 算指标/形态/综合信号 → QPointer 守卫 + gen 世代守卫
+- MainWindow 装配：右侧与筹码分布 tabify（默认显示）+ 视图菜单 toggle；5 处开图路径接线（搜索/量化/资金/日志/openStockChart）+ 历史行双击开图
+- 测试：CompositeSignalTest **13 例**（test_intelligence）——全多头 StrongBuy/全空头 StrongSell/混合 Neutral/情绪缺失折减/单分项/RSI 边界/MACD 状态/评级阈值边界/全缺失/动量贡献/自定义权重/摘要含评级名/ratingName 覆盖
+- 环境备注：本次会话构建需 `danger-full-access`（沙箱阻止 ninja 管道捕获子进程输出导致挂起）+ vcvars64 环境
+
+### 验证
+- 构建零警告（修复 3 个编译问题：Qt 6.11 QStringLiteral 宏=`u"" str` 拼接**只接受字面量**，传变量需 QString::fromUtf8；头文件前向声明与 cpp 匿名命名空间类冲突；MSVC 嵌套 lambda init-capture 不能引用外层 lambda 捕获成员——局部变量中转）
+- Intelligence 52 → **65**，总计 407 → **420** 全绿；GUI 冒烟 8s 存活
+- 手动冒烟由用户执行（开股出评级/分项/历史、切股刷新、无新闻降级、历史双击开图、关面板不崩）
+
+### 已知限制
+- 情绪分项依赖东财资讯接口（失败/无新闻 → 缺失折减，不阻塞信号）；历史信号仅本会话内存（v2 可持久化 JSON）
+- 指数支持信号（无情绪分项）；自定义指数（CIxxx）不触发面板（未接 loadCustomIndex 路径）
+- 评级阈值/权重为默认值（引擎参数可调，UI 未暴露设置 v2）
+
 ## 2026-08-12 — P10 第十六轮：K线区间统计（全套指标 + 弹窗表格）
 
 ### 需求
