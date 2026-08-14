@@ -117,12 +117,14 @@ StrategyComparePanel::StrategyComparePanel(IDataProvider* provider, QWidget* par
 
     startDate_ = new QDateEdit(QDate(2023, 1, 1));
     startDate_->setCalendarPopup(true);
+    startDate_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     endDate_ = new QDateEdit(QDate::currentDate());
     endDate_->setCalendarPopup(true);
+    endDate_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     auto* dateRow = new QHBoxLayout;
-    dateRow->addWidget(startDate_);
+    dateRow->addWidget(startDate_, 1);
     dateRow->addWidget(new QLabel(tr("~")));
-    dateRow->addWidget(endDate_);
+    dateRow->addWidget(endDate_, 1);
     fl->addRow(labeledL(new QLabel(tr("日期")), dateRow));
 
     capital_ = new QDoubleSpinBox;
@@ -130,6 +132,7 @@ StrategyComparePanel::StrategyComparePanel(IDataProvider* provider, QWidget* par
     capital_->setValue(100000.0);
     capital_->setDecimals(0);
     capital_->setSingleStep(10000);
+    capital_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     fl->addRow(labeled(new QLabel(tr("初始资金")), capital_));
 
     auto* runRow = new QHBoxLayout;

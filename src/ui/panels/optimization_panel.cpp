@@ -40,6 +40,8 @@ QSpinBox* makeRangeSpin(QWidget* parent, int from, int to, int value) {
     auto* s = new QSpinBox(parent);
     s->setRange(from, to);
     s->setValue(value);
+    // 不拉伸：行内保持自然宽度（避免被 QHBoxLayout 撑开造成标签间距）
+    s->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     return s;
 }
 }  // namespace
@@ -85,13 +87,13 @@ OptimizationPanel::OptimizationPanel(IDataProvider* provider, QWidget* parent)
         auto* row = new QHBoxLayout;
         row->addWidget(new QLabel(tr("从")));
         from = makeRangeSpin(this, 1, 500, 2);
-        row->addWidget(from);
+        row->addWidget(from, 1);
         row->addWidget(new QLabel(tr("到")));
         to = makeRangeSpin(this, 2, 600, 30);
-        row->addWidget(to);
+        row->addWidget(to, 1);
         row->addWidget(new QLabel(tr("步长")));
         step = makeRangeSpin(this, 1, 100, 2);
-        row->addWidget(step);
+        row->addWidget(step, 1);
         return row;
     };
     p1Label_ = new QLabel(tr("快线周期"));
@@ -128,12 +130,14 @@ OptimizationPanel::OptimizationPanel(IDataProvider* provider, QWidget* parent)
 
     startDate_ = new QDateEdit(QDate(2023, 1, 1));
     startDate_->setCalendarPopup(true);
+    startDate_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     endDate_ = new QDateEdit(QDate::currentDate());
     endDate_->setCalendarPopup(true);
+    endDate_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     auto* dateRow = new QHBoxLayout;
-    dateRow->addWidget(startDate_);
+    dateRow->addWidget(startDate_, 1);
     dateRow->addWidget(new QLabel(tr("~")));
-    dateRow->addWidget(endDate_);
+    dateRow->addWidget(endDate_, 1);
     fl->addRow(labeledL(new QLabel(tr("日期")), dateRow));
 
     capital_ = new QDoubleSpinBox;
@@ -141,6 +145,7 @@ OptimizationPanel::OptimizationPanel(IDataProvider* provider, QWidget* parent)
     capital_->setValue(100000.0);
     capital_->setDecimals(0);
     capital_->setSingleStep(10000);
+    capital_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     fl->addRow(labeled(new QLabel(tr("初始资金")), capital_));
 
     auto* runRow = new QHBoxLayout;

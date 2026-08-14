@@ -100,7 +100,9 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
     p1Label_ = new QLabel(tr("快线周期"));
     p2Label_ = new QLabel(tr("慢线周期"));
     p1_ = new QSpinBox(); p1_->setRange(1, 200); p1_->setValue(5);
+    p1_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     p2_ = new QSpinBox(); p2_->setRange(2, 300); p2_->setValue(20);
+    p2_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     fl->addRow(labeled(p1Label_, p1_));
     fl->addRow(labeled(p2Label_, p2_));
     connect(strategyCombo_, &QComboBox::currentIndexChanged,
@@ -128,12 +130,14 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
 
     startDate_ = new QDateEdit(QDate(2023, 1, 1));
     startDate_->setCalendarPopup(true);
+    startDate_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     endDate_ = new QDateEdit(QDate::currentDate());
     endDate_->setCalendarPopup(true);
+    endDate_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     auto* dateRow = new QHBoxLayout();
-    dateRow->addWidget(startDate_);
+    dateRow->addWidget(startDate_, 1);
     dateRow->addWidget(new QLabel(tr("~")));
-    dateRow->addWidget(endDate_);
+    dateRow->addWidget(endDate_, 1);
     fl->addRow(labeledL(new QLabel(tr("日期")), dateRow));
 
     capital_ = new QDoubleSpinBox();
@@ -141,6 +145,7 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
     capital_->setValue(100000.0);
     capital_->setDecimals(0);
     capital_->setSingleStep(10000);
+    capital_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     fl->addRow(labeled(new QLabel(tr("初始资金")), capital_));
 
     auto* runRow = new QHBoxLayout();

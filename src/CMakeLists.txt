@@ -261,3 +261,7 @@ target_link_libraries(funds_calib PRIVATE st_data st_core st_foundation Qt6::Cor
 add_executable(strategy_check tools_strategy_check.cpp)
 target_link_libraries(strategy_check PRIVATE st_engine st_data st_core st_foundation Qt6::Core)
 
+# 表单布局离屏渲染验证（修复轮⑦用）
+add_executable(form_render tools_form_render.cpp)
+target_link_libraries(form_render PRIVATE st_ui st_engine st_data st_core st_foundation Qt6::Core)
+
