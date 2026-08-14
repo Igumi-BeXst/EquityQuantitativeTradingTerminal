@@ -1,5 +1,8 @@
 # 变更记录
 
+## 2026-08-15 — 修复轮③：形态识别结果表按最新时间倒序
+- PatternTableModel::setRows 反转行序（detect 输出升序 → 表内最新在前）；纯 UI 模型改动，440/440 全绿
+
 ## 2026-08-15 — 修复轮②：AI 因子勾选未生效（全选/单选情绪 AI 分相同）
 - 根因: `AiScreenerConfig.useSentiment` 硬编码 true + 形态勾选状态从未传入引擎 → 勾选组合不影响结果
 - 修复: 配置增 `usePattern`（对齐设计文档）+ UI 真实传递两个勾选状态；`usePattern=false` → 形态分项缺失折减

@@ -1,5 +1,6 @@
 #include "ui/models/pattern_table_model.h"
 #include <QColor>
+#include <algorithm>
 
 namespace st {
 
@@ -9,6 +10,7 @@ PatternTableModel::PatternTableModel(QObject* parent)
 void PatternTableModel::setRows(const std::vector<Row>& rows) {
     beginResetModel();
     rows_ = rows;
+    std::reverse(rows_.begin(), rows_.end());  // 最新时间在最上面（detect 输出按索引升序）
     endResetModel();
 }
 
