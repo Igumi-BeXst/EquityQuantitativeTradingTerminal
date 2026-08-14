@@ -100,6 +100,7 @@ add_library(st_intelligence STATIC
     intelligence/pattern/pattern_recognizer.cpp
     intelligence/advisor/strategy_advisor.cpp
     intelligence/screener/pattern_factor.cpp
+    intelligence/screener/ai_screener.cpp
     intelligence/sentiment/sentiment_analyzer.cpp
     intelligence/sentiment/eastmoney_news_provider.cpp
     intelligence/signal/composite_signal.cpp

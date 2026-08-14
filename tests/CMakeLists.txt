@@ -78,6 +78,7 @@ if(BUILD_WITH_QT)
         test_intelligence/test_pattern_recognizer.cpp
         test_intelligence/test_strategy_advisor.cpp
         test_intelligence/test_pattern_factor.cpp
+        test_intelligence/test_ai_screener.cpp
         test_intelligence/test_sentiment_analyzer.cpp
         test_intelligence/test_eastmoney_news_provider.cpp
         test_intelligence/test_composite_signal.cpp
