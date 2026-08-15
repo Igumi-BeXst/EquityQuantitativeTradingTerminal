@@ -1,3 +1,0 @@
-[2026-08-16 03:03:21.635] [info] LogManager initialized, writing to: logs/stock_terminal.log
-[2026-08-16 03:03:21.635] [info] TDX 已连接: 124.71.187.122:7709 (第 0 个服务器)
---- round 1 open ---
