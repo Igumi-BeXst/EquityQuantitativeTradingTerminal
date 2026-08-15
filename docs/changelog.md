@@ -1,5 +1,10 @@
 # 变更记录
 
+## 2026-08-16 — 修复轮⑨：量化工作台打开崩溃（0xC0000374）
+- 根因：TDX `ensureConnected` 连接失败/慢时每个 executeCommand 都 spawn detached doConnect 线程 → 打开量化工作台 8+ 组件并发拉列表触发线程风暴 + transport_ 竞争 → 堆损坏
+- 修复：连接失败重试加 2s 冷却（启用预留的 lastConnectAttempt_）；StockPoolPicker/StockSearchBar 加载前等待连接就绪（≤15s）
+- 验证：崩溃配置 20 轮复现全过 + GUI 快速打开 5/5 存活；473 全绿（Debug+Release）
+
 ## 2026-08-15 — P10 第三十一轮：Release 构建 + 进度细化（全市场卡住修复）
 - 新增 `release-qt` preset（MSVC Release + Qt，独立目录 build/release-qt，复用 vcpkg 已装库）+ `run-release.bat` 一键启动
 - 实测基准（300 只 × 12 组合 MACross 优化）：Debug 454.8s vs Release 54.2s，**快 8.4 倍**，结果一致（43.67）

@@ -1,5 +1,27 @@
 # 开发日志 (Development Log)
 
+## 2026-08-16 — 修复轮⑨：量化工作台打开崩溃（0xC0000374 堆损坏）
+
+### 背景（用户反馈）
+点「量化工作台」菜单直接崩溃（release-qt 版，Windows 事件日志 0xC0000374 堆损坏 ×3 + 0xC0000005）。
+
+### 排查过程
+- `tools_quant_repro`（构造 QuantWindow 循环）复现：**连接未就绪 + 无主线程延迟 = 稳定崩溃**；等连接就绪 / 加任何主线程打点延迟 = 不崩（竞态窗口微秒级）
+- 排除：20 并发 getStockList 压力测试不崩、10 面板手动构造（无 QuantWindow）不崩、Debug 不崩（时序不同）
+- **根因**：`TdxProvider::ensureConnected` 在 `state_ != Connecting`（Disconnected/Failed）时**每个 executeCommand 都 spawn 一个 detached doConnect 线程**。量化工作台打开 = 8+ 组件（6 StockPoolPicker + 2 StockSearchBar）同时 submitIO → 连接失败/慢时**线程风暴**：多个 doConnect 并发执行 `transport_ = std::move(transport)` 竞争 → use-after-free / 双重释放 → 堆损坏。`lastConnectAttempt_` 字段（冷却预留）声明了但从未使用
+- 主程序场景：启动后立即点量化工作台（连接建立中）+ 全市场列表首次拉取慢 → 触发
+
+### 修复
+- `tdx_provider.cpp`：`ensureConnected` 连接失败路径加 **2s 冷却**（lastConnectAttempt_ 生效）——冷却期内并发 executeCommand 只等待现有连接尝试，不再风暴式 spawn；Connecting 态也统一走等待
+- `stock_pool_picker.cpp` / `stock_search_bar.cpp`：IO 加载任务**先等 provider 连接就绪**（≤15s 轮询）再拉列表——消除连接建立期与 doConnect 的并发竞争窗口
+- 保留 `tools_quant_repro` / `tools_concurrent_list` 复现工具
+
+### 验证
+- 原始崩溃配置（不等待连接 + 无打点 + 循环构造 30 次）× 20 轮全部通过
+- GUI 实测：release 版启动后 2s 内 Alt+Q 打开量化工作台 × 5 全部存活
+- 构建零警告；473/473 全绿（Debug + Release 双配置）
+- 手动复测由用户执行
+
 ## 2026-08-15 — P10 第三十一轮：Release 构建 + 进度细化（全市场 tab 卡住修复）
 
 ### 需求（用户反馈 + 确认）
