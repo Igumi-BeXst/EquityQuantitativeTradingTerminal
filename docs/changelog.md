@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-08-16 — P10 第三十二轮：全市场回测内存优化 + 进度修复
+- BacktestEngine 新增 keepEquitySnapshots：网格搜索/回测/对比/压力不存每日完整 Portfolio 快照（净值曲线内部累积，零拷贝 netValue）
+- timeline 改存 const Bar* 指针：消除每组合 440 万 Bar 值拷贝（~420MB）
+- 优化/建议 Release 并行 lane 上限 4（原全部核数）；进度统计改为所有在跑组合加权平均 + 单调保护（不倒退/不停滞）
+- 优化/建议运行前显示「N 组合 × M 只」预估提示
+- 实测：全市场 5213 只单次回测 76s / 峰值 1.6GB（数据固有 830MB）；473 全绿（Debug+Release）
+
 ## 2026-08-16 — 修复轮⑨：量化工作台打开崩溃（0xC0000374）
 - 根因：TDX `ensureConnected` 连接失败/慢时每个 executeCommand 都 spawn detached doConnect 线程 → 打开量化工作台 8+ 组件并发拉列表触发线程风暴 + transport_ 竞争 → 堆损坏
 - 修复：连接失败重试加 2s 冷却（启用预留的 lastConnectAttempt_）；StockPoolPicker/StockSearchBar 加载前等待连接就绪（≤15s）

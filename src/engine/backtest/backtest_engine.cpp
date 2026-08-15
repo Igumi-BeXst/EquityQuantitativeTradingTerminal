@@ -114,6 +114,16 @@ public:
         return pf;
     }
 
+    /// 净值（不拷贝持仓，网格搜索高频累积用）
+    double netValue() const {
+        double mv = 0.0;
+        for (const auto& pos : positions_) {
+            mv += pos.marketValue;
+        }
+        if (initialCapital_ <= 0) return 1.0;
+        return (cash_ + mv) / initialCapital_;
+    }
+
 private:
     Position* findPosition(const StockCode& code) {
         for (auto& pos : positions_) {
@@ -190,15 +200,18 @@ BacktestResult BacktestEngine::run() {
     }
 
     // 加载数据并构建按日期分组的全局时间轴
-    struct DailyBar { StockCode code; Bar bar; };
+    // bar 存指针（指向 DataCache 的 shared_ptr<BarSeries>，缓存贯穿回测，安全）：
+    // 全市场 5213 只 × 900 天避免每次组合拷贝 ~300MB
+    struct DailyBar { StockCode code; const Bar* bar; };
     std::map<DateTime, std::vector<DailyBar>> timeline;
 
     for (const auto& code : config_.symbols) {
-        auto bars = cache_->getBars(code, config_.period);
+        const BarSeries* series = cache_ ? cache_->get(code, config_.period) : nullptr;
+        if (!series) continue;
         // 过滤时间范围
-        for (auto& bar : bars) {
+        for (const auto& bar : *series) {
             if (bar.time >= config_.startDate && bar.time <= config_.endDate) {
-                timeline[bar.time].push_back({code, bar});
+                timeline[bar.time].push_back({code, &bar});
             }
         }
     }
@@ -220,15 +233,15 @@ BacktestResult BacktestEngine::run() {
         // 1. 每个股票：通知策略 onBar（先看当前 bar）
         for (auto& db : dayBars) {
             currentCode_ = db.code;
-            currentTime_ = db.bar.time;
+            currentTime_ = db.bar->time;
 
             // 将当前 bar 追加进该股票历史（含当前 bar，策略可 lookback 当前）
             auto& series = seriesByCode[db.code];
-            series.append(db.bar);
+            series.append(*db.bar);
 
             StrategyContext ctx;
             ctx.currentCode = &currentCode_;
-            ctx.currentBar = &db.bar;
+            ctx.currentBar = db.bar;
             ctx.history = &series;
             ctx.period = config_.period;
             auto snap = account_->snapshot(date);
@@ -247,14 +260,18 @@ BacktestResult BacktestEngine::run() {
 
         // 2. 撮合昨日订单：以下一Bar开盘价成交
         for (auto& db : dayBars) {
-            matchOrders(db.code, db.bar.open);
+            matchOrders(db.code, db.bar->open);
         }
 
         // 3. 标记市值 + 记录净值快照
         for (auto& db : dayBars) {
-            account_->markToMarket(db.code, db.bar.close);
+            account_->markToMarket(db.code, db.bar->close);
         }
-        result_.equitySnapshots.push_back(account_->snapshot(date));
+        if (config_.keepEquitySnapshots) {
+            result_.equitySnapshots.push_back(account_->snapshot(date));
+        }
+        // 净值曲线始终累积（网格搜索不存快照时仍可算绩效/曲线）
+        equityCurve_.push_back(account_->netValue());
 
         // 进度
         processed++;
@@ -273,8 +290,12 @@ BacktestResult BacktestEngine::run() {
 
     // 净值曲线
     std::vector<double> equity;
-    for (const auto& snap : result_.equitySnapshots) {
-        equity.push_back(snap.netValue());
+    if (!config_.keepEquitySnapshots) {
+        equity = std::move(equityCurve_);   // 快照未存：直接用累积的净值曲线
+    } else {
+        for (const auto& snap : result_.equitySnapshots) {
+            equity.push_back(snap.netValue());
+        }
     }
     if (equity.empty()) equity.push_back(1.0);
 

@@ -1,5 +1,33 @@
 # 开发日志 (Development Log)
 
+## 2026-08-16 — P10 第三十二轮：全市场回测内存优化 + 进度修复（其他 tab 同参数优化）
+
+### 需求（用户反馈）
+参数优化 tab 全市场全选：78% 后预计时间一直增长、内存占用高；用户要求其他 tab（回测/策略对比/压力测试等）同样优化（测试都选全部股票）。
+
+### 诊断
+- **内存大头实测**（`tools_mem_bench`，全市场 5213 只 × 876 天 = 440 万 bar）：
+  - 拉数据阶段峰值 830MB（DataCache 本身，Bar≈96B × 440 万 = 数据固有成本）
+  - 回测阶段 1630MB：timeline 每组合拷贝 440 万 Bar（~420MB）+ equitySnapshots 900 份完整 Portfolio 快照（含持仓向量）+ 多 lane 并行翻倍
+- **进度 78% 停滞**：GridSearchOptimizer 只统计第一个未完成组合的子进度，并行 lane 的其他组合进度不计入 → 进度停滞、ETA 虚高增长
+
+### 实施
+- **BacktestEngine**：
+  - `BacktestConfig.keepEquitySnapshots`（默认 true）：false 时不存每日完整 Portfolio 快照，净值曲线由内部 `equityCurve_` 累积（新增 `Account::netValue()` 零拷贝取净值）——全项目无任何消费者读 equitySnapshots，UI 净值曲线用 performance.equityCurve
+  - timeline 改存 `const Bar*`（指向 DataCache 的 shared_ptr<BarSeries>）：消除每组合 440 万 Bar 值拷贝（~420MB）
+- **各调用方**：回测面板（makeConfig）、策略对比、压力测试 → `keepEquitySnapshots=false`；网格搜索默认 false
+- **并行度**：优化/建议 Release 下 `parallelLanes` 上限 4（原 = 全部核数，16 lane × 全市场 = 内存 ×16）
+- **进度**：`reportProgress` 改为**所有在跑组合子进度加权平均** + **单调保护**（compare_exchange，进度只前进不倒退，消除并行 lane 完成顺序导致的倒退/停滞）
+- **预估提示**：优化/建议运行开始时显示「共 N 组合 × M 只（全市场大池预计较久）」
+
+### 验证
+- 构建零警告；473/473 全绿（Debug + Release，Release 需 clean-first 重建——类布局变更后增量构建残留导致 0xc0000409 假崩）
+- mem_bench 实测：回测 76s / 峰值内存 1628MB（数据本身 830MB + 回测工作集；快照开关对比 1630 vs 1643MB 无差异 → 大头是数据，已无可省）
+- GUI 冒烟通过；手动复测由用户执行（全市场优化看进度条持续动 + 组合数预估提示）
+
+### 已知限制
+- 全市场 × 网格搜索绝对耗时仍长（每组合 ~76s × 90 组合 ≈ 1.9 小时，Release 4 lane）：这是计算量数学必然，进度条现在持续动 + 预估提示提前告知；如需更快建议缩小股票池或参数范围
+
 ## 2026-08-16 — 修复轮⑨：量化工作台打开崩溃（0xC0000374 堆损坏）
 
 ### 背景（用户反馈）

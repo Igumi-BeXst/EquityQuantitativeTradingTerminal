@@ -263,6 +263,9 @@ BacktestConfig BacktestPanel::makeConfig(const std::vector<StockCode>& symbols) 
     cfg.initialCapital = capital_->value();
     cfg.period = BarPeriod::Daily;
     cfg.feeConfig = FeeConfig::defaultAShare();
+    // 净值曲线由引擎内部累积（equityCurve），无需保存每日完整 Portfolio 快照——
+    // 全市场大池时每组合/每次回测省下数百 MB 内存
+    cfg.keepEquitySnapshots = false;
     return cfg;
 }
 

@@ -240,7 +240,15 @@ void OptimizationPanel::onRunClicked() {
     progress_->setVisible(true);
     progress_->setValue(0);
     progressEtaLabel_->setVisible(true);
-    progressEtaLabel_->setText(tr("已用 0s"));
+    // 预估提示：组合数 × 股票数 —— 全市场大池时是小时级任务，提前告知避免误判卡死
+    {
+        const int n1 = (p1To_->value() - p1From_->value()) / std::max(1, p1Step_->value()) + 1;
+        const int n2 = (p2To_->value() - p2From_->value()) / std::max(1, p2Step_->value()) + 1;
+        const int combos = n1 * n2;
+        const int stocks = static_cast<int>(symbols.size());
+        progressEtaLabel_->setText(tr("共 %1 组合 × %2 只（全市场大池预计较久）")
+            .arg(combos).arg(stocks));
+    }
     eta_.reset();
     cache_->clear();
     resultModel_->setResults({}, {}, {});
@@ -328,7 +336,9 @@ void OptimizationPanel::onAllDataFetched() {
     // Debug CRT 堆有全局锁，多线程抢锁反而比单线程慢（实测 8 线程 = 单线程 2.3 倍耗时）
     cfg.parallelLanes = 2;
 #else
-    cfg.parallelLanes = std::max(1, QThreadPool::globalInstance()->maxThreadCount());
+    // Release：全市场大池时每组合独立构建 timeline/账户，并行 lane 过多 → 内存翻倍。
+    // 上限 4 lane 兼顾速度与内存（16 lane 全开内存 ×16，收益边际递减）
+    cfg.parallelLanes = std::max(1, std::min(4, QThreadPool::globalInstance()->maxThreadCount()));
 #endif
 
     const QString p1Name = p1Label_->text();

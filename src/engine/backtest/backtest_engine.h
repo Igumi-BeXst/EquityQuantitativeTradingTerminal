@@ -24,6 +24,10 @@ struct BacktestConfig {
     BarPeriod period = BarPeriod::Daily;
     FeeConfig feeConfig;              // 费率
     int positionLimitPercent = 100;   // 单只股票最大仓位 (%)
+    /// 是否保存每日完整 Portfolio 快照（equitySnapshots）。
+    /// 网格搜索等批量场景设 false：仅累积净值曲线（equityCurve），
+    /// 避免全市场大池时每组合存 900+ 份持仓快照 → 内存爆炸
+    bool keepEquitySnapshots = true;
 };
 
 /// 回测结果
@@ -92,6 +96,7 @@ private:
     std::function<void(double)> progressCb_;
     int nextOrderId_ = 1;
     std::vector<Trade> trades_;
+    std::vector<double> equityCurve_;  // 净值曲线累积（keepEquitySnapshots=false 时用）
     StockCode currentCode_;   // 当前正在处理的股票（策略查询用）
     DateTime currentTime_;    // 当前 bar 时间（下单时间戳）
     mutable Portfolio cachedPortfolio_;  // getPortfolio 缓存（实例成员，线程隔离）

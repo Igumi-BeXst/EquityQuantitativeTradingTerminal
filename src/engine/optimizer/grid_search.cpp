@@ -119,6 +119,7 @@ GridSearchResult GridSearchOptimizer::evaluateOne(
     bcfg.initialCapital = cfg.initialCapital;
     bcfg.period = cfg.period;
     bcfg.feeConfig = cfg.feeConfig;
+    bcfg.keepEquitySnapshots = cfg.keepEquitySnapshots;
 
     BacktestEngine engine;
     engine.setConfig(bcfg);
@@ -158,25 +159,35 @@ std::vector<GridSearchResult> GridSearchOptimizer::run(const GridSearchConfig& c
     // 多个并行 lane 各自写自己的槽位，进度回调汇总时读取
     std::vector<double> comboSub(combos.size(), 0.0);
     std::mutex subMutex;
+    std::atomic<double> lastReported{0.0};   // 单调保护：进度只前进不倒退
 
     const auto reportProgress = [&]() {
         if (!progressCb) return;
-        // 汇总：已完成组合数 + 各在跑组合的子进度分摊
         const int d = done.load();
+        // 汇总：已完成组合数 + 各在跑组合子进度的平均值分摊
+        // （并行 lane 各自推进自己的组合，只看第一个未完成组合会导致进度停滞）
         double subSum = 0.0;
+        int running = 0;
         {
             std::lock_guard<std::mutex> lk(subMutex);
             for (size_t k = d; k < combos.size(); ++k) {
                 subSum += comboSub[k];
+                ++running;
             }
         }
-        // 已完成部分按组合计，未完成部分按子进度平均计（保守：只算首个未完成组合）
         const double finishedWeight = static_cast<double>(d) / static_cast<double>(total);
         double pct = finishedWeight * 100.0;
-        if (d < total) {
-            pct += comboSub[static_cast<size_t>(d)] / static_cast<double>(total);
+        if (running > 0) {
+            // 在跑组合的平均子进度 × 剩余组合占比
+            const double avgSub = subSum / static_cast<double>(running);
+            pct += avgSub * static_cast<double>(total - d) / static_cast<double>(total);
         }
-        progressCb(std::min(pct, 100.0));
+        pct = std::min(pct, 100.0);
+        // 单调：并行 lane 完成顺序与组合序号无关，直接报会短暂倒退（UI 上像卡住）
+        double prev = lastReported.load();
+        while (pct > prev && !lastReported.compare_exchange_weak(prev, pct)) {}
+        if (pct <= prev) return;
+        progressCb(pct);
     };
 
     auto worker = [&]() {
@@ -193,7 +204,11 @@ std::vector<GridSearchResult> GridSearchOptimizer::run(const GridSearchConfig& c
             });
             const int d = done.fetch_add(1) + 1;
             if (progressCb) {
-                progressCb(static_cast<double>(d) / static_cast<double>(total) * 100.0);
+                const double pct = std::min(
+                    static_cast<double>(d) / static_cast<double>(total) * 100.0, 100.0);
+                double prev = lastReported.load();
+                while (pct > prev && !lastReported.compare_exchange_weak(prev, pct)) {}
+                if (pct > prev) progressCb(pct);
             }
         }
     };

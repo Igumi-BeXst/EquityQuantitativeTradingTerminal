@@ -45,10 +45,20 @@ StressTestOutput StressTest::run(const StressTestConfig& cfg,
         bcfg.initialCapital = cfg.initialCapital;
         bcfg.period = cfg.period;
         bcfg.feeConfig = cfg.feeConfig;
+        // 全市场大池内存优化：净值曲线引擎内部累积，不存每日 Portfolio 快照
+        bcfg.keepEquitySnapshots = false;
 
         BacktestEngine engine;
         engine.setConfig(bcfg);
         engine.setDataCache(cfg.cache);
+        // 窗口内子进度（引擎按日期推进）：分摊到全局，避免进度条停滞
+        if (progressCb_) {
+            const int idx = static_cast<int>(out.windows.size()) + 1;  // 0=基线
+            const double total = static_cast<double>(windows.size()) + 1.0;
+            engine.setProgressCallback([this, idx, total](double p) {
+                progressCb_((static_cast<double>(idx) + p / 100.0) / total * 100.0);
+            });
+        }
         engine.addStrategy(std::move(strategy));
         auto result = engine.run();
 

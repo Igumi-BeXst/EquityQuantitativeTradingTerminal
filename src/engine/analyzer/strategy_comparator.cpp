@@ -15,6 +15,7 @@ std::vector<ComparisonItemResult> StrategyComparator::run(const ComparisonConfig
 
     const int total = static_cast<int>(cfg.items.size());
     results.reserve(static_cast<size_t>(total));
+    auto progressCb = progressCb_;
 
     for (int i = 0; i < total; ++i) {
         const auto& item = cfg.items[static_cast<size_t>(i)];
@@ -30,10 +31,19 @@ std::vector<ComparisonItemResult> StrategyComparator::run(const ComparisonConfig
             bcfg.initialCapital = cfg.initialCapital;
             bcfg.period = cfg.period;
             bcfg.feeConfig = cfg.feeConfig;
+            // 全市场大池内存优化：净值曲线引擎内部累积，不存每日 Portfolio 快照
+            bcfg.keepEquitySnapshots = false;
 
             BacktestEngine engine;
             engine.setConfig(bcfg);
             engine.setDataCache(cfg.cache);
+            // 策略内子进度（引擎按日期推进，全市场 ~900 点）：分摊到全局，避免进度条停滞
+            if (progressCb) {
+                engine.setProgressCallback([progressCb, i, total](double p) {
+                    progressCb((static_cast<double>(i) + p / 100.0) /
+                               static_cast<double>(total) * 100.0);
+                });
+            }
             engine.addStrategy(std::move(strategy));
             auto result = engine.run();
 
@@ -44,8 +54,8 @@ std::vector<ComparisonItemResult> StrategyComparator::run(const ComparisonConfig
             r.trades = result.trades;
         }
 
-        if (progressCb_) {
-            progressCb_(static_cast<double>(i + 1) / static_cast<double>(total) * 100.0);
+        if (progressCb) {
+            progressCb(static_cast<double>(i + 1) / static_cast<double>(total) * 100.0);
         }
         results.push_back(std::move(r));
     }

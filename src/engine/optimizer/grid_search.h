@@ -46,6 +46,9 @@ struct GridSearchConfig {
     Objective objective = Objective::TotalReturn;
     DataCache* cache = nullptr;        // 复用已加载缓存，禁止重复 IO
     int parallelLanes = 1;             // 并行通道数（测试设 1 保证确定性）
+    /// 是否保留每日完整 Portfolio 快照。网格搜索批量跑，默认 false：
+    /// 只累积净值曲线（绩效/热力图足够），避免全市场大池内存爆炸
+    bool keepEquitySnapshots = false;
 };
 
 /// 单组参数的回测结果

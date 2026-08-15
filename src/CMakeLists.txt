@@ -234,6 +234,10 @@ target_link_libraries(opt_bench PRIVATE st_engine st_data st_core st_foundation 
 add_executable(concurrent_list tools_concurrent_list.cpp)
 target_link_libraries(concurrent_list PRIVATE st_data st_core st_foundation Qt6::Core)
 
+# 全市场回测内存验证（P10 第三十二轮用）
+add_executable(mem_bench tools_mem_bench.cpp)
+target_link_libraries(mem_bench PRIVATE st_engine st_data st_core st_foundation Qt6::Core)
+
 # 引擎堆压力测试（无头定位越界写）
 add_executable(heap_stress tools_heap_stress.cpp)
 target_link_libraries(heap_stress PRIVATE st_intelligence st_engine st_data st_core st_foundation Qt6::Core)
