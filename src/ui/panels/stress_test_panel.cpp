@@ -1,9 +1,9 @@
 #include "ui/panels/stress_test_panel.h"
 #include "ui/strategy_catalog.h"
 #include "ui/widgets/equity_curve_widget.h"
+#include "ui/widgets/stock_pool_picker.h"
 #include "data/idata_provider.h"
 #include "data/data_cache.h"
-#include "data/curated_stocks.h"
 #include "core/thread_pool.h"
 #include "core/log_manager.h"
 #include "foundation/utils/datetime.h"
@@ -95,6 +95,10 @@ StressTestPanel::StressTestPanel(IDataProvider* provider, QWidget* parent)
     connect(windowCombo_, &QComboBox::currentIndexChanged,
             this, &StressTestPanel::onWindowChanged);
 
+    // 股票池（全市场，异步加载 + 搜索过滤 + 多选）
+    stockPicker_ = new StockPoolPicker(provider_, this);
+    fl->addRow(tr("股票池"), stockPicker_);
+
     auto* runRow = new QHBoxLayout;
     runBtn_ = new QPushButton(tr("运行压力测试"));
     progress_ = new QProgressBar;
@@ -166,11 +170,8 @@ void StressTestPanel::onStrategyChanged() {
 }
 
 std::vector<StockCode> StressTestPanel::selectedSymbols() const {
-    // 用精选池全部（压力测试看整体抗压）
-    std::vector<StockCode> symbols;
-    for (const auto& c : kCuratedSH) symbols.push_back(StockCode(Market::SH, c.code));
-    for (const auto& c : kCuratedSZ) symbols.push_back(StockCode(Market::SZ, c.code));
-    return symbols;
+    // 全市场股票池（原为精选池全部；现由股票池选择器决定）
+    return stockPicker_ ? stockPicker_->selectedSymbols() : std::vector<StockCode>{};
 }
 
 void StressTestPanel::onRunClicked() {

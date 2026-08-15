@@ -1,9 +1,9 @@
 #include "ui/panels/backtest_panel.h"
 #include "ui/widgets/equity_curve_widget.h"
+#include "ui/widgets/stock_pool_picker.h"
 #include "ui/models/trade_table_model.h"
 #include "data/idata_provider.h"
 #include "data/data_cache.h"
-#include "data/curated_stocks.h"
 #include "engine/backtest/backtest_engine.h"
 #include "engine/strategy/istrategy.h"
 #include "engine/strategy/templates/ma_cross_strategy.h"
@@ -19,7 +19,6 @@
 #include "foundation/utils/csv.h"
 #include <QComboBox>
 #include <QSpinBox>
-#include <QListWidget>
 #include <QDateEdit>
 #include <QDoubleSpinBox>
 #include <QPushButton>
@@ -108,25 +107,9 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
     connect(strategyCombo_, &QComboBox::currentIndexChanged,
             this, &BacktestPanel::onStrategyChanged);
 
-    // 股票池（精选 129 只，多选）
-    stockList_ = new QListWidget();
-    stockList_->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    stockList_->setMaximumHeight(120);
-    auto addPool = [this](Market m, const std::vector<CuratedStock>& table) {
-        for (const auto& c : table) {
-            StockCode sc(m, c.code);
-            auto* item = new QListWidgetItem(QStringLiteral("%1  %2")
-                .arg(QString::fromUtf8(c.code), QString::fromUtf8(c.name)));
-            item->setData(Qt::UserRole, QString::fromStdString(sc.fullCode()));
-            stockList_->addItem(item);
-        }
-    };
-    addPool(Market::SH, kCuratedSH);
-    addPool(Market::SZ, kCuratedSZ);
-    for (int i = 0; i < std::min(3, stockList_->count()); ++i) {
-        stockList_->item(i)->setSelected(true);
-    }
-    fl->addRow(labeled(new QLabel(tr("股票池")), stockList_));
+    // 股票池（全市场，异步加载 + 搜索过滤 + 多选）
+    stockPicker_ = new StockPoolPicker(provider_, this);
+    fl->addRow(labeled(new QLabel(tr("股票池")), stockPicker_));
 
     startDate_ = new QDateEdit(QDate(2023, 1, 1));
     startDate_->setCalendarPopup(true);
@@ -265,14 +248,7 @@ void BacktestPanel::updateParamLabels() {
 }
 
 std::vector<StockCode> BacktestPanel::selectedSymbols() const {
-    std::vector<StockCode> symbols;
-    for (int i = 0; i < stockList_->count(); ++i) {
-        auto* item = stockList_->item(i);
-        if (item->isSelected()) {
-            symbols.push_back(StockCode(item->data(Qt::UserRole).toString().toStdString()));
-        }
-    }
-    return symbols;
+    return stockPicker_ ? stockPicker_->selectedSymbols() : std::vector<StockCode>{};
 }
 
 BacktestConfig BacktestPanel::makeConfig(const std::vector<StockCode>& symbols) const {
@@ -438,15 +414,13 @@ void BacktestPanel::onResult(const BacktestResult& result) {
 
     setMetrics(result.performance, result);
     equityCurve_->setData(result.performance.equityCurve);
-    // 名称映射（精选池静态表；非池内代码显示 "--"）
+    // 名称映射（全市场列表；未加载时显示 "--"）
     std::unordered_map<std::string, std::string> nameByCode;
-    const auto addTable = [&](Market m, const std::vector<CuratedStock>& table) {
-        for (const auto& c : table) {
-            nameByCode[StockCode(m, c.code).fullCode()] = c.name;
+    if (stockPicker_) {
+        for (const auto& s : stockPicker_->allStocks()) {
+            nameByCode[s.code.fullCode()] = s.name;
         }
-    };
-    addTable(Market::SH, kCuratedSH);
-    addTable(Market::SZ, kCuratedSZ);
+    }
     tradeModel_->setNameByCode(std::move(nameByCode));
     tradeModel_->setTrades(result.trades);
     hasResult_ = true;

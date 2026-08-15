@@ -154,6 +154,7 @@ add_library(st_ui STATIC
     ui/widgets/sector_constituents_dialog.cpp
     ui/widgets/grid_heatmap_widget.cpp
     ui/widgets/reminder_popup.cpp
+    ui/widgets/stock_pool_picker.cpp
     ui/panels/sector_panel.cpp
     ui/models/stock_list_model.cpp
     ui/models/trade_table_model.cpp
@@ -220,6 +221,10 @@ target_link_libraries(depth_probe PRIVATE st_data st_core st_foundation Qt6::Cor
 # 东财基本面实连校准工具（P10 第二轮验证用）
 add_executable(fundamental_calib tools_fundamental_calib.cpp)
 target_link_libraries(fundamental_calib PRIVATE st_data st_core st_foundation Qt6::Core)
+
+# 全市场股票列表拉取耗时探针（P10 第三十轮验证用）
+add_executable(stock_list_probe tools_stock_list_probe.cpp)
+target_link_libraries(stock_list_probe PRIVATE st_data st_core st_foundation Qt6::Core)
 
 # 引擎堆压力测试（无头定位越界写）
 add_executable(heap_stress tools_heap_stress.cpp)

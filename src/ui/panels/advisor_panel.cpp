@@ -1,6 +1,7 @@
 #include "ui/panels/advisor_panel.h"
 #include "ui/strategy_catalog.h"
 #include "ui/models/grid_search_table_model.h"
+#include "ui/widgets/stock_pool_picker.h"
 #include "intelligence/advisor/strategy_advisor.h"
 #include "engine/optimizer/grid_search.h"
 #include "engine/backtest/fee_calculator.h"
@@ -8,7 +9,6 @@
 #include "engine/analyzer/stress_test.h"
 #include "data/idata_provider.h"
 #include "data/data_cache.h"
-#include "data/curated_stocks.h"
 #include "core/thread_pool.h"
 #include "core/log_manager.h"
 #include "foundation/utils/datetime.h"
@@ -20,7 +20,6 @@
 #include <QPushButton>
 #include <QProgressBar>
 #include <QTableView>
-#include <QListWidget>
 #include <QPlainTextEdit>
 #include <QFormLayout>
 #include <QVBoxLayout>
@@ -127,23 +126,9 @@ AdvisorPanel::AdvisorPanel(IDataProvider* provider, QWidget* parent)
     objectiveCombo_->addItem(tr("盈亏比"));
     fl->addRow(labeled(new QLabel(tr("目标函数")), objectiveCombo_));
 
-    stockList_ = new QListWidget;
-    stockList_->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    stockList_->setMaximumHeight(90);
-    auto addPool = [this](Market m, const std::vector<CuratedStock>& table) {
-        for (const auto& c : table) {
-            auto* item = new QListWidgetItem(QStringLiteral("%1  %2")
-                .arg(QString::fromUtf8(c.code), QString::fromUtf8(c.name)));
-            item->setData(Qt::UserRole, QString::fromStdString(StockCode(m, c.code).fullCode()));
-            stockList_->addItem(item);
-        }
-    };
-    addPool(Market::SH, kCuratedSH);
-    addPool(Market::SZ, kCuratedSZ);
-    for (int i = 0; i < std::min(3, stockList_->count()); ++i) {
-        stockList_->item(i)->setSelected(true);
-    }
-    fl->addRow(labeled(new QLabel(tr("股票池")), stockList_));
+    // 股票池（全市场，异步加载 + 搜索过滤 + 多选）
+    stockPicker_ = new StockPoolPicker(provider_, this);
+    fl->addRow(labeled(new QLabel(tr("股票池")), stockPicker_));
 
     startDate_ = new QDateEdit(QDate(2023, 1, 1));
     startDate_->setCalendarPopup(true);
@@ -261,14 +246,7 @@ Objective AdvisorPanel::currentObjective() const {
 }
 
 std::vector<StockCode> AdvisorPanel::selectedSymbols() const {
-    std::vector<StockCode> symbols;
-    for (int i = 0; i < stockList_->count(); ++i) {
-        auto* item = stockList_->item(i);
-        if (item->isSelected()) {
-            symbols.push_back(StockCode(item->data(Qt::UserRole).toString().toStdString()));
-        }
-    }
-    return symbols;
+    return stockPicker_ ? stockPicker_->selectedSymbols() : std::vector<StockCode>{};
 }
 
 void AdvisorPanel::onRunClicked() {

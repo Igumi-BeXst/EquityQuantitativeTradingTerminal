@@ -10,7 +10,6 @@
 #include <vector>
 
 class QCheckBox;
-class QListWidget;
 class QSpinBox;
 class QDateEdit;
 class QPushButton;
@@ -22,6 +21,7 @@ namespace st {
 class IDataProvider;
 class DataCache;
 class ScreenResultModel;
+class StockPoolPicker;
 
 /// 选股面板 — 多因子勾选 + AI 因子（形态/情绪）+ 股票池 + topN → 异步选股 → 结果表
 ///
@@ -63,7 +63,7 @@ private:
     QCheckBox* aiPatternCheck_ = nullptr;    // 形态
     QCheckBox* aiSentimentCheck_ = nullptr;  // 情绪
 
-    QListWidget* stockList_ = nullptr;
+    StockPoolPicker* stockPicker_ = nullptr;
     QSpinBox* topN_ = nullptr;
     QSpinBox* lookback_ = nullptr;
     QDateEdit* endDate_ = nullptr;

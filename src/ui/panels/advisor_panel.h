@@ -16,7 +16,6 @@ class QDoubleSpinBox;
 class QPushButton;
 class QProgressBar;
 class QTableView;
-class QListWidget;
 class QPlainTextEdit;
 
 namespace st {
@@ -24,6 +23,7 @@ namespace st {
 class IDataProvider;
 class DataCache;
 class GridSearchTableModel;
+class StockPoolPicker;
 namespace advisor { struct AdvisorSuggestion; }
 
 /// 优化建议面板 — 网格搜索 + 蒙特卡洛 → StrategyAdvisor 中文建议 + 精化网格
@@ -73,7 +73,7 @@ private:
     QSpinBox* p2To_ = nullptr;
     QSpinBox* p2Step_ = nullptr;
     QComboBox* objectiveCombo_ = nullptr;
-    QListWidget* stockList_ = nullptr;
+    StockPoolPicker* stockPicker_ = nullptr;
     QDateEdit* startDate_ = nullptr;
     QDateEdit* endDate_ = nullptr;
     QDoubleSpinBox* capital_ = nullptr;

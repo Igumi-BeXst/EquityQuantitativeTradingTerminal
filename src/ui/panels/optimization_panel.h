@@ -14,7 +14,6 @@ class QDoubleSpinBox;
 class QPushButton;
 class QProgressBar;
 class QTableView;
-class QListWidget;
 class QTabWidget;
 
 namespace st {
@@ -23,6 +22,7 @@ class IDataProvider;
 class DataCache;
 class GridSearchTableModel;
 class GridHeatmapWidget;
+class StockPoolPicker;
 
 /// 参数优化面板 — 两参数范围 + 目标函数 → 网格搜索 → 结果表/热力图（点行/双击格应用回测）
 class OptimizationPanel : public QWidget {
@@ -62,7 +62,7 @@ private:
     QSpinBox* p2To_ = nullptr;
     QSpinBox* p2Step_ = nullptr;
     QComboBox* objectiveCombo_ = nullptr;
-    QListWidget* stockList_ = nullptr;
+    StockPoolPicker* stockPicker_ = nullptr;
     QDateEdit* startDate_ = nullptr;
     QDateEdit* endDate_ = nullptr;
     QDoubleSpinBox* capital_ = nullptr;

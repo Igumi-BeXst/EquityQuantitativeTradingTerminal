@@ -17,6 +17,7 @@ namespace st {
 class IDataProvider;
 class DataCache;
 class EquityCurveWidget;
+class StockPoolPicker;
 
 /// 压力测试面板 — 历史极端行情片段回放 + 基线对比
 class StressTestPanel : public QWidget {
@@ -48,6 +49,7 @@ private:
     QSpinBox* p2_ = nullptr;
     QDoubleSpinBox* capital_ = nullptr;
     QComboBox* windowCombo_ = nullptr;
+    StockPoolPicker* stockPicker_ = nullptr;
     QPushButton* runBtn_ = nullptr;
     QProgressBar* progress_ = nullptr;
 

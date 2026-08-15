@@ -1,9 +1,9 @@
 #include "ui/panels/screener_panel.h"
 #include "ui/utils/table_csv_export.h"
 #include "ui/models/screen_result_model.h"
+#include "ui/widgets/stock_pool_picker.h"
 #include "data/idata_provider.h"
 #include "data/data_cache.h"
-#include "data/curated_stocks.h"
 #include "engine/screener/stock_screener.h"
 #include "engine/screener/factor_library.h"
 #include "intelligence/screener/pattern_factor.h"
@@ -111,27 +111,12 @@ ScreenerPanel::ScreenerPanel(IDataProvider* provider, QWidget* parent)
     aiRow->addStretch();
     fl->addRow(tr("AI"), aiBox);
 
-    // 股票池（精选 129 只，多选）
-    stockList_ = new QListWidget;
-    stockList_->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    stockList_->setMaximumHeight(120);
-    auto addPool = [this](Market m, const std::vector<CuratedStock>& table) {
-        for (const auto& c : table) {
-            auto* item = new QListWidgetItem(QStringLiteral("%1  %2")
-                .arg(QString::fromUtf8(c.code), QString::fromUtf8(c.name)));
-            item->setData(Qt::UserRole, QString::fromStdString(StockCode(m, c.code).fullCode()));
-            stockList_->addItem(item);
-        }
-    };
-    addPool(Market::SH, kCuratedSH);
-    addPool(Market::SZ, kCuratedSZ);
-    for (int i = 0; i < std::min(3, stockList_->count()); ++i) {
-        stockList_->item(i)->setSelected(true);
-    }
-    fl->addRow(tr("股票池"), stockList_);
+    // 股票池（全市场，异步加载 + 搜索过滤 + 多选）
+    stockPicker_ = new StockPoolPicker(provider_, this);
+    fl->addRow(tr("股票池"), stockPicker_);
 
     topN_ = new QSpinBox;
-    topN_->setRange(5, 129);
+    topN_->setRange(5, 1000);
     topN_->setValue(50);
     fl->addRow(tr("输出前N"), topN_);
 
@@ -186,14 +171,7 @@ ScreenerPanel::ScreenerPanel(IDataProvider* provider, QWidget* parent)
 }
 
 std::vector<StockCode> ScreenerPanel::selectedSymbols() const {
-    std::vector<StockCode> symbols;
-    for (int i = 0; i < stockList_->count(); ++i) {
-        auto* item = stockList_->item(i);
-        if (item->isSelected()) {
-            symbols.push_back(StockCode(item->data(Qt::UserRole).toString().toStdString()));
-        }
-    }
-    return symbols;
+    return stockPicker_ ? stockPicker_->selectedSymbols() : std::vector<StockCode>{};
 }
 
 bool ScreenerPanel::aiEnabled() const {
@@ -379,13 +357,11 @@ void ScreenerPanel::onResult(const std::vector<ScreenResult>& results,
     progress_->setVisible(false);
 
     std::unordered_map<std::string, std::string> nameByCode;
-    const auto addTable = [&](Market m, const std::vector<CuratedStock>& table) {
-        for (const auto& c : table) {
-            nameByCode[StockCode(m, c.code).fullCode()] = c.name;
+    if (stockPicker_) {
+        for (const auto& s : stockPicker_->allStocks()) {
+            nameByCode[s.code.fullCode()] = s.name;
         }
-    };
-    addTable(Market::SH, kCuratedSH);
-    addTable(Market::SZ, kCuratedSZ);
+    }
 
     resultModel_->setResults(results, factorNames, nameByCode, aiScores);
     LogManager::instance()->log(LogLevel::Info, "选股完成: {} 只股票进入排名{}",

@@ -19,6 +19,7 @@ class IDataProvider;
 class DataCache;
 class ComparisonTableModel;
 class EquityCurveWidget;
+class StockPoolPicker;
 
 /// 策略对比面板 — 多策略同数据同时回测 + 净值叠加 + 蒙特卡洛置信区间
 class StrategyComparePanel : public QWidget {
@@ -43,7 +44,7 @@ private:
     std::shared_ptr<DataCache> cache_;
 
     QListWidget* strategyList_ = nullptr;
-    QListWidget* stockList_ = nullptr;
+    StockPoolPicker* stockPicker_ = nullptr;
     QDateEdit* startDate_ = nullptr;
     QDateEdit* endDate_ = nullptr;
     QDoubleSpinBox* capital_ = nullptr;

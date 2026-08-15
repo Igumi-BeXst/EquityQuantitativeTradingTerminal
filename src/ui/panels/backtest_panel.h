@@ -9,7 +9,6 @@
 
 class QComboBox;
 class QSpinBox;
-class QListWidget;
 class QDateEdit;
 class QDoubleSpinBox;
 class QPushButton;
@@ -24,6 +23,7 @@ class DataCache;
 class EquityCurveWidget;
 class TradeTableModel;
 class IStrategy;
+class StockPoolPicker;
 struct BacktestConfig;
 struct BacktestResult;
 class StockCode;
@@ -62,7 +62,7 @@ private:
     QSpinBox* p1_ = nullptr;
     QLabel* p2Label_ = nullptr;
     QSpinBox* p2_ = nullptr;
-    QListWidget* stockList_ = nullptr;
+    StockPoolPicker* stockPicker_ = nullptr;
     QDateEdit* startDate_ = nullptr;
     QDateEdit* endDate_ = nullptr;
     QDoubleSpinBox* capital_ = nullptr;
