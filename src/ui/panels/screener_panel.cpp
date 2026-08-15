@@ -43,9 +43,15 @@ namespace {
 QString factorDisplayName(const std::string& name) {
     static const std::unordered_map<std::string, const char*> kNames = {
         {"roc_20", "20日动量"}, {"rsi_14", "RSI(14)"}, {"macd_hist", "MACD柱"},
+        {"cci_14", "CCI(14)"}, {"williams_r", "威廉%R"}, {"bias_6", "乖离率"},
+        {"up_streak", "连涨天数"},
         {"volatility", "年化波动率"}, {"atr_14", "ATR(14)"}, {"max_drawdown", "最大回撤"},
-        {"ma_alignment", "均线多头"}, {"adx_14", "ADX(14)"}, {"volume_ratio", "量比"},
-        {"turnover", "换手率"}, {"obv", "OBV"},
+        {"boll_pos", "布林带位置"}, {"amplitude_20", "20日均振幅"},
+        {"ma_alignment", "均线多头"}, {"adx_14", "ADX(14)"},
+        {"ma_cross", "MA金叉"}, {"price_pos_52w", "52周价格位置"}, {"ma20_slope", "MA20斜率"},
+        {"volume_ratio", "量比"}, {"turnover", "换手率"}, {"obv", "OBV"},
+        {"mfi_14", "MFI(14)"}, {"vol_price", "量价配合"},
+        {"pe_ttm", "市盈率TTM"}, {"market_cap", "总市值"},
         {"pattern_score", "形态评分"},
     };
     auto it = kNames.find(name);
@@ -244,14 +250,18 @@ void ScreenerPanel::onRunClicked() {
                 guard->progress_->setValue(done * 50 / total);
             }, Qt::QueuedConnection);
         }
-        QMetaObject::invokeMethod(guard, [guard, sentiments = std::move(sentiments)]() mutable {
-            guard->onAllDataFetched(std::move(sentiments));
+        // 基本面快照（估值/规模因子用）：批量一次拉取；失败时缺项 valid=false 降级
+        auto quotes = provider->batchQuoteFundamentals(symbols);
+        QMetaObject::invokeMethod(guard, [guard, sentiments = std::move(sentiments),
+                                          quotes = std::move(quotes)]() mutable {
+            guard->onAllDataFetched(std::move(sentiments), std::move(quotes));
         }, Qt::QueuedConnection);
     });
 }
 
 void ScreenerPanel::onAllDataFetched(
-    std::vector<std::optional<st::sentiment::SentimentScore>> sentiments) {
+    std::vector<std::optional<st::sentiment::SentimentScore>> sentiments,
+    std::vector<st::QuoteFundamentals> quotes) {
     progress_->setValue(50);
     auto symbols = selectedSymbols();
     if (symbols.empty()) {
@@ -281,6 +291,13 @@ void ScreenerPanel::onAllDataFetched(
     cfg.lookbackDays = lookback_->value();
     cfg.topN = topN_->value();
 
+    // 基本面快照映射（fullCode → 快照；缺失项 valid=false 由因子内部降级）
+    std::unordered_map<std::string, st::QuoteFundamentals> quoteMap;
+    quoteMap.reserve(quotes.size());
+    for (auto& q : quotes) {
+        quoteMap[q.code.fullCode()] = std::move(q);
+    }
+
     // ② Worker 池选股（安全异步：按值捕获 shared_ptr cache + QPointer 守卫，
     //    面板销毁后任务仍安全；不能用裸 this/裸 cache_ 指针——会 use-after-free）
     const bool usePattern = aiPatternCheck_->isChecked();
@@ -290,10 +307,12 @@ void ScreenerPanel::onAllDataFetched(
     QPointer<ScreenerPanel> guard(this);
     ThreadPool::submitWorker(
         [guard, cache, selected = std::move(selected), factorNames, symbols, cfg,
-         sentiments = std::move(sentiments), useAi, usePattern, useSentiment]() mutable {
+         sentiments = std::move(sentiments), quoteMap = std::move(quoteMap),
+         useAi, usePattern, useSentiment]() mutable {
             StockScreener screener;
             screener.setConfig(cfg);
             screener.setDataCache(cache.get());
+            screener.setQuoteFundamentals(std::move(quoteMap));
             for (auto& [f, w] : selected) screener.addFactor(f, w);
             screener.setProgressCallback([guard](double p) {
                 QMetaObject::invokeMethod(guard, [guard, p] {

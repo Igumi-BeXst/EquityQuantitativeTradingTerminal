@@ -37,7 +37,7 @@ public:
 
     /// 批量基本面快照（东财 ulist.np 一次请求多代码，按返回顺序）
     std::vector<QuoteFundamentals> batchQuoteFundamentals(
-        const std::vector<StockCode>& codes);
+        const std::vector<StockCode>& codes) override;
 
     /// 纯静态解析（可单测）：解析东财 clist/get 单条记录 JSON → 基本面快照
     static std::optional<QuoteFundamentals> parseFundamentals(

@@ -1,5 +1,34 @@
 # 开发日志 (Development Log)
 
+## 2026-08-15 — P10 第二十九轮：因子库扩充（11 → 24，估值类首落地）
+
+### 需求（用户选择）
+因子库扩充（不做自定义快捷键）。用户选定范围：纯技术因子 + 估值因子（成长类因无财报数据源本轮不做）。
+
+### 实施
+- **引擎（`engine/screener/factor_library.{h,cpp}`）**：
+  - 新增 `ST_DECLARE_SCORED_FACTOR` 宏（支持自定义 toScore 映射）
+  - 新增 13 个因子：
+    - 动量（+4）：`cci_14` CCI(14)（(v+100)/2 映射）/ `williams_r` 威廉%R(14)（100+v，超买高分）/ `bias_6` 乖离率（50+v，双向）/ `up_streak` 连涨天数（×20 封顶 100）
+    - 波动（+2）：`boll_pos` 布林带位置 0~1 / `amplitude_20` 20日均振幅%
+    - 质量（+3）：`ma_cross` MA5/MA20 金叉态 / `price_pos_52w` 52周价格位置 / `ma20_slope` MA20 斜率（50+v×100）
+    - 量价（+2）：`mfi_14` MFI(14) / `vol_price` 量价配合（近5日涨放量/跌缩量占比）
+    - 估值（+2）：`pe_ttm` 市盈率TTM（100-v，低估高分）/ `market_cap` 总市值（115-log10×5，小市值偏好）
+- **估值因子数据链路**：
+  - `screener_types.h`：`FactorContext` 增加 `const QuoteFundamentals* quote`（Data 层结构，Engine 依赖 Data 合法）
+  - `stock_screener.{h,cpp}`：`setQuoteFundamentals(map)` 注入 fullCode→快照，evaluate 时填入 ctx
+  - `idata_provider.h`：新增 `batchQuoteFundamentals` 虚方法（默认逐个调单只接口）；腾讯/AKShare 覆盖为已有批量实现（标 override）；`MultiProvider` 转发：主源整体批量优先，全无效回退备源（不拼接防口径错配）
+- **UI（`ui/panels/screener_panel.{h,cpp}`）**：IO 阶段批量拉基本面快照 → worker 注入 screener；因子勾选区自动 24 项（中文名映射补齐 13 个新因子）；估值因子无快照时降级缺失 → 中性 50 分，不阻塞选股
+
+### 验证
+- 构建零警告（96/96）
+- ctest 473/473 全绿（新增：test_factors +15 例含各新因子行为/估值映射/缺失降级；test_screener +2 例估值注入排序/无注入降级）
+- GUI 冒烟由用户复测：量化工作台→选股面板应见 24 个因子勾选（估值类需联网拉快照）
+
+### 已知限制
+- 成长类因子（ROE/营收增速等）仍缺数据源：`IFundamentalProvider` 仅接口无实现、TDX 财务协议(0x0A04)未解析——留待后续轮
+- `bias_6`/`cci_14`/`williams_r` 的 toScore 为简单线性映射，阈值未做统计校准（可后续用真实数据调参）
+
 ## 2026-08-15 — P10 第二十八轮：量化工作台提升为菜单栏顶层项
 
 ### 需求（用户反馈）

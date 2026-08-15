@@ -77,6 +77,19 @@ public:
         (void)code;
         return std::nullopt;
     }
+
+    /// 批量基本面快照（选股估值因子用），返回与入参同序（缺失项 valid=false）
+    /// 默认实现：逐个调用 getQuoteFundamentals；腾讯/AKShare 覆盖为批量 HTTP
+    virtual std::vector<QuoteFundamentals> batchQuoteFundamentals(
+        const std::vector<StockCode>& codes) {
+        std::vector<QuoteFundamentals> out;
+        out.reserve(codes.size());
+        for (const auto& code : codes) {
+            auto f = getQuoteFundamentals(code);
+            out.push_back(f ? *f : QuoteFundamentals{code});
+        }
+        return out;
+    }
 };
 
 } // namespace st

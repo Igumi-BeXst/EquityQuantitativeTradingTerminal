@@ -44,6 +44,11 @@ ScreenResult StockScreener::evaluate(const StockCode& code) {
     FactorContext ctx;
     ctx.code = &code;
     ctx.bars = &series;
+    // 基本面快照（估值/规模因子用；缺失时因子内部降级为 nullopt）
+    auto it = quotes_.find(code.fullCode());
+    if (it != quotes_.end()) {
+        ctx.quote = &it->second;
+    }
 
     // 计算各因子
     for (const auto& [factor, weight] : factors_) {

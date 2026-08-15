@@ -2,6 +2,7 @@
 
 #include "foundation/stock_code.h"
 #include "engine/screener/factor.h"
+#include "data/quote_fundamentals.h"
 #include "intelligence/sentiment/sentiment_types.h"
 #include <QWidget>
 #include <memory>
@@ -38,7 +39,8 @@ signals:
 
 private slots:
     void onRunClicked();
-    void onAllDataFetched(std::vector<std::optional<st::sentiment::SentimentScore>> sentiments);
+    void onAllDataFetched(std::vector<std::optional<st::sentiment::SentimentScore>> sentiments,
+                          std::vector<st::QuoteFundamentals> quotes);
 
 private:
     void onResult(const std::vector<ScreenResult>& results,

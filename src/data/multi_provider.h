@@ -32,6 +32,9 @@ public:
     std::optional<IntradayData> getIntraday(const StockCode& code) override;
     std::optional<MarketDepth> getMarketDepth(const StockCode& code) override;
     std::vector<Tick> getTransactions(const StockCode& code, int limit = 50) override;
+    std::optional<QuoteFundamentals> getQuoteFundamentals(const StockCode& code) override;
+    std::vector<QuoteFundamentals> batchQuoteFundamentals(
+        const std::vector<StockCode>& codes) override;
     void refreshQuotes() override;
 
 private:

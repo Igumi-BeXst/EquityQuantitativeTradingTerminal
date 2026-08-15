@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <functional>
 
 namespace st {
@@ -38,6 +39,12 @@ public:
     /// 添加因子及权重
     void addFactor(std::shared_ptr<IFactor> factor, double weight);
 
+    /// 注入基本面快照（fullCode → QuoteFundamentals；估值/规模因子用）
+    /// 未注入或某只缺失时，估值因子降级为缺失（中性 50 分），不阻塞选股
+    void setQuoteFundamentals(std::unordered_map<std::string, QuoteFundamentals> quotes) {
+        quotes_ = std::move(quotes);
+    }
+
     /// 设置筛选条件
     void addCondition(const Condition& condition);
 
@@ -56,6 +63,7 @@ private:
     DataCache* cache_ = nullptr;
     std::vector<std::pair<std::shared_ptr<IFactor>, double>> factors_;
     std::vector<std::pair<std::string, double>> weights_;
+    std::unordered_map<std::string, QuoteFundamentals> quotes_;  // fullCode → 快照
     ConditionFilter filter_;
     std::function<void(double)> progressCb_;
 };

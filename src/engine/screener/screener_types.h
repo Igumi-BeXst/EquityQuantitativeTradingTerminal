@@ -2,6 +2,7 @@
 
 #include "foundation/stock_code.h"
 #include "foundation/bar.h"
+#include "data/quote_fundamentals.h"
 #include <string>
 #include <optional>
 #include <vector>
@@ -22,7 +23,8 @@ enum class FactorCategory : uint8_t {
 struct FactorContext {
     const StockCode* code = nullptr;
     const BarSeries* bars = nullptr;  // 日线序列
-    // 财务数据指针（预留，Fundamental 接入后使用）
+    /// 基本面快照（估值/规模因子用；数据源不支持或未拉取时为 nullptr）
+    const QuoteFundamentals* quote = nullptr;
 };
 
 /// 单只股票的因子明细

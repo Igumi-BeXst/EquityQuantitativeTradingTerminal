@@ -45,4 +45,14 @@ public:
         std::optional<double> calculate(const FactorContext& ctx) const override; \
     };
 
+/// 便利宏：同上，但允许自定义 toScore（原始值 → 0~100 分映射）
+#define ST_DECLARE_SCORED_FACTOR(ClassName, FactorName, FactorCat) \
+    class ClassName : public IFactor {                             \
+    public:                                                        \
+        std::string name() const override { return FactorName; }   \
+        FactorCategory category() const override { return FactorCat; } \
+        std::optional<double> calculate(const FactorContext& ctx) const override; \
+        double toScore(std::optional<double> value) const override; \
+    };
+
 } // namespace st

@@ -52,7 +52,7 @@ public:
 
     /// 批量基本面快照（分块 ≤50，同 batchQuote）
     std::vector<QuoteFundamentals> batchQuoteFundamentals(
-        const std::vector<StockCode>& codes);
+        const std::vector<StockCode>& codes) override;
 
     /// 手动立即刷新一次已订阅实时行情（F5）
     void refreshQuotes();

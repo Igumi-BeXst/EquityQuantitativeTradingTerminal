@@ -122,6 +122,27 @@ std::vector<Tick> MultiProvider::getTransactions(const StockCode& code, int limi
     return {};
 }
 
+std::optional<QuoteFundamentals> MultiProvider::getQuoteFundamentals(const StockCode& code) {
+    IDataProvider* p = preferred();
+    if (auto r = p->getQuoteFundamentals(code)) return r;
+    if (IDataProvider* o = other(p)) return o->getQuoteFundamentals(code);
+    return std::nullopt;
+}
+
+std::vector<QuoteFundamentals> MultiProvider::batchQuoteFundamentals(
+    const std::vector<StockCode>& codes) {
+    // 主源整体批量优先；全部无效时整体回退备源（不拼接，避免口径混用）
+    IDataProvider* p = preferred();
+    auto out = p->batchQuoteFundamentals(codes);
+    bool anyValid = false;
+    for (const auto& f : out) {
+        if (f.valid) { anyValid = true; break; }
+    }
+    if (anyValid) return out;
+    if (IDataProvider* o = other(p)) return o->batchQuoteFundamentals(codes);
+    return out;
+}
+
 void MultiProvider::refreshQuotes() {
     preferred()->refreshQuotes();
 }
