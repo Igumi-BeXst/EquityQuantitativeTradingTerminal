@@ -140,6 +140,10 @@ OptimizationPanel::OptimizationPanel(IDataProvider* provider, QWidget* parent)
     progress_->setVisible(false);
     runRow->addWidget(runBtn_);
     runRow->addWidget(progress_, 1);
+    progressEtaLabel_ = new QLabel(tr(""), this);
+    progressEtaLabel_->setStyleSheet(QStringLiteral("color:#888888;"));
+    progressEtaLabel_->setVisible(false);
+    runRow->addWidget(progressEtaLabel_);
     fl->addRow(runRow);
     layout->addWidget(form);
     connect(runBtn_, &QPushButton::clicked, this, &OptimizationPanel::onRunClicked);
@@ -235,6 +239,9 @@ void OptimizationPanel::onRunClicked() {
     runBtn_->setEnabled(false);
     progress_->setVisible(true);
     progress_->setValue(0);
+    progressEtaLabel_->setVisible(true);
+    progressEtaLabel_->setText(tr("已用 0s"));
+    eta_.reset();
     cache_->clear();
     resultModel_->setResults({}, {}, {});
 
@@ -277,9 +284,15 @@ void OptimizationPanel::onRunClicked() {
             auto bars = provider->getBars(code, BarPeriod::Daily, start, end);
             if (!bars.empty()) cache->cacheBars(code, BarPeriod::Daily, std::move(bars));
             ++done;
-            QMetaObject::invokeMethod(guard, [guard, done, total] {
-                guard->progress_->setValue(done * 50 / total);
-            }, Qt::QueuedConnection);
+            // 节流：IO 阶段每只更新太频繁，每 2% 或末只才上报
+            if (done == total || done * 100 / total != (done - 1) * 100 / total) {
+                QMetaObject::invokeMethod(guard, [guard, done, total] {
+                    if (!guard) return;
+                    guard->progress_->setValue(done * 50 / total);
+                    guard->progressEtaLabel_->setText(
+                        guard->eta_.text(static_cast<double>(done) * 50.0 / total));
+                }, Qt::QueuedConnection);
+            }
         }
         QMetaObject::invokeMethod(guard, [guard] { guard->onAllDataFetched(); },
                                   Qt::QueuedConnection);
@@ -330,7 +343,9 @@ void OptimizationPanel::onAllDataFetched() {
         GridSearchOptimizer opt;
         opt.setProgressCallback([guard](double p) {
             QMetaObject::invokeMethod(guard, [guard, p] {
+                if (!guard) return;
                 guard->progress_->setValue(50 + static_cast<int>(p * 50));
+                guard->progressEtaLabel_->setText(guard->eta_.text(p));
             }, Qt::QueuedConnection);
         });
         auto results = opt.run(cfg);
@@ -348,6 +363,7 @@ void OptimizationPanel::onResult(const std::vector<GridSearchResult>& results,
     runBtn_->setEnabled(true);
     progress_->setValue(100);
     progress_->setVisible(false);
+    progressEtaLabel_->setVisible(false);
 
     resultModel_->setResults(results, p1Name, p2Name);
     lastP1Param_ = p1Param;
@@ -384,6 +400,7 @@ void OptimizationPanel::resetToIdle() {
     running_ = false;
     runBtn_->setEnabled(true);
     progress_->setVisible(false);
+    progressEtaLabel_->setVisible(false);
 }
 
 } // namespace st

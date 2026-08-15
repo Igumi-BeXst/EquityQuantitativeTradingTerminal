@@ -3,6 +3,7 @@
 #include "foundation/types.h"
 #include "foundation/order.h"
 #include "engine/backtest/performance.h"
+#include "ui/utils/progress_eta.h"
 #include <QWidget>
 #include <memory>
 #include <vector>
@@ -68,6 +69,8 @@ private:
     QDoubleSpinBox* capital_ = nullptr;
     QPushButton* runBtn_ = nullptr;
     QProgressBar* progress_ = nullptr;
+    QLabel* progressEtaLabel_ = nullptr; // 进度已用/预计剩余
+    st::ui::ProgressEta eta_;            // 进度时间估算（主线程专用）
 
     QLabel* ret_ = nullptr;
     QLabel* annual_ = nullptr;

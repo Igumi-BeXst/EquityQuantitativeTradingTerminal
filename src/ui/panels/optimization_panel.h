@@ -2,6 +2,7 @@
 
 #include "engine/optimizer/grid_search.h"
 #include "engine/optimizer/grid_heatmap.h"
+#include "ui/utils/progress_eta.h"
 #include "foundation/stock_code.h"
 #include <QWidget>
 #include <memory>
@@ -73,6 +74,8 @@ private:
     QTabWidget* resultTabs_ = nullptr;
     GridHeatmapWidget* heatmap_ = nullptr;
     QLabel* resultInfoLabel_ = nullptr;  // 结果上下文：股票池/目标函数/日期区间
+    QLabel* progressEtaLabel_ = nullptr; // 进度已用/预计剩余
+    st::ui::ProgressEta eta_;            // 进度时间估算（主线程专用）
     QString lastP1Param_;  // 最近一次搜索的英文参数名（热力图点击应用用）
     QString lastP2Param_;
 

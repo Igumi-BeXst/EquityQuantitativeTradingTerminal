@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-08-15 — P10 第三十一轮：Release 构建 + 进度细化（全市场卡住修复）
+- 新增 `release-qt` preset（MSVC Release + Qt，独立目录 build/release-qt，复用 vcpkg 已装库）+ `run-release.bat` 一键启动
+- 实测基准（300 只 × 12 组合 MACross 优化）：Debug 454.8s vs Release 54.2s，**快 8.4 倍**，结果一致（43.67）
+- 进度细化：GridSearchOptimizer 组合内按回测日期细分上报（全市场 ~900 点/组合），优化/建议/回测/对比/压力 5 面板 IO 阶段节流（每 2%）+ 进度条旁新增「已用 X · 预计剩余 Y」实时估算（共享 `ui/utils/progress_eta.h`）
+- 修复：GridSearchOptimizer worker 丢失 results[i] 赋值（release 测试暴露）
+- 测试 473 全绿（Debug + Release 双验证）；构建零警告
+
 ## 2026-08-15 — P10 第三十轮：量化面板全市场股票池
 - 新增共享控件 `ui/widgets/stock_pool_picker`：异步加载全 A 股（TDX 实连 5213 只）+ 搜索过滤（代码/名称/拼音）+ 勾选多选 + 全选/清空 + 已选计数，加载完成默认全选
 - 6 面板替换内置精选池（130 只）→ 全市场：参数优化/优化建议/选股/回测/策略对比/压力测试

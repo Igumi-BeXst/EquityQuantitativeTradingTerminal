@@ -141,6 +141,10 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
     runRow->addWidget(runBtn_);
     runRow->addWidget(exportBtn_);
     runRow->addWidget(progress_, 1);
+    progressEtaLabel_ = new QLabel(tr(""), this);
+    progressEtaLabel_->setStyleSheet(QStringLiteral("color:#888888;"));
+    progressEtaLabel_->setVisible(false);
+    runRow->addWidget(progressEtaLabel_);
     fl->addRow(runRow);
     layout->addWidget(form);
     connect(runBtn_, &QPushButton::clicked, this, &BacktestPanel::onRunClicked);
@@ -318,6 +322,9 @@ void BacktestPanel::onRunClicked() {
     runBtn_->setEnabled(false);
     progress_->setVisible(true);
     progress_->setValue(0);
+    progressEtaLabel_->setVisible(true);
+    progressEtaLabel_->setText(tr("已用 0s"));
+    eta_.reset();
     cache_->clear();
     tradeModel_->clear();
     equityCurve_->setData({});
@@ -337,9 +344,15 @@ void BacktestPanel::onRunClicked() {
             auto bars = provider->getBars(code, BarPeriod::Daily, start, end);
             if (!bars.empty()) cache->cacheBars(code, BarPeriod::Daily, std::move(bars));
             ++done;
-            QMetaObject::invokeMethod(guard, [guard, done, total] {
-                guard->progress_->setValue(done * 50 / total);
-            }, Qt::QueuedConnection);
+            // 节流：IO 阶段每只更新太频繁，每 2% 或末只才上报
+            if (done == total || done * 100 / total != (done - 1) * 100 / total) {
+                QMetaObject::invokeMethod(guard, [guard, done, total] {
+                    if (!guard) return;
+                    guard->progress_->setValue(done * 50 / total);
+                    guard->progressEtaLabel_->setText(
+                        guard->eta_.text(static_cast<double>(done) * 50.0 / total));
+                }, Qt::QueuedConnection);
+            }
         }
         QMetaObject::invokeMethod(guard, [guard] { guard->onAllDataFetched(); },
                                   Qt::QueuedConnection);
@@ -367,7 +380,9 @@ void BacktestPanel::onAllDataFetched() {
         engine.addStrategy(strategy);
         engine.setProgressCallback([guard](double p) {
             QMetaObject::invokeMethod(guard, [guard, p] {
+                if (!guard) return;
                 guard->progress_->setValue(50 + static_cast<int>(p * 50));
+                guard->progressEtaLabel_->setText(guard->eta_.text(p));
             }, Qt::QueuedConnection);
         });
         auto result = engine.run();
@@ -405,6 +420,7 @@ void BacktestPanel::onResult(const BacktestResult& result) {
     runBtn_->setEnabled(true);
     progress_->setValue(100);
     progress_->setVisible(false);
+    progressEtaLabel_->setVisible(false);
 
     if (!result.success) {
         LogManager::instance()->log(LogLevel::Error, "回测失败: {}", result.error);

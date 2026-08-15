@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/analyzer/stress_test.h"
+#include "ui/utils/progress_eta.h"
 #include "foundation/stock_code.h"
 #include <QWidget>
 #include <memory>
@@ -52,6 +53,8 @@ private:
     StockPoolPicker* stockPicker_ = nullptr;
     QPushButton* runBtn_ = nullptr;
     QProgressBar* progress_ = nullptr;
+    QLabel* progressEtaLabel_ = nullptr; // 进度已用/预计剩余
+    st::ui::ProgressEta eta_;            // 进度时间估算（主线程专用）
 
     EquityCurveWidget* curve_ = nullptr;
     QLabel* ret_ = nullptr;

@@ -1,5 +1,30 @@
 # 开发日志 (Development Log)
 
+## 2026-08-15 — P10 第三十一轮：Release 构建 + 进度细化（全市场 tab 卡住修复）
+
+### 需求（用户反馈 + 确认）
+全市场全选后：参数优化进度条 78% 停滞，其余 tab 各自到某进度后不动。诊断：**不是卡死，是计算量爆炸 + 进度粒度太粗**。用户确认方案三（Release 构建）+ 方案二（进度细化 + 剩余时间）。
+
+### 实施
+- **Release 构建（方案三）**：
+  - `CMakePresets.json` 新增 `release-qt` preset（MSVC Release + Qt，binaryDir `build/release-qt`，复用 `build/vcpkg_installed` 已装库避免重新下载；显式 `CMAKE_CXX_COMPILER=cl` 防 PATH 里 mingw64 cmake 误选 GCC）
+  - 新增 `run-release.bat`（Qt bin PATH + 启动 release exe）
+  - 实测基准 `tools_opt_bench.cpp`（300 只 × 12 组合 MACross）：**Debug 454.8s vs Release 54.2s，快 8.4 倍**，最优目标值一致 43.67
+- **进度细化（方案二）**：
+  - `grid_search.cpp`：evaluateOne 接入 BacktestEngine 子进度回调（按回测日期推进，全市场 ~900 点/组合），`comboSub[]` + mutex 汇总到全局进度——组合内进度持续动，不再每组合静默几分钟
+  - 修复：worker 中 `results[i] = evaluateOne(...)` 赋值丢失（release 测试 GridSearchTest.SortsByObjectiveDescending 暴露，Debug 未捕获）
+  - 新增共享 `ui/utils/progress_eta.h`（ProgressEta：已用/剩余时间格式化）
+  - 5 面板（优化/建议/回测/对比/压力）：IO 阶段节流上报（每 2% 或末只）+ 进度条旁「已用 X · 预计剩余 Y」实时标签，运行开始 reset、结束隐藏
+
+### 验证
+- Debug 构建零警告 + 473/473 全绿；release-qt 构建零警告 + ctest 473/473 全绿（含 GridSearch 修复验证）
+- release-qt GUI 冒烟 10s 存活（需 Qt bin 在 PATH，run-release.bat 已处理）
+- 实测性能对比见上（8.4 倍）；用户复测：日常用 `run-release.bat` 启动，全市场优化/回测进度条持续动 + 时间估算
+
+### 已知限制
+- 全市场参数优化仍是大计算量（Release 下 12 组合 300 只 = 54s，全市场 5213 只 ≈ 15~20 分钟/12 组合），进度虽动但耗时客观存在；如需更快可后续加方案①（优化限股票数）或 SQLite 持久化
+- Debug 开发构建速度不变（保留 build/ 目录）；两版共存互不影响
+
 ## 2026-08-15 — P10 第三十轮：量化面板全市场股票池（替换内置精选 130 只）
 
 ### 需求（用户反馈）

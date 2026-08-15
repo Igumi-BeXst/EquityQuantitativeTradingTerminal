@@ -11,6 +11,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <atomic>
+#include <mutex>
 
 namespace st {
 
@@ -59,6 +61,9 @@ struct GridSearchResult {
 ///
 /// 在 Worker 线程调用（阻塞式）。内部用 std::async 并行跑组合，
 /// 共享只读 DataCache（不触发任何网络 IO）。
+/// 进度回调：组合粒度 → 每个组合内按股票数细分上报（progress 0~100，
+/// 已在组合间分摊：comboIdx*100/total + 组合内股票进度/total），
+/// 避免全市场大池时进度条长时间停滞。
 class GridSearchOptimizer {
 public:
     void setProgressCallback(std::function<void(double)> cb);
@@ -82,9 +87,11 @@ public:
     static bool objectiveMinimized(Objective o);
 
 private:
+    /// 评估单组参数。subProgress: 组合内子进度回调（0~100，可空）
     GridSearchResult evaluateOne(
         const GridSearchConfig& cfg,
-        const std::vector<std::pair<std::string, int>>& params) const;
+        const std::vector<std::pair<std::string, int>>& params,
+        const std::function<void(double)>& subProgress = {}) const;
 
     std::function<void(double)> progressCb_;
 };

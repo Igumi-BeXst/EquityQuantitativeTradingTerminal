@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/analyzer/strategy_comparator.h"
+#include "ui/utils/progress_eta.h"
 #include "foundation/stock_code.h"
 #include <QWidget>
 #include <memory>
@@ -51,6 +52,8 @@ private:
     QPushButton* runBtn_ = nullptr;
     QPushButton* mcBtn_ = nullptr;
     QProgressBar* progress_ = nullptr;
+    QLabel* progressEtaLabel_ = nullptr; // 进度已用/预计剩余
+    st::ui::ProgressEta eta_;            // 进度时间估算（主线程专用）
     QTableView* resultView_ = nullptr;
     ComparisonTableModel* resultModel_ = nullptr;
     EquityCurveWidget* equityCurve_ = nullptr;

@@ -104,7 +104,8 @@ bool GridSearchOptimizer::objectiveMinimized(Objective o) {
 
 GridSearchResult GridSearchOptimizer::evaluateOne(
     const GridSearchConfig& cfg,
-    const std::vector<std::pair<std::string, int>>& params) const {
+    const std::vector<std::pair<std::string, int>>& params,
+    const std::function<void(double)>& subProgress) const {
     GridSearchResult r;
     r.params = params;
 
@@ -122,6 +123,13 @@ GridSearchResult GridSearchOptimizer::evaluateOne(
     BacktestEngine engine;
     engine.setConfig(bcfg);
     engine.setDataCache(cfg.cache);
+    // 组合内子进度：回测引擎按日期推进（全市场 ~900 天 ≈ 900 点），
+    // 由 run() 分摊到全局进度，避免进度条在每个组合上长时间停滞
+    if (subProgress) {
+        engine.setProgressCallback([subProgress](double p) {
+            subProgress(p);
+        });
+    }
     engine.addStrategy(std::move(strategy));
     auto result = engine.run();
 
@@ -146,12 +154,43 @@ std::vector<GridSearchResult> GridSearchOptimizer::run(const GridSearchConfig& c
     auto progressCb = progressCb_;
     std::atomic<size_t> next{0};
     std::atomic<int> done{0};
+    // 每个组合当前的子进度（0~100，BacktestEngine 按日期推进）；互斥保护，
+    // 多个并行 lane 各自写自己的槽位，进度回调汇总时读取
+    std::vector<double> comboSub(combos.size(), 0.0);
+    std::mutex subMutex;
+
+    const auto reportProgress = [&]() {
+        if (!progressCb) return;
+        // 汇总：已完成组合数 + 各在跑组合的子进度分摊
+        const int d = done.load();
+        double subSum = 0.0;
+        {
+            std::lock_guard<std::mutex> lk(subMutex);
+            for (size_t k = d; k < combos.size(); ++k) {
+                subSum += comboSub[k];
+            }
+        }
+        // 已完成部分按组合计，未完成部分按子进度平均计（保守：只算首个未完成组合）
+        const double finishedWeight = static_cast<double>(d) / static_cast<double>(total);
+        double pct = finishedWeight * 100.0;
+        if (d < total) {
+            pct += comboSub[static_cast<size_t>(d)] / static_cast<double>(total);
+        }
+        progressCb(std::min(pct, 100.0));
+    };
 
     auto worker = [&]() {
         while (true) {
             const size_t i = next.fetch_add(1);
             if (i >= combos.size()) break;
-            results[i] = evaluateOne(cfg, combos[i]);
+            // 子进度回调：更新本组合槽位并上报（组合完成前）
+            results[i] = evaluateOne(cfg, combos[i], [&](double sub) {
+                {
+                    std::lock_guard<std::mutex> lk(subMutex);
+                    comboSub[i] = sub;
+                }
+                reportProgress();
+            });
             const int d = done.fetch_add(1) + 1;
             if (progressCb) {
                 progressCb(static_cast<double>(d) / static_cast<double>(total) * 100.0);
