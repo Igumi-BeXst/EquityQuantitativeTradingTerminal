@@ -13,6 +13,8 @@
 #include <QMetaObject>
 #include <QPointer>
 #include <algorithm>
+#include <chrono>
+#include <thread>
 
 namespace st {
 
@@ -59,6 +61,10 @@ StockSearchBar::StockSearchBar(IDataProvider* provider, QWidget* parent)
         // 安全异步：捕获构造参数 provider + QPointer 守卫投递回主线程
         QPointer<StockSearchBar> guard(this);
         ThreadPool::submitIO([provider, guard] {
+            // 等待数据源连接就绪（最多 15s）：避免连接建立期并发请求与 TDX doConnect 竞争
+            for (int i = 0; i < 75 && !provider->isConnected(); ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            }
             auto sh = provider->getStockList(Market::SH);
             auto sz = provider->getStockList(Market::SZ);
             std::vector<StockInfo> all;

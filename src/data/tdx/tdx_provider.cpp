@@ -112,10 +112,22 @@ bool TdxProvider::isConnected() const {
 bool TdxProvider::ensureConnected(std::unique_lock<std::mutex>& lk, int timeoutMs) {
     if (stopThreads_.load()) return false;  // 已 disconnect，不再触发重连（防 detached 线程悬垂）
     if (state_ == State::Connected && transport_) return true;
-    if (state_ != State::Connecting) {
-        state_ = State::Connecting;
-        std::thread([this] { doConnect(); }).detach();
+    // 连接建立中：等待现有 doConnect 完成（不重复 spawn）
+    if (state_ == State::Connecting) {
+        return cv_.wait_for(lk, std::chrono::milliseconds(timeoutMs),
+                            [this] { return state_ == State::Connected; });
     }
+    // Disconnected/Failed：触发连接，但加冷却（防并发 executeCommand 风暴式 spawn
+    // detached doConnect 线程 → transport_ 竞争 → 堆损坏；lastConnectAttempt_ 冷却）
+    const auto now = std::chrono::steady_clock::now();
+    if (now - lastConnectAttempt_ < std::chrono::seconds(2)) {
+        // 冷却期内：等待当前/已排队的连接尝试完成
+        return cv_.wait_for(lk, std::chrono::milliseconds(timeoutMs),
+                            [this] { return state_ == State::Connected; });
+    }
+    lastConnectAttempt_ = now;
+    state_ = State::Connecting;
+    std::thread([this] { doConnect(); }).detach();
     return cv_.wait_for(lk, std::chrono::milliseconds(timeoutMs),
                         [this] { return state_ == State::Connected; });
 }

@@ -230,6 +230,10 @@ target_link_libraries(stock_list_probe PRIVATE st_data st_core st_foundation Qt6
 add_executable(opt_bench tools_opt_bench.cpp)
 target_link_libraries(opt_bench PRIVATE st_engine st_data st_core st_foundation Qt6::Core)
 
+# 并发 getStockList 压力复现（P10 第三十一轮崩溃定位用）
+add_executable(concurrent_list tools_concurrent_list.cpp)
+target_link_libraries(concurrent_list PRIVATE st_data st_core st_foundation Qt6::Core)
+
 # 引擎堆压力测试（无头定位越界写）
 add_executable(heap_stress tools_heap_stress.cpp)
 target_link_libraries(heap_stress PRIVATE st_intelligence st_engine st_data st_core st_foundation Qt6::Core)

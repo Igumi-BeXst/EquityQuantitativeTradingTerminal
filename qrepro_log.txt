@@ -1,0 +1,6 @@
+start
+constructing QuantWindow
+constructed
+alive 3s
+exec done
+drained
