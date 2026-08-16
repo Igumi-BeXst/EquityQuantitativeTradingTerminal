@@ -125,6 +125,10 @@ void StockPoolPicker::onSearchTextChanged(const QString& text) {
 void StockPoolPicker::applyFilter() {
     const QString q = searchEdit_->text().trimmed();
     const bool empty = q.isEmpty();
+    // 批量 setHidden 会逐项触发 itemChanged → 阻断信号 + 禁重绘，最后一次性刷新
+    // （5213 项逐个发信号 + 计数 = O(n²) 卡顿）
+    list_->setUpdatesEnabled(false);
+    const bool oldBlock = list_->blockSignals(true);
     for (int i = 0; i < list_->count(); ++i) {
         auto* item = list_->item(i);
         const auto& s = allStocks_[static_cast<size_t>(i)];
@@ -139,16 +143,26 @@ void StockPoolPicker::applyFilter() {
         }
         item->setHidden(!match);
     }
+    list_->blockSignals(oldBlock);
+    list_->setUpdatesEnabled(true);
+    list_->viewport()->update();
     updateStatus();
 }
 
 void StockPoolPicker::setAllVisibleChecked(bool on) {
+    // 批量 setCheckState/setSelected 逐项触发 itemChanged → 阻断信号 + 禁重绘，
+    // 结束后一次性更新计数与 selectionChanged（5213 项 O(n²) → O(n)）
+    list_->setUpdatesEnabled(false);
+    const bool oldBlock = list_->blockSignals(true);
     for (int i = 0; i < list_->count(); ++i) {
         auto* item = list_->item(i);
         if (item->isHidden()) continue;
         item->setCheckState(on ? Qt::Checked : Qt::Unchecked);
         item->setSelected(on);
     }
+    list_->blockSignals(oldBlock);
+    list_->setUpdatesEnabled(true);
+    list_->viewport()->update();
     updateStatus();
     emit selectionChanged();
 }
