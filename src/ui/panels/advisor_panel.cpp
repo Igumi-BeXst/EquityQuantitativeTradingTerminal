@@ -351,11 +351,14 @@ void AdvisorPanel::onAllDataFetched() {
     // 安全异步：QPointer 守卫投递回主线程（面板销毁后自动跳过）；cache shared_ptr 按值捕获
     QPointer<AdvisorPanel> guard(this);
     ThreadPool::submitWorker([guard, cache, cfg = std::move(cfg), p1Name, p2Name]() mutable {
+        // 两阶段进度映射（单调不倒退）：
+        //   网格优化   0 ~ 90%   （原 50~100 → 完成后进度条会显示满，掩盖后续压力测试阶段）
+        //   压力测试   90 ~ 100% （stress 回调同步更新 ETA）
         GridSearchOptimizer opt;
         opt.setProgressCallback([guard](double p) {
             QMetaObject::invokeMethod(guard, [guard, p] {
                 if (!guard) return;
-                guard->progress_->setValue(50 + static_cast<int>(p * 50));
+                guard->progress_->setValue(static_cast<int>(p * 90.0 / 100.0));
                 guard->progressEtaLabel_->setText(guard->eta_.text(p));
             }, Qt::QueuedConnection);
         });
@@ -393,7 +396,10 @@ void AdvisorPanel::onAllDataFetched() {
             StressTest st;
             st.setProgressCallback([guard](double p) {
                 QMetaObject::invokeMethod(guard, [guard, p] {
-                    guard->progress_->setValue(90 + static_cast<int>(p * 10));
+                    if (!guard) return;
+                    // 压力测试阶段映射 90~100，ETA 继续更新（显示真实剩余时间）
+                    guard->progress_->setValue(90 + static_cast<int>(p * 10.0 / 100.0));
+                    guard->progressEtaLabel_->setText(guard->eta_.text(p));
                 }, Qt::QueuedConnection);
             });
             stress = st.run(scfg, StressTest::defaultWindows());

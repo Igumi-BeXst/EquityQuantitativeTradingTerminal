@@ -29,7 +29,7 @@ StressTestOutput StressTest::run(const StressTestConfig& cfg,
     StressTestOutput out;
     if (!cfg.cache || cfg.symbols.empty()) return out;
 
-    auto runWindow = [&](const std::string& id, const std::string& name,
+    auto runWindow = [&](int idx, const std::string& id, const std::string& name,
                          DateTime start, DateTime end) -> StressTestResult {
         StressTestResult r;
         r.windowId = id;
@@ -52,8 +52,8 @@ StressTestOutput StressTest::run(const StressTestConfig& cfg,
         engine.setConfig(bcfg);
         engine.setDataCache(cfg.cache);
         // 窗口内子进度（引擎按日期推进）：分摊到全局，避免进度条停滞
+        // idx 由调用方传入（基线 0、窗口 1..N），避免依赖 out.windows.size() 时序
         if (progressCb_) {
-            const int idx = static_cast<int>(out.windows.size()) + 1;  // 0=基线
             const double total = static_cast<double>(windows.size()) + 1.0;
             engine.setProgressCallback([this, idx, total](double p) {
                 progressCb_((static_cast<double>(idx) + p / 100.0) / total * 100.0);
@@ -70,14 +70,17 @@ StressTestOutput StressTest::run(const StressTestConfig& cfg,
     };
 
     // 全期基线
-    out.baseline = runWindow("baseline", "全期基线",
+    const double total = static_cast<double>(windows.size()) + 1.0;
+    out.baseline = runWindow(0, "baseline", "全期基线",
                              cfg.baselineStart, cfg.baselineEnd);
+    if (progressCb_) progressCb_(1.0 / total * 100.0);
 
     // 逐窗口
-    const double total = static_cast<double>(windows.size()) + 1.0;
     double done = 1.0;
-    for (const auto& w : windows) {
-        out.windows.push_back(runWindow(w.id, w.name, w.startDate, w.endDate));
+    for (size_t wi = 0; wi < windows.size(); ++wi) {
+        const auto& w = windows[wi];
+        out.windows.push_back(runWindow(static_cast<int>(wi) + 1,
+                                        w.id, w.name, w.startDate, w.endDate));
         ++done;
         if (progressCb_) progressCb_(done / total * 100.0);
     }
