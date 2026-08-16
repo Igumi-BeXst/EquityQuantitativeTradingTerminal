@@ -23,6 +23,16 @@ void PaperTradeEngine::addStrategy(std::shared_ptr<IStrategy> strategy) {
     }
 }
 
+void PaperTradeEngine::addStrategy(const StockCode& code,
+                                   std::shared_ptr<IStrategy> strategy) {
+    boundStrategies_[code.fullCode()].push_back(std::move(strategy));
+    if (!portfolio_.initialCapital) {
+        portfolio_.initialCapital = config_.initialCapital;
+        portfolio_.cash = config_.initialCapital;
+        portfolio_.totalAsset = config_.initialCapital;
+    }
+}
+
 void PaperTradeEngine::seedHistory(const StockCode& code, std::vector<Bar> bars) {
     history_[code.fullCode()] = BarSeries(std::move(bars));
 }
@@ -33,7 +43,7 @@ void PaperTradeEngine::start() {
     LogManager::instance()->log(LogLevel::Info, "PaperTradeEngine started, capital={}",
                                 config_.initialCapital);
 
-    for (auto& s : strategies_) {
+    auto initStrategy = [this](std::shared_ptr<IStrategy>& s) {
         s->initialize();
         IStrategy::TradingApi api;
         api.getPortfolio = [this]() -> const Portfolio& { return portfolio_; };
@@ -41,14 +51,23 @@ void PaperTradeEngine::start() {
             return currentCode_;
         };
         api.placeOrder = [this](StockCode code, Direction dir, Volume vol, Amount amount) {
-            // buyByAmount 传 vol=0 + amount → 按最近报价换算股数
-            if (vol <= 0 && amount > 0 && lastPrice_ > 0) {
-                vol = static_cast<Volume>(amount / lastPrice_);
+            // buyByAmount 传 vol=0 + amount → 按该股票最近报价换算股数
+            if (vol <= 0 && amount > 0) {
+                auto it = lastPrices_.find(code.fullCode());
+                if (it != lastPrices_.end() && it->second > 0) {
+                    vol = static_cast<Volume>(amount / it->second);
+                }
             }
             submitOrder(code, dir, vol);
         };
         s->setTradingApi(std::move(api));
         s->onStart();
+    };
+
+    for (auto& s : strategies_) initStrategy(s);
+    for (auto& [code, list] : boundStrategies_) {
+        (void)code;
+        for (auto& s : list) initStrategy(s);
     }
 }
 
@@ -57,6 +76,10 @@ void PaperTradeEngine::stop() {
     running_ = false;
     for (auto& s : strategies_) {
         s->onStop();
+    }
+    for (auto& [code, list] : boundStrategies_) {
+        (void)code;
+        for (auto& s : list) s->onStop();
     }
     LogManager::instance()->log(LogLevel::Info, "PaperTradeEngine stopped");
 }
@@ -72,15 +95,22 @@ void PaperTradeEngine::submitOrder(StockCode code, Direction dir, Volume vol) {
     order.volume = vol;
     order.createTime = DateTime{};
 
-    // 模拟交易：订单立即可执行，等待行情价格
-    pendingOrder_ = order;
+    // 模拟交易：订单立即可执行，等待该股票行情价格
+    pendingOrders_[code.fullCode()] = order;
+}
+
+std::vector<std::shared_ptr<IStrategy>>
+PaperTradeEngine::strategiesFor(const StockCode& code) const {
+    auto it = boundStrategies_.find(code.fullCode());
+    if (it != boundStrategies_.end()) return it->second;
+    return strategies_;   // 未绑定 → 全部策略（单股票兼容）
 }
 
 void PaperTradeEngine::onQuote(const StockCode& code, Price price, DateTime time) {
     if (!running_ || price <= 0) return;
 
     currentCode_ = code;
-    lastPrice_ = price;
+    lastPrices_[code.fullCode()] = price;
 
     // 用当前报价构造 bar，累积历史供趋势策略计算均线
     Bar bar;
@@ -91,20 +121,22 @@ void PaperTradeEngine::onQuote(const StockCode& code, Price price, DateTime time
     auto& series = history_[code.fullCode()];
     series.append(bar);
 
-    // 驱动策略 onBar，策略可能下单
+    // 驱动该股票的策略 onBar，策略可能下单
     StrategyContext ctx;
     ctx.currentCode = &code;
     ctx.currentBar = &bar;
     ctx.history = &series;
     ctx.portfolio = &portfolio_;
-    for (auto& s : strategies_) {
+    for (auto& s : strategiesFor(code)) {
         s->onBar(ctx);
     }
 
-    // 立即以当前价执行本档挂起的订单（模拟交易即时成交）
-    if (pendingOrder_ && pendingOrder_->code == code) {
-        executeTrade(code, pendingOrder_->direction, pendingOrder_->volume, price, time);
-        pendingOrder_.reset();
+    // 立即以当前价执行该股票挂起的订单（模拟交易即时成交）
+    auto it = pendingOrders_.find(code.fullCode());
+    if (it != pendingOrders_.end()) {
+        const auto& order = it->second;
+        executeTrade(code, order.direction, order.volume, price, time);
+        pendingOrders_.erase(it);
     }
 }
 

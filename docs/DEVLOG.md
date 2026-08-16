@@ -1,5 +1,27 @@
 # 开发日志 (Development Log)
 
+## 2026-08-16 — P10 第三十三轮：模拟交易搜索选股 + 多股票同时模拟
+
+### 需求（用户反馈）
+模拟交易 tab 股票要能直接搜索；能够同时进行多个股票一起模拟交易。
+
+### 实施
+- **引擎多股票化**（`engine/paper_trade/paper_trade_engine.{h,cpp}`）：
+  - `addStrategy(code, strategy)` 新增：每只股票绑定独立策略实例（避免共享实例状态跨股票串扰）；`addStrategy(strategy)` 保留（单股票兼容，未绑定策略在首次报价股票上驱动）
+  - `pendingOrder_` 单值 → `std::map<code, Order>`（挂单按股票隔离，B 的报价不会成交 A 的挂单）
+  - `lastPrice_` 单值 → `std::map<code, Price>`（buyByAmount 按各自股票最近报价换算股数）
+  - `onQuote` 只驱动该股票绑定的策略 + 撮合该股票挂单
+- **面板**（`ui/panels/paper_trade_panel.{h,cpp}`）：
+  - `stockCombo_`（精选 130 只下拉单选）→ `StockPoolPicker`（全市场 5213 只搜索多选，与其余量化面板一致）
+  - 启动：IO 逐只拉历史 → 主线程为每只股票建独立策略实例 + 播种
+  - 轮询：`batchQuote(全部选中)` 逐只驱动引擎；日志追加全部新成交（不只最后一条）
+  - 状态区新增「股票数」显示
+
+### 验证
+- 构建零警告；476/476 全绿（Debug + Release；+3 例：多股票独立策略/挂单按 code 路由/按 code 最近价换算）
+- release GUI exe 因用户进程占用未重链（LNK1104），代码正确性由测试验证；用户关闭程序后重建即可
+- 手动复测由用户执行：模拟交易 tab 股票池搜索多选（代码/名称/拼音），多选后启动同时模拟
+
 ## 2026-08-16 — 修复轮⑩：优化建议 tab 进度满但无结果（两阶段进度映射错乱）
 
 ### 背景（用户反馈）

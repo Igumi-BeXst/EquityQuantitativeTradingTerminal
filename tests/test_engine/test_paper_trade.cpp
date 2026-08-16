@@ -169,3 +169,78 @@ TEST(PaperTradeEngineTest, NoCallbackIsSafe) {
     EXPECT_EQ(e.trades().size(), 1u);
     e.stop();
 }
+
+// ---- 多股票 ----
+
+TEST(PaperTradeEngineTest, MultiStockIndependentStrategies) {
+    // 两只股票各自绑定 BuyOnceStrategy：每只独立买入，互不串扰
+    PaperTradeEngine e;
+    PaperTradeConfig cfg;
+    cfg.initialCapital = 100000;
+    cfg.slippage = 0.0;
+    e.setConfig(cfg);
+
+    StockCode a(Market::SH, "600519");
+    StockCode b(Market::SZ, "000001");
+    e.addStrategy(a, std::make_shared<BuyOnceStrategy>());
+    e.addStrategy(b, std::make_shared<BuyOnceStrategy>());
+    e.start();
+
+    e.onQuote(a, 100.0, utils::parseDateTime("2026-08-01 09:30:00"));
+    e.onQuote(b, 50.0, utils::parseDateTime("2026-08-01 09:30:00"));
+
+    const auto& pf = e.portfolio();
+    ASSERT_EQ(pf.positions.size(), 2u);
+    // 两只股票都买入 100 股
+    EXPECT_EQ(pf.positions[0].quantity, 100);
+    EXPECT_EQ(pf.positions[1].quantity, 100);
+    EXPECT_EQ(e.trades().size(), 2u);
+    e.stop();
+}
+
+TEST(PaperTradeEngineTest, MultiStockOrderRoutedByCode) {
+    // 策略只对 A 下单；B 的报价不应成交 A 的挂单
+    PaperTradeEngine e;
+    PaperTradeConfig cfg;
+    cfg.initialCapital = 100000;
+    cfg.slippage = 0.0;
+    e.setConfig(cfg);
+
+    StockCode a(Market::SH, "600519");
+    StockCode b(Market::SZ, "000001");
+    e.addStrategy(a, std::make_shared<BuyOnceStrategy>());
+    e.addStrategy(b, std::make_shared<BuyOnceStrategy>());
+    e.start();
+
+    // 只喂 B：A 的挂单不应被 B 报价成交
+    e.onQuote(b, 50.0, utils::parseDateTime("2026-08-01 09:30:00"));
+    EXPECT_EQ(e.trades().size(), 1u);
+    EXPECT_EQ(e.trades()[0].code.fullCode(), b.fullCode());
+
+    // 再喂 A：A 的挂单成交
+    e.onQuote(a, 100.0, utils::parseDateTime("2026-08-01 09:30:00"));
+    EXPECT_EQ(e.trades().size(), 2u);
+    EXPECT_EQ(e.trades()[1].code.fullCode(), a.fullCode());
+    e.stop();
+}
+
+TEST(PaperTradeEngineTest, MultiStockLastPricePerCode) {
+    // buyByAmount 按各自股票最近报价换算股数
+    PaperTradeEngine e;
+    PaperTradeConfig cfg;
+    cfg.initialCapital = 1000000;
+    cfg.slippage = 0.0;
+    e.setConfig(cfg);
+
+    StockCode a(Market::SH, "600519");
+    StockCode b(Market::SZ, "000001");
+    e.addStrategy(a, std::make_shared<BuyOnceStrategy>());
+    e.addStrategy(b, std::make_shared<BuyOnceStrategy>());
+    e.start();
+
+    // 先喂 A 高价，再喂 B 低价：各自的 buyByAmount 用各自价格
+    e.onQuote(a, 200.0, utils::parseDateTime("2026-08-01 09:30:00"));
+    e.onQuote(b, 10.0, utils::parseDateTime("2026-08-01 09:30:00"));
+    EXPECT_EQ(e.trades().size(), 2u);
+    e.stop();
+}

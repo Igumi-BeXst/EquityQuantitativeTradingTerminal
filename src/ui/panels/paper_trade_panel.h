@@ -3,6 +3,7 @@
 #include "foundation/stock_code.h"
 #include <QWidget>
 #include <memory>
+#include <vector>
 
 class QComboBox;
 class QLabel;
@@ -20,8 +21,9 @@ class PaperTradeEngine;
 class TradeTableModel;
 class IStrategy;
 class TradeJournalEngine;
+class StockPoolPicker;
 
-/// 模拟交易面板 — 单股票 + 策略 → 实时行情驱动 PaperTradeEngine
+/// 模拟交易面板 — 搜索多选股票（全市场）+ 策略 → 实时行情驱动 PaperTradeEngine（多股票）
 class PaperTradePanel : public QWidget {
     Q_OBJECT
 
@@ -38,18 +40,16 @@ private slots:
     void onTimerTick();
 
 private:
-    void onStarted();
-    void onQuotesReady();
     void refreshStatus();
     std::shared_ptr<IStrategy> makeStrategy() const;
-    StockCode selectedCode() const;
+    std::vector<StockCode> selectedSymbols() const;
 
     IDataProvider* provider_ = nullptr;
     std::unique_ptr<PaperTradeEngine> engine_;
     std::shared_ptr<TradeJournalEngine> journal_;  // 模拟成交自动落库
     QTimer* timer_ = nullptr;
 
-    QComboBox* stockCombo_ = nullptr;
+    StockPoolPicker* stockPicker_ = nullptr;
     QComboBox* strategyCombo_ = nullptr;
     QLabel* p1Label_ = nullptr;
     QLabel* p2Label_ = nullptr;
@@ -64,6 +64,7 @@ private:
     QLabel* totalAsset_ = nullptr;
     QLabel* todayPnl_ = nullptr;
     QLabel* posCount_ = nullptr;
+    QLabel* stockCountLabel_ = nullptr;  // 已选股票数（运行中显示）
     QTableView* tradesView_ = nullptr;
     TradeTableModel* tradeModel_ = nullptr;
     QPlainTextEdit* log_ = nullptr;

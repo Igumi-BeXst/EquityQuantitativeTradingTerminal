@@ -23,10 +23,14 @@ struct PaperTradeConfig {
     double slippage = 0.001;      // 滑点比例 (0.1%)
 };
 
-/// 模拟交易引擎 — 实时行情驱动
+/// 模拟交易引擎 — 实时行情驱动（多股票）
 ///
 /// 与 BacktestEngine 共用 IStrategy 接口，但由实时 Quote/Tick 驱动。
-/// 收到行情 → 触发 onBar → 策略下单 → 以当前价+滑点撮合。
+/// 收到行情 → 触发该股票的 onBar → 策略下单 → 以当前价+滑点撮合。
+///
+/// 多股票：每只股票绑定独立的策略实例（避免共享实例状态串扰），
+/// 挂单与最近价按 code 隔离；单股票用法（addStrategy(strategy) 后
+/// 只喂一个 code）与旧版行为完全一致。
 ///
 /// 交易数据每日保存到 SQLite（P1 Data 层），此处先实现内存版。
 class PaperTradeEngine {
@@ -36,8 +40,12 @@ public:
 
     void setConfig(const PaperTradeConfig& config);
 
-    /// 添加策略
+    /// 添加策略（单股票兼容：绑定到之后首次报价的股票；
+    /// 多股票请用 addStrategy(code, strategy) 明确绑定）
     void addStrategy(std::shared_ptr<IStrategy> strategy);
+
+    /// 添加策略并绑定到指定股票（多股票：每只股票独立策略实例）
+    void addStrategy(const StockCode& code, std::shared_ptr<IStrategy> strategy);
 
     /// 播种历史（启动前用历史日线填充，趋势策略可立即计算均线）
     void seedHistory(const StockCode& code, std::vector<Bar> bars);
@@ -67,6 +75,8 @@ private:
     void submitOrder(StockCode code, Direction dir, Volume vol);
     void executeTrade(StockCode code, Direction dir, Volume vol, Price price, DateTime time);
     Position* findPosition(const StockCode& code);
+    /// 该股票绑定的策略列表（未绑定过 → 全部策略，单股票兼容）
+    std::vector<std::shared_ptr<IStrategy>> strategiesFor(const StockCode& code) const;
 
     PaperTradeConfig config_;
     bool running_ = false;
@@ -76,12 +86,13 @@ private:
     double todayPnl_ = 0.0;
     int nextOrderId_ = 1;
 
-    std::vector<std::shared_ptr<IStrategy>> strategies_;
+    std::vector<std::shared_ptr<IStrategy>> strategies_;          // 未绑定策略（单股票兼容）
+    std::map<std::string, std::vector<std::shared_ptr<IStrategy>>> boundStrategies_; // code → 策略
     FeeCalculator feeCalculator_;
     std::unique_ptr<OrderMatcher> matcher_;
-    std::optional<Order> pendingOrder_;   // 挂起的市价单
+    std::map<std::string, Order> pendingOrders_;  // code → 挂起的市价单（按股票隔离）
     StockCode currentCode_;               // 当前行情代码
-    Price lastPrice_ = 0.0;               // 最近报价（按金额下单换算用）
+    std::map<std::string, Price> lastPrices_;  // code → 最近报价（按金额下单换算用）
     std::map<std::string, BarSeries> history_;  // code -> 报价历史（BarSeries 增量构建）
 };
 
