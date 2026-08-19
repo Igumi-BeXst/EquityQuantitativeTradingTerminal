@@ -3,6 +3,7 @@
 #include "ui/models/grid_search_table_model.h"
 #include "ui/widgets/grid_heatmap_widget.h"
 #include "ui/widgets/stock_pool_picker.h"
+#include "ui/utils/table_csv_export.h"
 #include "data/idata_provider.h"
 #include "data/data_cache.h"
 #include "core/thread_pool.h"
@@ -166,7 +167,13 @@ OptimizationPanel::OptimizationPanel(IDataProvider* provider, QWidget* parent)
     resultInfoLabel_->setWordWrap(true);
     resultInfoLabel_->setStyleSheet(QStringLiteral("color:#999999;"));
     layout->addWidget(resultInfoLabel_);
-    layout->addWidget(new QLabel(tr("优化结果（单击行/双击热力图格应用参数到回测）")));
+
+    auto* resultHeader = new QHBoxLayout;
+    resultHeader->addWidget(new QLabel(tr("优化结果（单击行/双击热力图格应用参数到回测）")), 1);
+    exportBtn_ = new QPushButton(tr("导出结果"));
+    exportBtn_->setEnabled(false);
+    resultHeader->addWidget(exportBtn_);
+    layout->addLayout(resultHeader);
     layout->addWidget(resultTabs_);
 
     layout->addStretch();
@@ -192,6 +199,11 @@ OptimizationPanel::OptimizationPanel(IDataProvider* provider, QWidget* parent)
                 map[lastP2Param_] = static_cast<int>(std::lround(y));
                 emit applyParams(strategyCombo_->currentData().toString(), map);
             });
+    // 导出结果表为 CSV
+    connect(exportBtn_, &QPushButton::clicked, this, [this] {
+        st::ui::exportViewToCsv(resultView_, this,
+                                QStringLiteral("parameter_optimization.csv"));
+    });
 
     onStrategyChanged();
 }
@@ -237,6 +249,7 @@ void OptimizationPanel::onRunClicked() {
     }
     running_ = true;
     runBtn_->setEnabled(false);
+    exportBtn_->setEnabled(false);
     progress_->setVisible(true);
     progress_->setValue(0);
     progressEtaLabel_->setVisible(true);
@@ -289,7 +302,9 @@ void OptimizationPanel::onRunClicked() {
         const int total = static_cast<int>(symbols.size());
         int done = 0;
         for (const auto& code : symbols) {
-            auto bars = provider->getBars(code, BarPeriod::Daily, start, end);
+            const DateTime warmStart =
+                start - std::chrono::hours(24 * kBacktestWarmupCalendarDays);
+            auto bars = provider->getRawBars(code, BarPeriod::Daily, warmStart, end);
             if (!bars.empty()) cache->cacheBars(code, BarPeriod::Daily, std::move(bars));
             ++done;
             // 节流：IO 阶段每只更新太频繁，每 2% 或末只才上报
@@ -302,13 +317,27 @@ void OptimizationPanel::onRunClicked() {
                 }, Qt::QueuedConnection);
             }
         }
-        QMetaObject::invokeMethod(guard, [guard] { guard->onAllDataFetched(); },
-                                  Qt::QueuedConnection);
+        // 沪深300 基准（用于 Alpha/Beta）
+        auto benchmarkBars = provider->getBars(
+            StockCode(Market::SH, "000300"), BarPeriod::Daily, start, end);
+        // 不复权真实价
+        std::map<std::string, std::vector<Bar>> rawBars;
+        for (const auto& code : symbols) {
+            auto raw = provider->getRawBars(code, BarPeriod::Daily, start, end);
+            if (!raw.empty()) rawBars[code.fullCode()] = std::move(raw);
+        }
+        QMetaObject::invokeMethod(guard, [guard, benchmarkBars = std::move(benchmarkBars),
+                                          rawBars = std::move(rawBars)]() mutable {
+            if (!guard) return;
+            guard->onAllDataFetched(std::move(benchmarkBars), std::move(rawBars));
+        }, Qt::QueuedConnection);
     });
 }
 
-void OptimizationPanel::onAllDataFetched() {
+void OptimizationPanel::onAllDataFetched(std::vector<Bar> benchmarkBars,
+                                         std::map<std::string, std::vector<Bar>> rawBars) {
     progress_->setValue(50);
+    eta_.reset();  // IO 阶段很快，进入计算阶段后重新估算剩余时间
     auto symbols = selectedSymbols();
     if (symbols.empty()) {
         resetToIdle();
@@ -325,10 +354,13 @@ void OptimizationPanel::onAllDataFetched() {
         {p2Key.toStdString(), p2From_->value(), p2To_->value(), p2Step_->value()},
     };
     cfg.symbols = symbols;
+    cfg.benchmarkBars = std::move(benchmarkBars);
+    cfg.rawBars = std::move(rawBars);
     cfg.startDate = utils::parseDate(startDate_->date().toString(Qt::ISODate).toStdString());
     cfg.endDate = utils::parseDate(endDate_->date().toString(Qt::ISODate).toStdString());
     cfg.initialCapital = capital_->value();
     cfg.feeConfig = FeeConfig::defaultAShare();
+    cfg.slippagePerShare = 0.01;  // 对齐聚宽默认 1 跳滑点
     cfg.objective = currentObjective();
     const auto cache = cache_;  // shared_ptr：worker 内 cfg.cache 指向它，面板销毁后仍存活
     cfg.cache = cache.get();
@@ -354,7 +386,7 @@ void OptimizationPanel::onAllDataFetched() {
         opt.setProgressCallback([guard](double p) {
             QMetaObject::invokeMethod(guard, [guard, p] {
                 if (!guard) return;
-                guard->progress_->setValue(50 + static_cast<int>(p * 50));
+                guard->progress_->setValue(50 + static_cast<int>(p / 2.0));
                 guard->progressEtaLabel_->setText(guard->eta_.text(p));
             }, Qt::QueuedConnection);
         });
@@ -376,6 +408,7 @@ void OptimizationPanel::onResult(const std::vector<GridSearchResult>& results,
     progressEtaLabel_->setVisible(false);
 
     resultModel_->setResults(results, p1Name, p2Name);
+    exportBtn_->setEnabled(!results.empty());
     lastP1Param_ = p1Param;
     lastP2Param_ = p2Param;
 
@@ -409,6 +442,7 @@ void OptimizationPanel::onResult(const std::vector<GridSearchResult>& results,
 void OptimizationPanel::resetToIdle() {
     running_ = false;
     runBtn_->setEnabled(true);
+    exportBtn_->setEnabled(false);
     progress_->setVisible(false);
     progressEtaLabel_->setVisible(false);
 }

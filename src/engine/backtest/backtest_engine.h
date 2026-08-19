@@ -11,9 +11,13 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <map>
 #include <functional>
 
 namespace st {
+
+/// 回测 warm-up：从 startDate 往前多拉取的日历天数，用于预填策略指标历史（对齐聚宽等平台）
+inline constexpr int kBacktestWarmupCalendarDays = 400;
 
 /// 回测配置
 struct BacktestConfig {
@@ -23,6 +27,9 @@ struct BacktestConfig {
     Amount initialCapital = 100000.0; // 初始资金
     BarPeriod period = BarPeriod::Daily;
     FeeConfig feeConfig;              // 费率
+    double slippagePerShare = 0.0;    // 每股滑点（元），对齐聚宽默认约 1 跳 0.01
+    std::vector<Bar> benchmarkBars;    // 基准指数日线（沪深300），用于 Alpha/Beta
+    std::map<std::string, std::vector<Bar>> rawBars;  // 不复权日线（真实价成交）
     int positionLimitPercent = 100;   // 单只股票最大仓位 (%)
     /// 是否保存每日完整 Portfolio 快照（equitySnapshots）。
     /// 网格搜索等批量场景设 false：仅累积净值曲线（equityCurve），
@@ -39,6 +46,7 @@ struct BacktestResult {
     Portfolio finalPortfolio;         // 期末组合
     std::vector<Trade> trades;        // 全部成交记录
     std::vector<Portfolio> equitySnapshots; // 每日净值快照
+    std::vector<double> benchmarkEquity;    // 基准净值（原始指数收盘序列，展示时归一化）
 
     // 统计
     int barCount = 0;

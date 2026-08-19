@@ -13,6 +13,7 @@
 #include <vector>
 #include <atomic>
 #include <mutex>
+#include <map>
 
 namespace st {
 
@@ -43,8 +44,11 @@ struct GridSearchConfig {
     Amount initialCapital = 100000.0;
     BarPeriod period = BarPeriod::Daily;
     FeeConfig feeConfig;
+    double slippagePerShare = 0.0;   // 每股滑点（元）
     Objective objective = Objective::TotalReturn;
     DataCache* cache = nullptr;        // 复用已加载缓存，禁止重复 IO
+    std::vector<Bar> benchmarkBars;    // 基准指数日线（沪深300），用于 Alpha/Beta
+    std::map<std::string, std::vector<Bar>> rawBars;  // 不复权日线（真实价成交）
     int parallelLanes = 1;             // 并行通道数（测试设 1 保证确定性）
     /// 是否保留每日完整 Portfolio 快照。网格搜索批量跑，默认 false：
     /// 只累积净值曲线（绩效/热力图足够），避免全市场大池内存爆炸

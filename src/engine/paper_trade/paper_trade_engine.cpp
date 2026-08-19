@@ -1,5 +1,6 @@
 #include "engine/paper_trade/paper_trade_engine.h"
 #include "core/log_manager.h"
+#include "foundation/utils/datetime.h"
 #include <algorithm>
 
 namespace st {
@@ -84,6 +85,69 @@ void PaperTradeEngine::stop() {
     LogManager::instance()->log(LogLevel::Info, "PaperTradeEngine stopped");
 }
 
+PaperTradeEngineState PaperTradeEngine::capture() const {
+    PaperTradeEngineState state;
+    state.initialCapital = portfolio_.initialCapital;
+    state.cash = portfolio_.cash;
+    state.currentTradeDate = currentTradeDate_;
+    state.positions = portfolio_.positions;
+    state.trades = trades_;
+    for (const auto& [code, series] : history_) {
+        std::vector<Bar> bars;
+        bars.reserve(series.size());
+        for (const auto& b : series) bars.push_back(b);
+        state.history[code] = std::move(bars);
+    }
+    return state;
+}
+
+void PaperTradeEngine::restore(const PaperTradeEngineState& state) {
+    portfolio_.initialCapital = state.initialCapital;
+    portfolio_.cash = state.cash;
+    portfolio_.positions = state.positions;
+
+    double mv = 0.0, cost = 0.0;
+    for (const auto& pos : portfolio_.positions) {
+        mv += pos.marketValue;
+        cost += pos.costBasis;
+    }
+    portfolio_.marketValue = mv;
+    portfolio_.totalCost = cost;
+    portfolio_.totalAsset = portfolio_.cash + mv;
+    portfolio_.totalPnl = portfolio_.totalAsset - portfolio_.initialCapital;
+    portfolio_.totalPnlPct = portfolio_.initialCapital > 0
+        ? portfolio_.totalPnl / portfolio_.initialCapital * 100.0 : 0.0;
+
+    trades_ = state.trades;
+    currentTradeDate_ = state.currentTradeDate;
+    nextOrderId_ = static_cast<int>(trades_.size()) + 1;
+
+    history_.clear();
+    for (const auto& [code, bars] : state.history) {
+        history_[code] = BarSeries(bars);
+    }
+    pendingOrders_.clear();
+    lastPrices_.clear();
+}
+
+void PaperTradeEngine::settleT1(const DateTime& time) {
+    const std::string date = utils::toDateString(time);
+    if (currentTradeDate_.empty()) {
+        currentTradeDate_ = date;
+        return;
+    }
+    if (currentTradeDate_ == date) return;
+
+    // 进入新交易日：将上一交易日的当日买入转为可卖
+    for (auto& pos : portfolio_.positions) {
+        if (pos.todayBuy > 0) {
+            pos.available += pos.todayBuy;
+            pos.todayBuy = 0;
+        }
+    }
+    currentTradeDate_ = date;
+}
+
 void PaperTradeEngine::submitOrder(StockCode code, Direction dir, Volume vol) {
     if (vol <= 0) return;
 
@@ -109,22 +173,32 @@ PaperTradeEngine::strategiesFor(const StockCode& code) const {
 void PaperTradeEngine::onQuote(const StockCode& code, Price price, DateTime time) {
     if (!running_ || price <= 0) return;
 
+    // T+1：进入新交易日时先解冻上一交易日买入的持仓
+    settleT1(time);
+
     currentCode_ = code;
     lastPrices_[code.fullCode()] = price;
 
-    // 用当前报价构造 bar，累积历史供趋势策略计算均线
-    Bar bar;
-    bar.code = code;
-    bar.time = time;
-    bar.open = bar.high = bar.low = bar.close = price;
-
+    // 实时报价按日线聚合：同一交易日只保留/更新一根日线，避免 3 秒 tick 被当成多根 K 线
     auto& series = history_[code.fullCode()];
-    series.append(bar);
+    const std::string date = utils::toDateString(time);
+    if (series.empty() || utils::toDateString(series.current().time) != date) {
+        Bar bar;
+        bar.code = code;
+        bar.time = time;
+        bar.open = bar.high = bar.low = bar.close = price;
+        series.append(bar);
+    } else {
+        Bar& b = series.back();
+        b.high = std::max(b.high, price);
+        b.low = std::min(b.low, price);
+        b.close = price;
+    }
 
     // 驱动该股票的策略 onBar，策略可能下单
     StrategyContext ctx;
     ctx.currentCode = &code;
-    ctx.currentBar = &bar;
+    ctx.currentBar = &series.current();
     ctx.history = &series;
     ctx.portfolio = &portfolio_;
     for (auto& s : strategiesFor(code)) {
@@ -175,14 +249,15 @@ void PaperTradeEngine::executeTrade(StockCode code, Direction dir, Volume vol,
             pos->code = code;
         }
         pos->quantity += vol;
+        pos->todayBuy += vol;
         pos->costBasis += trade.amount;
         pos->avgCost = pos->quantity > 0 ? pos->costBasis / pos->quantity : 0.0;
-        pos->available = pos->quantity;
+        pos->available = pos->quantity - pos->todayBuy;  // T+1：当日买入不可卖
     } else {
         auto* pos = findPosition(code);
-        if (!pos || pos->quantity < vol) return;  // 持仓不足
+        if (!pos || pos->available < vol) return;  // T+1：仅可用持仓可卖
         pos->quantity -= vol;
-        pos->available = pos->quantity;
+        pos->available -= vol;
         if (pos->quantity <= 0) {
             pos->costBasis = 0.0;
             pos->avgCost = 0.0;

@@ -16,6 +16,7 @@ struct Order {
     OrderStatus status      = OrderStatus::Pending;
     Price       limitPrice  = 0.0;   // 限价（限价单使用）
     Volume      volume      = 0;     // 委托数量
+    Amount      targetAmount = 0.0;  // 按金额下单的目标金额（buyByAmount）
     Volume      filledVol   = 0;     // 已成交数量
     Price       avgFillPrice = 0.0;  // 成交均价
     DateTime    createTime;

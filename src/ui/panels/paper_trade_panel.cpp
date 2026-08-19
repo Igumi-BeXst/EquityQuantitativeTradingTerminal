@@ -4,12 +4,14 @@
 #include "ui/widgets/stock_pool_picker.h"
 #include "data/idata_provider.h"
 #include "engine/paper_trade/paper_trade_engine.h"
+#include "engine/paper_trade/paper_trade_state_store.h"
 #include "engine/journal/trade_journal.h"
 #include "engine/optimizer/grid_search.h"
 #include "engine/strategy/istrategy.h"
 #include "engine/strategy/templates/ma_cross_strategy.h"
 #include "core/thread_pool.h"
 #include "core/log_manager.h"
+#include "core/app_paths.h"
 #include "foundation/utils/datetime.h"
 #include <QComboBox>
 #include <QLabel>
@@ -28,11 +30,22 @@
 #include <QMetaObject>
 #include <QPointer>
 #include <algorithm>
+#include <cmath>
+#include <set>
+#include <filesystem>
 
 namespace st {
 
 namespace {
 constexpr int kRefreshMs = 3000;
+
+bool sameSymbolSet(const std::vector<std::string>& saved,
+                   const std::vector<StockCode>& current) {
+    std::set<std::string> a(saved.begin(), saved.end());
+    std::set<std::string> b;
+    for (const auto& c : current) b.insert(c.fullCode());
+    return a == b;
+}
 }  // namespace
 
 PaperTradePanel::PaperTradePanel(IDataProvider* provider, QWidget* parent)
@@ -136,6 +149,8 @@ PaperTradePanel::PaperTradePanel(IDataProvider* provider, QWidget* parent)
 
 PaperTradePanel::~PaperTradePanel() {
     // 停止轮询定时器：防止关闭窗口的间隙里定时器触发 → 提交 provider 异步任务
+    // 注意：不在析构里保存状态（子控件销毁顺序在 Release 下可能不安全），
+    // 保存由 QuantWindow::closeEvent 调用 saveStateNow() 完成。
     if (timer_) timer_->stop();
     if (engine_) engine_->stop();
 }
@@ -158,6 +173,58 @@ std::shared_ptr<IStrategy> PaperTradePanel::makeStrategy() const {
     pairs.emplace_back(spec->p2Key.toStdString(), params[spec->p2Key].toInt());
     auto s = GridSearchOptimizer::makeStrategy(spec->id.toStdString(), pairs);
     return s ? s : std::make_shared<MACrossStrategy>();
+}
+
+std::string PaperTradePanel::statePath() const {
+    return AppPaths::configDir() + "/paper_trade_state.json";
+}
+
+void PaperTradePanel::saveStateNow() {
+    saveState();
+}
+
+void PaperTradePanel::saveState() {
+    // 防御：窗口关闭/析构路径上尽量不因空控件或异常崩溃
+    if (!engine_ || !strategyCombo_ || !p1_ || !p2_ ||
+        !capital_ || !slippage_ || !stockPicker_) {
+        return;
+    }
+    try {
+        PaperTradeState state;
+        state.strategyId = strategyCombo_->currentData().toString().toStdString();
+        state.p1 = p1_->value();
+        state.p2 = p2_->value();
+        state.capital = capital_->value();
+        state.slippage = slippage_->value();
+        for (const auto& code : selectedSymbols()) {
+            state.symbols.push_back(code.fullCode());
+        }
+        state.engine = engine_->capture();
+        PaperTradeStateStore store;
+        if (!store.save(statePath(), state)) {
+            LogManager::instance()->log(LogLevel::Warn, "模拟交易: 保存状态失败");
+        }
+    } catch (const std::exception& e) {
+        LogManager::instance()->log(LogLevel::Warn, "模拟交易: 保存状态异常 {}", e.what());
+    } catch (...) {
+        LogManager::instance()->log(LogLevel::Warn, "模拟交易: 保存状态未知异常");
+    }
+}
+
+bool PaperTradePanel::loadMatchingState(PaperTradeState& state) const {
+    PaperTradeStateStore store;
+    if (!store.load(statePath(), state)) return false;
+    if (state.strategyId != strategyCombo_->currentData().toString().toStdString()) return false;
+    if (state.p1 != p1_->value() || state.p2 != p2_->value()) return false;
+    if (std::abs(state.capital - capital_->value()) > 1e-6) return false;
+    if (std::abs(state.slippage - slippage_->value()) > 1e-6) return false;
+
+    std::set<std::string> saved(state.symbols.begin(), state.symbols.end());
+    std::set<std::string> current;
+    for (const auto& code : selectedSymbols()) {
+        current.insert(code.fullCode());
+    }
+    return saved == current;
 }
 
 void PaperTradePanel::onStrategyChanged() {
@@ -197,19 +264,45 @@ void PaperTradePanel::onToggleClicked() {
         const auto start = utils::addTradingDays(now, -120);
         const double capital = capital_->value();
         const double slippage = slippage_->value();
+        const QString strategyId = strategyCombo_->currentData().toString();
+        const int p1 = p1_->value();
+        const int p2 = p2_->value();
+        const std::string path = statePath();
         // 安全异步：捕获 provider 按值 + QPointer 守卫
         IDataProvider* provider = provider_;
         QPointer<PaperTradePanel> guard(this);
-        ThreadPool::submitIO([provider, guard, symbols, start, now, capital, slippage] {
-            // 多股票：逐只拉历史
-            std::vector<std::pair<StockCode, std::vector<Bar>>> seeds;
-            seeds.reserve(symbols.size());
-            for (const auto& code : symbols) {
-                auto seed = provider->getBars(code, BarPeriod::Daily, start, now);
-                seeds.emplace_back(code, std::move(seed));
+        ThreadPool::submitIO([provider, guard, symbols, start, now, capital, slippage,
+                              strategyId, p1, p2, path] {
+            // 尝试恢复上次模拟账户；策略/参数/股票池一致才恢复，否则删除旧状态并全新开始
+            PaperTradeStateStore store;
+            PaperTradeState loaded;
+            bool restored = false;
+            if (store.load(path, loaded) &&
+                loaded.strategyId == strategyId.toStdString() &&
+                loaded.p1 == p1 && loaded.p2 == p2 &&
+                std::abs(loaded.capital - capital) < 1e-6 &&
+                std::abs(loaded.slippage - slippage) < 1e-6 &&
+                sameSymbolSet(loaded.symbols, symbols)) {
+                restored = true;
+            } else {
+                std::error_code ec;
+                std::filesystem::remove(path, ec);
             }
+
+            // 未恢复时才拉历史播种
+            std::vector<std::pair<StockCode, std::vector<Bar>>> seeds;
+            if (!restored) {
+                seeds.reserve(symbols.size());
+                for (const auto& code : symbols) {
+                    auto seed = provider->getBars(code, BarPeriod::Daily, start, now);
+                    seeds.emplace_back(code, std::move(seed));
+                }
+            }
+
             QMetaObject::invokeMethod(guard, [guard, seeds = std::move(seeds),
+                                              loaded = std::move(loaded), restored,
                                               capital, slippage]() mutable {
+                if (!guard) return;
                 // 重建引擎（清状态）
                 guard->engine_ = std::make_unique<PaperTradeEngine>();
                 // 模拟成交自动落库（安全异步：回调可能在 IO 线程，转主线程落库）
@@ -229,16 +322,30 @@ void PaperTradePanel::onToggleClicked() {
                 cfg.slippage = slippage;
                 cfg.feeConfig = FeeConfig::defaultAShare();
                 guard->engine_->setConfig(cfg);
-                // 每只股票：独立策略实例（避免共享策略状态跨股票串扰）+ 历史播种
-                for (auto& [code, seed] : seeds) {
-                    guard->engine_->addStrategy(code, guard->makeStrategy());
-                    guard->engine_->seedHistory(code, std::move(seed));
-                    if (seed.empty()) {
-                        LogManager::instance()->log(LogLevel::Warn,
-                            "模拟交易: {} 历史播种为空（无网络？），策略需积累报价后才交易",
-                            code.fullCode());
+
+                if (restored) {
+                    // 恢复：用保存的历史重建策略实例，再恢复账户快照
+                    for (const auto& [codeStr, bars] : loaded.engine.history) {
+                        StockCode code(codeStr);
+                        guard->engine_->addStrategy(code, guard->makeStrategy());
+                        guard->engine_->seedHistory(code, bars);
+                    }
+                    guard->engine_->restore(loaded.engine);
+                    guard->log_->appendPlainText(
+                        tr("已恢复上次模拟账户（策略/股票池匹配）"));
+                } else {
+                    // 全新开始：每只股票独立策略实例 + 历史播种
+                    for (auto& [code, seed] : seeds) {
+                        guard->engine_->addStrategy(code, guard->makeStrategy());
+                        guard->engine_->seedHistory(code, std::move(seed));
+                        if (seed.empty()) {
+                            LogManager::instance()->log(LogLevel::Warn,
+                                "模拟交易: {} 历史播种为空（无网络？），策略需积累报价后才交易",
+                                code.fullCode());
+                        }
                     }
                 }
+
                 guard->engine_->start();
                 guard->toggleBtn_->setText(tr("停止模拟交易"));
                 guard->toggleBtn_->setEnabled(true);
@@ -248,6 +355,7 @@ void PaperTradePanel::onToggleClicked() {
     } else {
         // 停止
         timer_->stop();
+        if (engine_) saveState();
         if (engine_) engine_->stop();
         running_ = false;
         toggleBtn_->setText(tr("启动模拟交易"));
@@ -272,6 +380,7 @@ void PaperTradePanel::onTimerTick() {
     ThreadPool::submitIO([provider, guard, gen, symbols] {
         auto quotes = provider->batchQuote(symbols);
         QMetaObject::invokeMethod(guard, [guard, gen, quotes = std::move(quotes)]() mutable {
+            if (!guard) return;
             guard->refreshing_ = false;
             if (gen != guard->gen_) return;
             if (quotes.empty()) return;

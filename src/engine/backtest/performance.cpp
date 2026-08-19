@@ -133,16 +133,16 @@ double PerformanceCalculator::sortino(const std::vector<double>& dailyReturns,
     double m = mean(dailyReturns);
     double dailyRiskFree = riskFree / static_cast<double>(daysPerYear);
     double downsideSum = 0.0;
-    int count = 0;
     for (double r : dailyReturns) {
         double downside = r - dailyRiskFree;
         if (downside < 0) {
             downsideSum += downside * downside;
-            count++;
         }
     }
-    if (count == 0) return 0.0;
-    double downsideDev = std::sqrt(downsideSum / static_cast<double>(count));
+    // 标准 Sortino：分母用全部交易日 N，而不是只除下行天数（对齐聚宽等平台）
+    const double n = static_cast<double>(dailyReturns.size());
+    if (n <= 0.0 || downsideSum <= 0.0) return 0.0;
+    double downsideDev = std::sqrt(downsideSum / n);
     if (downsideDev <= 0) return 0.0;
     return (m - dailyRiskFree) / downsideDev * std::sqrt(static_cast<double>(daysPerYear));
 }

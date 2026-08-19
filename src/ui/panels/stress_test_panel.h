@@ -5,6 +5,7 @@
 #include "foundation/stock_code.h"
 #include <QWidget>
 #include <memory>
+#include <map>
 
 class QComboBox;
 class QLabel;
@@ -29,7 +30,8 @@ public:
 
 private slots:
     void onRunClicked();
-    void onAllDataFetched();
+    void onAllDataFetched(std::vector<Bar> benchmarkBars,
+                          std::map<std::string, std::vector<Bar>> rawBars);
     void onStrategyChanged();
     void onWindowChanged();
 

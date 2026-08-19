@@ -5,7 +5,7 @@
 namespace st {
 
 namespace {
-constexpr int kColumnCount = 9;  // 策略/参数/总收益%/年化%/夏普/最大回撤%/胜率%/盈亏比/交易数
+constexpr int kColumnCount = 11;  // 策略/参数/总收益%/年化%/夏普/最大回撤%/胜率%/盈亏比/交易数/Alpha/Beta
 
 QString formatParams(const std::vector<std::pair<std::string, int>>& params) {
     QStringList parts;
@@ -43,9 +43,11 @@ QVariant ComparisonTableModel::headerData(int section, Qt::Orientation orientati
         case 3: return tr("年化%");
         case 4: return tr("夏普");
         case 5: return tr("最大回撤%");
-        case 6: return tr("胜率%");
+        case 6: return tr("胜率");
         case 7: return tr("盈亏比");
         case 8: return tr("交易数");
+        case 9: return tr("Alpha");
+        case 10: return tr("Beta");
         default: return {};
     }
 }
@@ -64,9 +66,11 @@ QVariant ComparisonTableModel::data(const QModelIndex& index, int role) const {
             case 3: return QString::number(r.performance.annualReturn, 'f', 2);
             case 4: return QString::number(r.performance.sharpeRatio, 'f', 2);
             case 5: return QString::number(r.performance.maxDrawdown, 'f', 2);
-            case 6: return QString::number(r.performance.winRate, 'f', 1);
+            case 6: return QString::number(r.performance.winRate / 100.0, 'f', 3);
             case 7: return QString::number(r.performance.profitFactor, 'f', 2);
             case 8: return r.performance.totalTrades;
+            case 9: return QString::number(r.performance.alpha / 100.0, 'f', 4);
+            case 10: return QString::number(r.performance.beta, 'f', 2);
             default: return {};
         }
     }

@@ -295,7 +295,7 @@ void ScreenerPanel::onAllDataFetched(
             screener.setProgressCallback([guard](double p) {
                 QMetaObject::invokeMethod(guard, [guard, p] {
                     if (!guard) return;
-                    guard->progress_->setValue(50 + static_cast<int>(p * 50));
+                    guard->progress_->setValue(50 + static_cast<int>(p / 2.0));
                 }, Qt::QueuedConnection);
             });
             auto results = screener.run(symbols);

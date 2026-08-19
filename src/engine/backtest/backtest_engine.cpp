@@ -30,6 +30,23 @@ public:
         pendingOrders_.push_back({std::move(order), order.volume});
     }
 
+    /// 新交易日 T+1 解冻：上一交易日买入 → available
+    void settleT1(const DateTime& time) {
+        const std::string date = utils::toDateString(time);
+        if (currentDate_.empty()) {
+            currentDate_ = date;
+            return;
+        }
+        if (currentDate_ == date) return;
+        for (auto& pos : positions_) {
+            if (pos.todayBuy > 0) {
+                pos.available += pos.todayBuy;
+                pos.todayBuy = 0;
+            }
+        }
+        currentDate_ = date;
+    }
+
     /// 持仓查询/更新
     Position& positionOf(const StockCode& code) {
         for (auto& pos : positions_) {
@@ -59,15 +76,16 @@ public:
             pos.avgCost = newQty > 0 ? newCost / newQty : 0.0;
             pos.quantity = newQty;
             pos.costBasis = newCost;
-            pos.available = pos.quantity;
+            pos.todayBuy += trade.volume;
+            pos.available = pos.quantity - pos.todayBuy;  // T+1：当日买入不可卖
         } else {
-            // 卖出: 检查持仓
+            // 卖出: 检查可用持仓（T+1）
             auto* pos = findPosition(trade.code);
-            if (!pos || pos->quantity < trade.volume) {
-                return false;  // 持仓不足
+            if (!pos || pos->available < trade.volume) {
+                return false;  // 可用持仓不足
             }
             pos->quantity -= trade.volume;
-            pos->available = pos->quantity;
+            pos->available -= trade.volume;
             if (pos->quantity <= 0) {
                 // 清仓，重置成本
                 pos->costBasis = 0.0;
@@ -135,6 +153,7 @@ private:
     Amount cash_;
     Amount initialCapital_;
     std::vector<Position> positions_;
+    std::string currentDate_;  // 当前交易日（YYYY-MM-DD），用于 T+1 解冻
 };
 
 // ============================================================
@@ -187,13 +206,10 @@ BacktestResult BacktestEngine::run() {
             order.direction = dir;
             order.type = OrderType::Market;
             order.volume = vol;
+            order.targetAmount = (vol <= 0 && amount > 0) ? amount : 0.0;
             order.strategyId = "strategy";
             order.createTime = currentTime_;
             order.updateTime = currentTime_;
-            if (vol <= 0 && amount > 0) {
-                // 按金额下单: 用最近价估算股数（撮合时精确计算）
-                order.volume = static_cast<Volume>(amount / 10.0);  // 暂存
-            }
             account_->submitOrder(std::move(order));
         };
         s->setTradingApi(std::move(api));
@@ -229,19 +245,49 @@ BacktestResult BacktestEngine::run() {
     // BarSeries 内部 shared_ptr + append，O(1) 追加，避免每根 bar 整段拷贝
     std::map<StockCode, BarSeries> seriesByCode;
 
+    // 聚宽兼容：用回测起始日之前的 K 线预填历史，保证策略指标从第一天起就有足够的 warm-up 数据；
+    // 交易/净值仍只从 startDate 开始（timeline 已过滤），预填数据不会产生起始日前的成交。
+    for (const auto& code : config_.symbols) {
+        const BarSeries* series = cache_ ? cache_->get(code, config_.period) : nullptr;
+        if (!series) continue;
+        auto& dest = seriesByCode[code];
+        for (const auto& bar : *series) {
+            if (bar.time >= config_.startDate) break;  // 序列按时间升序
+            dest.append(bar);
+        }
+    }
+
+    // 基准指数（沪深300）按日期对齐：用于 Alpha/Beta 计算
+    std::map<DateTime, double> benchByDate;
+    for (const auto& b : config_.benchmarkBars) {
+        if (b.close > 0) benchByDate[b.time] = b.close;
+    }
+    std::vector<double> benchmarkEquity;
+    benchmarkEquity.reserve(timeline.size());
+    double lastBenchClose = 0.0;
+    bool hasBenchClose = false;
+
+    // 不复权真实价（用于成交/市值，聚宽 use_real_price 兼容）
+    std::map<std::string, std::map<DateTime, Bar>> rawByCodeDate;
+    for (const auto& [code, bars] : config_.rawBars) {
+        for (const auto& b : bars) {
+            rawByCodeDate[code][b.time] = b;
+        }
+    }
+
     for (auto& [date, dayBars] : timeline) {
-        // 1. 每个股票：通知策略 onBar（先看当前 bar）
+        // 0. T+1：新交易日先解冻上一交易日买入的持仓
+        account_->settleT1(date);
+
+        // 1. 策略基于“截至昨日”的 K 线产生信号（聚宽兼容：不含今日 bar）
         for (auto& db : dayBars) {
             currentCode_ = db.code;
             currentTime_ = db.bar->time;
 
-            // 将当前 bar 追加进该股票历史（含当前 bar，策略可 lookback 当前）
-            auto& series = seriesByCode[db.code];
-            series.append(*db.bar);
-
+            auto& series = seriesByCode[db.code];  // 此刻只含昨日及以前
             StrategyContext ctx;
             ctx.currentCode = &currentCode_;
-            ctx.currentBar = db.bar;
+            ctx.currentBar = series.empty() ? nullptr : &series.current();
             ctx.history = &series;
             ctx.period = config_.period;
             auto snap = account_->snapshot(date);
@@ -258,20 +304,63 @@ BacktestResult BacktestEngine::run() {
             }
         }
 
-        // 2. 撮合昨日订单：以下一Bar开盘价成交
+        // 2. 撮合今日开盘价：成交的是昨日收盘产生的信号
         for (auto& db : dayBars) {
-            matchOrders(db.code, db.bar->open);
+            Price execOpen = db.bar->open;
+            auto rawIt = rawByCodeDate.find(db.code.fullCode());
+            if (rawIt != rawByCodeDate.end()) {
+                auto rawDay = rawIt->second.find(date);
+                if (rawDay != rawIt->second.end()) execOpen = rawDay->second.open;
+            }
+            matchOrders(db.code, execOpen);
         }
 
-        // 3. 标记市值 + 记录净值快照
+        // 3. 今日收盘后，把今日 bar 加入历史（供下一交易日使用）
         for (auto& db : dayBars) {
-            account_->markToMarket(db.code, db.bar->close);
+            seriesByCode[db.code].append(*db.bar);
+        }
+
+        // 4. 标记市值 + 记录净值快照（市值用真实价）
+        for (auto& db : dayBars) {
+            Price markClose = db.bar->close;
+            auto rawIt = rawByCodeDate.find(db.code.fullCode());
+            if (rawIt != rawByCodeDate.end()) {
+                auto rawDay = rawIt->second.find(date);
+                if (rawDay != rawIt->second.end()) {
+                    // 数据源偶发把下一日收盘错标到当日：若 raw close 超出当日 low~high，
+                    // 说明该 bar 数据异常，回退到信号缓存里的收盘价（K线显示口径）。
+                    const Price rc = rawDay->second.close;
+                    const Price rl = rawDay->second.low;
+                    const Price rh = rawDay->second.high;
+                    if (rc >= rl - 1e-6 && rc <= rh + 1e-6) {
+                        markClose = rc;
+                    }
+                    // 否则保留 db.bar->close
+                }
+            }
+            account_->markToMarket(db.code, markClose);
         }
         if (config_.keepEquitySnapshots) {
             result_.equitySnapshots.push_back(account_->snapshot(date));
         }
         // 净值曲线始终累积（网格搜索不存快照时仍可算绩效/曲线）
         equityCurve_.push_back(account_->netValue());
+
+        // 基准净值对齐（缺失时向前借用最近一个基准收盘）
+        {
+            auto it = benchByDate.find(date);
+            if (it != benchByDate.end()) {
+                lastBenchClose = it->second;
+                hasBenchClose = true;
+            } else if (!hasBenchClose) {
+                auto lb = benchByDate.lower_bound(date);
+                if (lb != benchByDate.end()) {
+                    lastBenchClose = lb->second;
+                    hasBenchClose = true;
+                }
+            }
+            benchmarkEquity.push_back(hasBenchClose ? lastBenchClose : 0.0);
+        }
 
         // 进度
         processed++;
@@ -287,6 +376,7 @@ BacktestResult BacktestEngine::run() {
 
     // 生成结果
     result_.finalPortfolio = account_->snapshot(DateTime{});
+    result_.benchmarkEquity = benchmarkEquity;
 
     // 净值曲线
     std::vector<double> equity;
@@ -301,7 +391,19 @@ BacktestResult BacktestEngine::run() {
 
     PerformanceCalculator::Input perfInput;
     perfInput.equity = equity;
+    if (benchmarkEquity.size() == equity.size() &&
+        std::all_of(benchmarkEquity.begin(), benchmarkEquity.end(),
+                    [](double v) { return v > 0.0; })) {
+        perfInput.benchmarkEquity = benchmarkEquity;
+    }
     result_.performance = PerformanceCalculator::calculate(perfInput);
+
+    // 交易明细按时间升序（同一时间按代码排序，保证展示顺序稳定）
+    std::stable_sort(trades_.begin(), trades_.end(),
+                     [](const Trade& a, const Trade& b) {
+                         if (a.time != b.time) return a.time < b.time;
+                         return a.code.fullCode() < b.code.fullCode();
+                     });
 
     // 交易明细
     result_.trades = trades_;
@@ -327,26 +429,40 @@ void BacktestEngine::matchOrders(const StockCode& code, Price openPrice) {
     for (auto& entry : orders) {
         auto& order = entry.order;
         if (order.code != code || !order.isActive()) continue;
-        if (order.volume <= 0) continue;
+        if (order.volume <= 0 && order.targetAmount <= 0) continue;
+
+        // 滑点：对齐聚宽默认 1 跳（买+0.01，卖-0.01）
+        const Price slippage = config_.slippagePerShare;
+        const Price fillPrice = order.direction == Direction::Buy
+            ? openPrice + slippage : openPrice - slippage;
 
         // 计算最大可成交量
         Volume maxVol = order.volume;
         if (order.direction == Direction::Buy) {
-            // 资金限制
+            // 按金额下单：在成交价（今日开盘）处换算股数，并按 A 股 100 股一手向下取整
+            if (order.targetAmount > 0) {
+                Volume amountVol = static_cast<Volume>(order.targetAmount / openPrice);
+                amountVol = (amountVol / 100) * 100;
+                order.volume = amountVol;   // 让 unfilled()/部分成交逻辑正常
+            }
+            maxVol = order.volume;
+
+            // 资金限制（按含滑点成交价）
             Amount available = account_->cash();
             if (available <= 0) {
                 order.status = OrderStatus::Rejected;
                 continue;
             }
-            maxVol = static_cast<Volume>(available / openPrice);
+            maxVol = std::min(maxVol, static_cast<Volume>(available / fillPrice));
+            maxVol = (maxVol / 100) * 100;  // 买入必须是 100 股整数倍
         } else {
-            // 持仓限制
+            // T+1：仅可用持仓可卖
             auto& pos = account_->positionOf(code);
-            maxVol = pos.quantity;
+            maxVol = pos.available;
         }
         if (maxVol <= 0) continue;
 
-        auto match = matcher_->match(order, openPrice, maxVol);
+        auto match = matcher_->match(order, fillPrice, maxVol);
         if (match.filled) {
             auto trade = matcher_->buildTrade(order, match.fillPrice, match.fillVolume);
             // 计算费用

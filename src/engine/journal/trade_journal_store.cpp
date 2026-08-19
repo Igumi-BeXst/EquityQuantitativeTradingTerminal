@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <set>
 
 namespace st {
 
@@ -51,6 +52,47 @@ FeeConfig defaultFeeConfig() {
     return cfg;
 }
 
+/// 写入条目数组（紧凑 JSON，减小体积）
+bool writeEntries(const std::string& path, const std::vector<JournalEntry>& entries) {
+    try {
+        std::filesystem::path p(path);
+        if (!p.parent_path().empty() && !std::filesystem::exists(p.parent_path())) {
+            std::filesystem::create_directories(p.parent_path());
+        }
+        nlohmann::json arr = nlohmann::json::array();
+        for (const auto& e : entries) {
+            nlohmann::json je;
+            to_json(je, e);
+            arr.push_back(std::move(je));
+        }
+        std::ofstream ofs(path, std::ios::trunc);
+        if (!ofs.is_open()) return false;
+        ofs << arr.dump(-1);   // 紧凑 JSON，不缩进
+        return static_cast<bool>(ofs);
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
+/// 读取条目数组；文件缺失/损坏返回空数组
+std::vector<JournalEntry> readEntries(const std::string& path) {
+    std::ifstream ifs(path);
+    if (!ifs.is_open()) return {};
+    try {
+        auto j = nlohmann::json::parse(ifs);
+        if (!j.is_array()) return {};
+        std::vector<JournalEntry> entries;
+        for (const auto& item : j) {
+            JournalEntry e;
+            from_json(item, e);
+            entries.push_back(std::move(e));
+        }
+        return entries;
+    } catch (const std::exception&) {
+        return {};
+    }
+}
+
 } // anonymous namespace
 
 bool TradeJournalStore::load(const std::string& path, TradeJournalEngine& engine) const {
@@ -72,25 +114,29 @@ bool TradeJournalStore::load(const std::string& path, TradeJournalEngine& engine
     }
 }
 
-bool TradeJournalStore::save(const std::string& path, const TradeJournalEngine& engine) const {
-    try {
-        std::filesystem::path p(path);
-        if (!p.parent_path().empty() && !std::filesystem::exists(p.parent_path())) {
-            std::filesystem::create_directories(p.parent_path());
-        }
-        nlohmann::json arr = nlohmann::json::array();
-        for (const auto& e : engine.entries()) {
-            nlohmann::json je;
-            to_json(je, e);
-            arr.push_back(std::move(je));
-        }
-        std::ofstream ofs(path, std::ios::trunc);
-        if (!ofs.is_open()) return false;
-        ofs << arr.dump(2);
-        return static_cast<bool>(ofs);
-    } catch (const std::exception&) {
-        return false;
+bool TradeJournalStore::save(const std::string& path, const TradeJournalEngine& engine,
+                             size_t maxEntries) const {
+    auto entries = engine.entries();
+    if (entries.size() <= maxEntries) {
+        return writeEntries(path, entries);
     }
+
+    // 超出上限：把最旧的 excess 条归档到 <path>.archive，主文件只保留最近 maxEntries 条
+    const size_t archiveCount = entries.size() - maxEntries;
+    std::vector<JournalEntry> archived(entries.begin(), entries.begin() + archiveCount);
+    std::vector<JournalEntry> remaining(entries.begin() + archiveCount, entries.end());
+
+    const std::string archivePath = path + ".archive";
+    auto existing = readEntries(archivePath);
+    std::set<std::string> ids;
+    for (const auto& e : existing) ids.insert(e.id);
+    for (auto& e : archived) {
+        if (ids.insert(e.id).second) {
+            existing.push_back(std::move(e));
+        }
+    }
+
+    return writeEntries(archivePath, existing) && writeEntries(path, remaining);
 }
 
 FeeConfig TradeJournalStore::loadFeeConfig(const std::string& path) {

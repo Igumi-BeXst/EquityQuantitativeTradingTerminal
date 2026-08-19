@@ -11,8 +11,9 @@ namespace st::detail {
 inline double smaAt(const BarSeries& s, int period, int offset = 0) {
     if (s.size() < static_cast<size_t>(period + offset + 1)) return 0.0;
     double sum = 0.0;
-    for (int i = 1; i <= period; ++i) {
-        sum += s.lookback(i + offset).close;
+    for (int i = 0; i < period; ++i) {
+        const size_t idx = s.size() - 1 - static_cast<size_t>(i) - static_cast<size_t>(offset);
+        sum += s.at(idx).close;
     }
     return sum / period;
 }

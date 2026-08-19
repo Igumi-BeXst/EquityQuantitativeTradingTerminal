@@ -235,7 +235,9 @@ void StrategyComparePanel::onRunClicked() {
         const int total = static_cast<int>(symbols.size());
         int done = 0;
         for (const auto& code : symbols) {
-            auto bars = provider->getBars(code, BarPeriod::Daily, start, end);
+            const DateTime warmStart =
+                start - std::chrono::hours(24 * kBacktestWarmupCalendarDays);
+            auto bars = provider->getRawBars(code, BarPeriod::Daily, warmStart, end);
             if (!bars.empty()) cache->cacheBars(code, BarPeriod::Daily, std::move(bars));
             ++done;
             // 节流：IO 阶段每只更新太频繁，每 2% 或末只才上报
@@ -248,13 +250,27 @@ void StrategyComparePanel::onRunClicked() {
                 }, Qt::QueuedConnection);
             }
         }
-        QMetaObject::invokeMethod(guard, [guard] { guard->onAllDataFetched(); },
-                                  Qt::QueuedConnection);
+        // 沪深300 基准（用于 Alpha/Beta）
+        auto benchmarkBars = provider->getBars(
+            StockCode(Market::SH, "000300"), BarPeriod::Daily, start, end);
+        // 不复权真实价
+        std::map<std::string, std::vector<Bar>> rawBars;
+        for (const auto& code : symbols) {
+            auto raw = provider->getRawBars(code, BarPeriod::Daily, start, end);
+            if (!raw.empty()) rawBars[code.fullCode()] = std::move(raw);
+        }
+        QMetaObject::invokeMethod(guard, [guard, benchmarkBars = std::move(benchmarkBars),
+                                          rawBars = std::move(rawBars)]() mutable {
+            if (!guard) return;
+            guard->onAllDataFetched(std::move(benchmarkBars), std::move(rawBars));
+        }, Qt::QueuedConnection);
     });
 }
 
-void StrategyComparePanel::onAllDataFetched() {
+void StrategyComparePanel::onAllDataFetched(std::vector<Bar> benchmarkBars,
+                                            std::map<std::string, std::vector<Bar>> rawBars) {
     progress_->setValue(50);
+    eta_.reset();  // IO 阶段很快，进入计算阶段后重新估算剩余时间
     auto symbols = selectedSymbols();
     auto items = selectedItems();
     if (symbols.empty() || items.empty()) {
@@ -269,6 +285,9 @@ void StrategyComparePanel::onAllDataFetched() {
     cfg.endDate = utils::parseDate(endDate_->date().toString(Qt::ISODate).toStdString());
     cfg.initialCapital = capital_->value();
     cfg.feeConfig = FeeConfig::defaultAShare();
+    cfg.slippagePerShare = 0.01;  // 对齐聚宽默认 1 跳滑点
+    cfg.benchmarkBars = std::move(benchmarkBars);
+    cfg.rawBars = std::move(rawBars);
     const auto cache = cache_;  // shared_ptr：worker 内 cfg.cache 指向它，面板销毁后仍存活
     cfg.cache = cache.get();
 
@@ -279,7 +298,7 @@ void StrategyComparePanel::onAllDataFetched() {
         comp.setProgressCallback([guard](double p) {
             QMetaObject::invokeMethod(guard, [guard, p] {
                 if (!guard) return;
-                guard->progress_->setValue(50 + static_cast<int>(p * 50));
+                guard->progress_->setValue(50 + static_cast<int>(p / 2.0));
                 guard->progressEtaLabel_->setText(guard->eta_.text(p));
             }, Qt::QueuedConnection);
         });

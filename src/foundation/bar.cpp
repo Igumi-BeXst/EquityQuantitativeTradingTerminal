@@ -8,6 +8,13 @@ const Bar& BarSeries::current() const {
     return at(size() - 1);
 }
 
+Bar& BarSeries::back() {
+    if (bars_->empty()) {
+        throw std::out_of_range("BarSeries::back: empty series");
+    }
+    return bars_->back();
+}
+
 const Bar& BarSeries::at(size_t index) const {
     if (index >= bars_->size()) {
         throw std::out_of_range("BarSeries::at: index out of range");

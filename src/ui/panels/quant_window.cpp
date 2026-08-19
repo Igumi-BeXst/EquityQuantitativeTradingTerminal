@@ -78,6 +78,10 @@ void QuantWindow::closeEvent(QCloseEvent* event) {
     // 都在用），会阻塞等到所有无关任务跑完（全市场批量报价可达几十秒）→ 关闭卡死。
     // 面板异步任务均为守卫模式（QPointer + shared_ptr cache），面板销毁后 QueuedConnection
     // 回调被 Qt 自动丢弃（实测不执行），无 use-after-free 风险。
+    // 模拟交易状态在窗口销毁前保存，避免在子控件析构阶段写状态导致 Release 崩溃。
+    if (paperTradePanel_) {
+        paperTradePanel_->saveStateNow();
+    }
     QMainWindow::closeEvent(event);
 }
 

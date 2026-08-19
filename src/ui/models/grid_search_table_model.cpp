@@ -4,7 +4,7 @@
 namespace st {
 
 namespace {
-constexpr int kColumnCount = 7;  // 参数1/参数2/目标值/总收益%/最大回撤%/夏普/交易数
+constexpr int kColumnCount = 9;  // 参数1/参数2/目标值/总收益%/最大回撤%/夏普/交易数/Alpha/Beta
 }  // namespace
 
 GridSearchTableModel::GridSearchTableModel(QObject* parent)
@@ -43,6 +43,8 @@ QVariant GridSearchTableModel::headerData(int section, Qt::Orientation orientati
         case 4: return tr("最大回撤%");
         case 5: return tr("夏普");
         case 6: return tr("交易数");
+        case 7: return tr("Alpha");
+        case 8: return tr("Beta");
         default: return {};
     }
 }
@@ -66,6 +68,8 @@ QVariant GridSearchTableModel::data(const QModelIndex& index, int role) const {
             case 4: return QString::number(r.performance.maxDrawdown, 'f', 2);
             case 5: return QString::number(r.performance.sharpeRatio, 'f', 2);
             case 6: return r.performance.totalTrades;
+            case 7: return QString::number(r.performance.alpha / 100.0, 'f', 4);
+            case 8: return QString::number(r.performance.beta, 'f', 2);
             default: return {};
         }
     }

@@ -228,15 +228,18 @@ std::vector<Bar> TencentProvider::parseFqKline(const std::string& json,
         auto& data = doc["data"];
         if (data.is_null()) return result;
 
-        // 键名: qfq{day|week|month} (前复权) / {day|week|month} (不复权)
+        // 键名: qfq{day|week|month} (前复权) / hfq{day|week|month} (后复权) / {day|week|month} (不复权)
         const char* kw = periodToFqKeyword(period);
         const nlohmann::json* klines = nullptr;
         auto key = toTencentCode(code);
         if (data.contains(key)) {
             auto& stock = data[key];
             const std::string qfqKey = std::string("qfq") + kw;
+            const std::string hfqKey = std::string("hfq") + kw;
             if (stock.contains(qfqKey)) {
                 klines = &stock[qfqKey];
+            } else if (stock.contains(hfqKey)) {
+                klines = &stock[hfqKey];
             } else if (stock.contains(kw)) {
                 klines = &stock[kw];
             }
@@ -278,6 +281,38 @@ std::vector<Bar> TencentProvider::fetchKlineBars(const StockCode& code,
     std::string url = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param="
                       + toTencentCode(code) + "," + periodToFqKeyword(period) + ","
                       + beg + "," + endStr + ",640,qfq";
+    auto body = fetch(url);
+    return parseFqKline(body, code, period);
+}
+
+std::vector<Bar> TencentProvider::fetchRawKlineBars(const StockCode& code,
+                                                    BarPeriod period,
+                                                    DateTime start, DateTime end) {
+    // 不复权：URL 末尾不带 qfq，返回键为 {day|week|month}
+    constexpr auto kAnchor = std::chrono::hours(24 * 365 * 30);
+    std::string beg = (start >= DateTime{} + kAnchor)
+        ? utils::toDateString(start) : "";
+    std::string endStr = (end >= DateTime{} + kAnchor)
+        ? utils::toDateString(end) : "";
+    std::string url = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param="
+                      + toTencentCode(code) + "," + periodToFqKeyword(period) + ","
+                      + beg + "," + endStr + ",640,";
+    auto body = fetch(url);
+    return parseFqKline(body, code, period);
+}
+
+std::vector<Bar> TencentProvider::fetchHfqKlineBars(const StockCode& code,
+                                                    BarPeriod period,
+                                                    DateTime start, DateTime end) {
+    // 后复权：URL 末尾带 hfq，返回键为 hfq{day|week|month}
+    constexpr auto kAnchor = std::chrono::hours(24 * 365 * 30);
+    std::string beg = (start >= DateTime{} + kAnchor)
+        ? utils::toDateString(start) : "";
+    std::string endStr = (end >= DateTime{} + kAnchor)
+        ? utils::toDateString(end) : "";
+    std::string url = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param="
+                      + toTencentCode(code) + "," + periodToFqKeyword(period) + ","
+                      + beg + "," + endStr + ",640,hfq";
     auto body = fetch(url);
     return parseFqKline(body, code, period);
 }
@@ -574,6 +609,34 @@ std::vector<Bar> TencentProvider::getBars(const StockCode& code, BarPeriod perio
             LogManager::instance()->log(LogLevel::Warn,
                 "TencentProvider: 暂不支持的周期 (period={})", static_cast<int>(period));
             return {};
+    }
+}
+
+std::vector<Bar> TencentProvider::getRawBars(const StockCode& code, BarPeriod period,
+                                             DateTime start, DateTime end) {
+    switch (period) {
+        case BarPeriod::Daily:
+        case BarPeriod::Weekly:
+        case BarPeriod::Monthly:
+        case BarPeriod::Quarterly:
+        case BarPeriod::Yearly:
+            return fetchRawKlineBars(code, period, start, end);
+        default:
+            return getBars(code, period, start, end);
+    }
+}
+
+std::vector<Bar> TencentProvider::getHfqBars(const StockCode& code, BarPeriod period,
+                                             DateTime start, DateTime end) {
+    switch (period) {
+        case BarPeriod::Daily:
+        case BarPeriod::Weekly:
+        case BarPeriod::Monthly:
+        case BarPeriod::Quarterly:
+        case BarPeriod::Yearly:
+            return fetchHfqKlineBars(code, period, start, end);
+        default:
+            return getBars(code, period, start, end);
     }
 }
 

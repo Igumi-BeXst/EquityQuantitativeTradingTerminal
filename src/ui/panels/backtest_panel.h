@@ -2,11 +2,13 @@
 
 #include "foundation/types.h"
 #include "foundation/order.h"
+#include "foundation/bar.h"
 #include "engine/backtest/performance.h"
 #include "ui/utils/progress_eta.h"
 #include <QWidget>
 #include <memory>
 #include <vector>
+#include <map>
 
 class QComboBox;
 class QSpinBox;
@@ -42,7 +44,8 @@ public:
 private slots:
     void onRunClicked();
     void onStrategyChanged();
-    void onAllDataFetched();
+    void onAllDataFetched(std::vector<Bar> benchmarkBars,
+                          std::map<std::string, std::vector<Bar>> rawBars);
     void onResult(const BacktestResult& result);
     void onExportClicked();
 

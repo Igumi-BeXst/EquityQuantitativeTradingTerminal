@@ -263,6 +263,7 @@ BacktestConfig BacktestPanel::makeConfig(const std::vector<StockCode>& symbols) 
     cfg.initialCapital = capital_->value();
     cfg.period = BarPeriod::Daily;
     cfg.feeConfig = FeeConfig::defaultAShare();
+    cfg.slippagePerShare = 0.01;  // 对齐聚宽默认 1 跳滑点
     // 净值曲线由引擎内部累积（equityCurve），无需保存每日完整 Portfolio 快照——
     // 全市场大池时每组合/每次回测省下数百 MB 内存
     cfg.keepEquitySnapshots = false;
@@ -344,7 +345,9 @@ void BacktestPanel::onRunClicked() {
         const int total = static_cast<int>(symbols.size());
         int done = 0;
         for (const auto& code : symbols) {
-            auto bars = provider->getBars(code, BarPeriod::Daily, start, end);
+            const DateTime warmStart =
+                start - std::chrono::hours(24 * kBacktestWarmupCalendarDays);
+            auto bars = provider->getRawBars(code, BarPeriod::Daily, warmStart, end);
             if (!bars.empty()) cache->cacheBars(code, BarPeriod::Daily, std::move(bars));
             ++done;
             // 节流：IO 阶段每只更新太频繁，每 2% 或末只才上报
@@ -357,13 +360,27 @@ void BacktestPanel::onRunClicked() {
                 }, Qt::QueuedConnection);
             }
         }
-        QMetaObject::invokeMethod(guard, [guard] { guard->onAllDataFetched(); },
-                                  Qt::QueuedConnection);
+        // 沪深300 基准（用于 Alpha/Beta）
+        auto benchmarkBars = provider->getBars(
+            StockCode(Market::SH, "000300"), BarPeriod::Daily, start, end);
+        // 不复权真实价（聚宽 use_real_price 成交兼容）
+        std::map<std::string, std::vector<Bar>> rawBars;
+        for (const auto& code : symbols) {
+            auto raw = provider->getRawBars(code, BarPeriod::Daily, start, end);
+            if (!raw.empty()) rawBars[code.fullCode()] = std::move(raw);
+        }
+        QMetaObject::invokeMethod(guard, [guard, benchmarkBars = std::move(benchmarkBars),
+                                          rawBars = std::move(rawBars)]() mutable {
+            if (!guard) return;
+            guard->onAllDataFetched(std::move(benchmarkBars), std::move(rawBars));
+        }, Qt::QueuedConnection);
     });
 }
 
-void BacktestPanel::onAllDataFetched() {
+void BacktestPanel::onAllDataFetched(std::vector<Bar> benchmarkBars,
+                                     std::map<std::string, std::vector<Bar>> rawBars) {
     progress_->setValue(50);
+    eta_.reset();  // IO 阶段很快，进入计算阶段后重新估算剩余时间
     auto symbols = selectedSymbols();
     if (symbols.empty()) {
         running_ = false;
@@ -371,6 +388,8 @@ void BacktestPanel::onAllDataFetched() {
         return;
     }
     auto cfg = makeConfig(symbols);
+    cfg.benchmarkBars = std::move(benchmarkBars);
+    cfg.rawBars = std::move(rawBars);
     auto strategy = makeStrategy();
 
     // ② Worker 池回测（安全异步：QPointer 守卫 + shared_ptr cache）
@@ -384,7 +403,7 @@ void BacktestPanel::onAllDataFetched() {
         engine.setProgressCallback([guard](double p) {
             QMetaObject::invokeMethod(guard, [guard, p] {
                 if (!guard) return;
-                guard->progress_->setValue(50 + static_cast<int>(p * 50));
+                guard->progress_->setValue(50 + static_cast<int>(p / 2.0));
                 guard->progressEtaLabel_->setText(guard->eta_.text(p));
             }, Qt::QueuedConnection);
         });
@@ -403,12 +422,12 @@ void BacktestPanel::setMetrics(const Performance& perf, const BacktestResult& re
     setPct(annual_, perf.annualReturn);
     setVal(sharpe_, perf.sharpeRatio);
     setPct(mdd_, perf.maxDrawdown);
-    setPct(winRate_, perf.winRate);
+    setVal(winRate_, perf.winRate / 100.0, 3);      // 与聚宽一致：胜率用小数（0.296 = 29.6%）
     setVal(pf_, perf.profitFactor);
     setVal(calmar_, perf.calmarRatio);
-    setPct(vol_, perf.volatility);
+    setVal(vol_, perf.volatility / 100.0, 3);       // 与聚宽一致：波动率用小数（0.347 = 34.7%）
     setVal(sortino_, perf.sortinoRatio);
-    setVal(alpha_, perf.alpha);
+    setVal(alpha_, perf.alpha / 100.0, 4);  // 与聚宽一致：Alpha 用小数表示（0.005 = 0.5%）
     setVal(beta_, perf.beta);
     trades_->setText(QString::number(result.trades.size()));
 
@@ -432,7 +451,19 @@ void BacktestPanel::onResult(const BacktestResult& result) {
     }
 
     setMetrics(result.performance, result);
-    equityCurve_->setData(result.performance.equityCurve);
+    // 策略净值 + 沪深300 基准净值（归一化到 1.0 对比）
+    {
+        std::vector<EquityCurveWidget::EquitySeries> series;
+        series.push_back({tr("策略"), QColor("#4caf50"), result.performance.equityCurve});
+        if (!result.benchmarkEquity.empty() && result.benchmarkEquity.front() > 0.0) {
+            std::vector<double> bench;
+            bench.reserve(result.benchmarkEquity.size());
+            const double base = result.benchmarkEquity.front();
+            for (double v : result.benchmarkEquity) bench.push_back(v / base);
+            series.push_back({tr("沪深300"), QColor("#2196f3"), std::move(bench)});
+        }
+        equityCurve_->setSeries(series);
+    }
     // 名称映射（全市场列表；未加载时显示 "--"）
     std::unordered_map<std::string, std::string> nameByCode;
     if (stockPicker_) {
@@ -477,12 +508,12 @@ void BacktestPanel::onExportClicked() {
     row({"年化收益率(%)", fmt(lastPerf_.annualReturn, 2)});
     row({"最大回撤(%)", fmt(lastPerf_.maxDrawdown, 2)});
     row({"夏普比率", fmt(lastPerf_.sharpeRatio, 2)});
-    row({"胜率(%)", fmt(lastPerf_.winRate, 2)});
+    row({"胜率", fmt(lastPerf_.winRate / 100.0, 4)});
     row({"盈亏比", fmt(lastPerf_.profitFactor, 2)});
     row({"卡玛比率", fmt(lastPerf_.calmarRatio, 2)});
-    row({"波动率(%)", fmt(lastPerf_.volatility, 2)});
+    row({"波动率", fmt(lastPerf_.volatility / 100.0, 4)});
     row({"索提诺比率", fmt(lastPerf_.sortinoRatio, 2)});
-    row({"Alpha", fmt(lastPerf_.alpha, 4)});
+    row({"Alpha", fmt(lastPerf_.alpha / 100.0, 4)});
     row({"Beta", fmt(lastPerf_.beta, 4)});
     row({"总交易次数", std::to_string(lastPerf_.totalTrades)});
     row({"盈利交易", std::to_string(lastPerf_.winningTrades)});

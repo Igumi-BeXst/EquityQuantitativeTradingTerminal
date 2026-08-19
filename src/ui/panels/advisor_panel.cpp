@@ -294,7 +294,7 @@ void AdvisorPanel::onRunClicked() {
         const int total = static_cast<int>(symbols.size());
         int done = 0;
         for (const auto& code : symbols) {
-            auto bars = provider->getBars(code, BarPeriod::Daily, loadStart, end);
+            auto bars = provider->getRawBars(code, BarPeriod::Daily, loadStart, end);
             if (!bars.empty()) cache->cacheBars(code, BarPeriod::Daily, std::move(bars));
             ++done;
             // 节流：IO 阶段每只更新太频繁，每 2% 或末只才上报
@@ -307,14 +307,27 @@ void AdvisorPanel::onRunClicked() {
                 }, Qt::QueuedConnection);
             }
         }
-        QMetaObject::invokeMethod(guard, [guard] {
-            guard->onAllDataFetched();
+        // 沪深300 基准（用于 Alpha/Beta）
+        auto benchmarkBars = provider->getBars(
+            StockCode(Market::SH, "000300"), BarPeriod::Daily, loadStart, end);
+        // 不复权真实价
+        std::map<std::string, std::vector<Bar>> rawBars;
+        for (const auto& code : symbols) {
+            auto raw = provider->getRawBars(code, BarPeriod::Daily, loadStart, end);
+            if (!raw.empty()) rawBars[code.fullCode()] = std::move(raw);
+        }
+        QMetaObject::invokeMethod(guard, [guard, benchmarkBars = std::move(benchmarkBars),
+                                          rawBars = std::move(rawBars)]() mutable {
+            if (!guard) return;
+            guard->onAllDataFetched(std::move(benchmarkBars), std::move(rawBars));
         }, Qt::QueuedConnection);
     });
 }
 
-void AdvisorPanel::onAllDataFetched() {
+void AdvisorPanel::onAllDataFetched(std::vector<Bar> benchmarkBars,
+                                    std::map<std::string, std::vector<Bar>> rawBars) {
     progress_->setValue(50);
+    eta_.reset();  // IO 阶段很快，进入计算阶段后重新估算剩余时间
     auto symbols = selectedSymbols();
     if (symbols.empty()) {
         resetToIdle();
@@ -331,10 +344,13 @@ void AdvisorPanel::onAllDataFetched() {
         {p2Key.toStdString(), p2From_->value(), p2To_->value(), p2Step_->value()},
     };
     cfg.symbols = symbols;
+    cfg.benchmarkBars = std::move(benchmarkBars);
+    cfg.rawBars = std::move(rawBars);
     cfg.startDate = utils::parseDate(startDate_->date().toString(Qt::ISODate).toStdString());
     cfg.endDate = utils::parseDate(endDate_->date().toString(Qt::ISODate).toStdString());
     cfg.initialCapital = capital_->value();
     cfg.feeConfig = FeeConfig::defaultAShare();
+    cfg.slippagePerShare = 0.01;  // 对齐聚宽默认 1 跳滑点
     cfg.objective = currentObjective();
     const auto cache = cache_;  // shared_ptr：worker 内 cfg.cache 指向它，面板销毁后仍存活
     cfg.cache = cache.get();
@@ -390,6 +406,9 @@ void AdvisorPanel::onAllDataFetched() {
             scfg.symbols = cfg.symbols;
             scfg.initialCapital = cfg.initialCapital;
             scfg.feeConfig = cfg.feeConfig;
+            scfg.slippagePerShare = cfg.slippagePerShare;
+            scfg.benchmarkBars = cfg.benchmarkBars;
+            scfg.rawBars = cfg.rawBars;
             scfg.cache = cfg.cache;
             scfg.baselineStart = utils::parseDate("2015-01-01");
             scfg.baselineEnd = cfg.endDate;

@@ -76,6 +76,24 @@ std::vector<Bar> MultiProvider::getBars(const StockCode& code, BarPeriod period,
     return {};
 }
 
+std::vector<Bar> MultiProvider::getRawBars(const StockCode& code, BarPeriod period,
+                                           DateTime start, DateTime end) {
+    IDataProvider* p = preferred();
+    auto bars = p->getRawBars(code, period, start, end);
+    if (!bars.empty()) return bars;
+    if (IDataProvider* o = other(p)) return o->getRawBars(code, period, start, end);
+    return {};
+}
+
+std::vector<Bar> MultiProvider::getHfqBars(const StockCode& code, BarPeriod period,
+                                           DateTime start, DateTime end) {
+    IDataProvider* p = preferred();
+    auto bars = p->getHfqBars(code, period, start, end);
+    if (!bars.empty()) return bars;
+    if (IDataProvider* o = other(p)) return o->getHfqBars(code, period, start, end);
+    return {};
+}
+
 void MultiProvider::subscribeQuote(const StockCode& code) {
     preferred()->subscribeQuote(code);
 }

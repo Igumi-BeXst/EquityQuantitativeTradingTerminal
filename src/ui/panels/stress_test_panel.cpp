@@ -203,7 +203,7 @@ void StressTestPanel::onRunClicked() {
         const int total = static_cast<int>(symbols.size());
         int done = 0;
         for (const auto& code : symbols) {
-            auto bars = provider->getBars(code, BarPeriod::Daily, baseStart, end);
+            auto bars = provider->getRawBars(code, BarPeriod::Daily, baseStart, end);
             if (!bars.empty()) cache->cacheBars(code, BarPeriod::Daily, std::move(bars));
             ++done;
             // 节流：IO 阶段每只更新太频繁，每 2% 或末只才上报
@@ -216,13 +216,27 @@ void StressTestPanel::onRunClicked() {
                 }, Qt::QueuedConnection);
             }
         }
-        QMetaObject::invokeMethod(guard, [guard] { guard->onAllDataFetched(); },
-                                  Qt::QueuedConnection);
+        // 沪深300 基准（用于 Alpha/Beta）
+        auto benchmarkBars = provider->getBars(
+            StockCode(Market::SH, "000300"), BarPeriod::Daily, baseStart, end);
+        // 不复权真实价
+        std::map<std::string, std::vector<Bar>> rawBars;
+        for (const auto& code : symbols) {
+            auto raw = provider->getRawBars(code, BarPeriod::Daily, baseStart, end);
+            if (!raw.empty()) rawBars[code.fullCode()] = std::move(raw);
+        }
+        QMetaObject::invokeMethod(guard, [guard, benchmarkBars = std::move(benchmarkBars),
+                                          rawBars = std::move(rawBars)]() mutable {
+            if (!guard) return;
+            guard->onAllDataFetched(std::move(benchmarkBars), std::move(rawBars));
+        }, Qt::QueuedConnection);
     });
 }
 
-void StressTestPanel::onAllDataFetched() {
+void StressTestPanel::onAllDataFetched(std::vector<Bar> benchmarkBars,
+                                       std::map<std::string, std::vector<Bar>> rawBars) {
     progress_->setValue(50);
+    eta_.reset();  // IO 阶段很快，进入计算阶段后重新估算剩余时间
     const bool all = windowCombo_->currentData().toString() == QStringLiteral("__all__");
     auto windows = all ? StressTest::defaultWindows()
                        : std::vector<StressWindow>{};
@@ -245,6 +259,9 @@ void StressTestPanel::onAllDataFetched() {
     cfg.symbols = selectedSymbols();
     cfg.initialCapital = capital_->value();
     cfg.feeConfig = FeeConfig::defaultAShare();
+    cfg.slippagePerShare = 0.01;  // 对齐聚宽默认 1 跳滑点
+    cfg.benchmarkBars = std::move(benchmarkBars);
+    cfg.rawBars = std::move(rawBars);
     const auto cache = cache_;  // shared_ptr：worker 内 cfg.cache 指向它，面板销毁后仍存活
     cfg.cache = cache.get();
     cfg.baselineStart = utils::parseDate("2015-01-01");
@@ -257,7 +274,7 @@ void StressTestPanel::onAllDataFetched() {
         st.setProgressCallback([guard](double p) {
             QMetaObject::invokeMethod(guard, [guard, p] {
                 if (!guard) return;
-                guard->progress_->setValue(50 + static_cast<int>(p * 50));
+                guard->progress_->setValue(50 + static_cast<int>(p / 2.0));
                 guard->progressEtaLabel_->setText(guard->eta_.text(p));
             }, Qt::QueuedConnection);
         });

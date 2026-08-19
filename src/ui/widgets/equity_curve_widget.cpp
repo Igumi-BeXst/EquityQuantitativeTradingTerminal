@@ -62,6 +62,7 @@ void EquityCurveWidget::paintEvent(QPaintEvent*) {
 
     const QRectF plot(kPadLeft, kPadTop, width() - kPadLeft - kPadRight,
                       height() - kPadTop - kPadBottom);
+    if (plot.width() <= 0.0 || plot.height() <= 0.0) return;
     const auto yFor = [&](double v) {
         return plot.bottom() - (v - lo) / (hi - lo) * plot.height();
     };
@@ -99,7 +100,7 @@ void EquityCurveWidget::paintEvent(QPaintEvent*) {
         p.drawPath(path);
     }
 
-    // 右上角图例: 色块 + 名称 + 期末净值
+    // 左上角图例：色块 + 名称 + 期末净值
     QFont f = p.font();
     f.setPixelSize(11);
     p.setFont(f);
@@ -107,18 +108,29 @@ void EquityCurveWidget::paintEvent(QPaintEvent*) {
     int legendW = 0;
     for (const auto& s : vis) {
         const QString t = QStringLiteral("%1 %2").arg(s.name).arg(s.data.back(), 0, 'f', 3);
-        legendW = std::max(legendW, fm.horizontalAdvance(t) + 16);
+        legendW = std::max(legendW, fm.horizontalAdvance(t) + 18);
     }
-    int y = static_cast<int>(plot.top()) + 4;
+    const int maxLegendW = std::max(8, static_cast<int>(plot.width() - 8));
+    legendW = std::min(legendW, maxLegendW);
+    if (legendW < 16) legendW = maxLegendW;
+
+    const double lx = plot.left() + 4;
+    double ly = plot.top() + 4;
+    // 半透明背景，避免被曲线遮挡看不清
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0, 0, 0, 120));
+    p.drawRoundedRect(QRectF(lx - 2, ly - 2,
+                             legendW + 4,
+                             static_cast<double>(vis.size()) * 15.0 + 4), 4, 4);
     for (const auto& s : vis) {
         const QString t = QStringLiteral("%1 %2").arg(s.name).arg(s.data.back(), 0, 'f', 3);
         p.setPen(Qt::NoPen);
         p.setBrush(s.color);
-        p.drawRect(QRectF(plot.right() - legendW + 2, y + 3, 8, 8));
+        p.drawRect(QRectF(lx, ly + 3, 8, 8));
         p.setPen(QColor("#d4d4d4"));
-        p.drawText(QRectF(plot.right() - legendW + 14, y, legendW - 18, 14),
+        p.drawText(QRectF(lx + 12, ly, legendW - 14, 14),
                    Qt::AlignLeft | Qt::AlignVCenter, t);
-        y += 15;
+        ly += 15;
     }
 }
 

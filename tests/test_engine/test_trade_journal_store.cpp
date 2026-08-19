@@ -95,6 +95,56 @@ TEST(TradeJournalStoreTest, FeeConfigRoundTrip) {
     std::remove(path.c_str());
 }
 
+/// 超过 maxEntries 时，最旧条目自动归档到 .archive，且重复保存不产生重复归档
+TEST(TradeJournalStoreTest, SaveArchivesOldestWhenOverLimit) {
+    const std::string path = tmpPath();
+    const std::string archive = path + ".archive";
+    std::remove(path.c_str());
+    std::remove(archive.c_str());
+
+    {
+        TradeJournalEngine j;
+        for (int i = 0; i < 6; ++i) {
+            j.addEntry(mk("SH600519", Direction::Buy, 10.0, 100,
+                          "2026-08-01 09:30:00", ""));
+        }
+        TradeJournalStore store;
+        EXPECT_TRUE(store.save(path, j, 5));
+    }
+    {
+        TradeJournalEngine main;
+        TradeJournalStore store;
+        EXPECT_TRUE(store.load(path, main));
+        EXPECT_EQ(main.entries().size(), 5u);
+    }
+    {
+        TradeJournalEngine arch;
+        TradeJournalStore store;
+        EXPECT_TRUE(store.load(archive, arch));
+        EXPECT_EQ(arch.entries().size(), 1u);
+    }
+
+    // 再次用相同 id 集合保存，归档文件不应重复累积
+    {
+        TradeJournalEngine j;
+        for (int i = 0; i < 6; ++i) {
+            j.addEntry(mk("SH600519", Direction::Buy, 10.0, 100,
+                          "2026-08-01 09:30:00", ""));
+        }
+        TradeJournalStore store;
+        EXPECT_TRUE(store.save(path, j, 5));
+    }
+    {
+        TradeJournalEngine arch;
+        TradeJournalStore store;
+        EXPECT_TRUE(store.load(archive, arch));
+        EXPECT_EQ(arch.entries().size(), 1u);
+    }
+
+    std::remove(path.c_str());
+    std::remove(archive.c_str());
+}
+
 /// 费率文件缺失 → 使用标准 A 股默认费率
 TEST(TradeJournalStoreTest, MissingFeeConfigUsesStandard) {
     auto cfg = TradeJournalStore::loadFeeConfig("/nonexistent/journal_config.json");

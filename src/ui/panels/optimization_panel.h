@@ -6,6 +6,7 @@
 #include "foundation/stock_code.h"
 #include <QWidget>
 #include <memory>
+#include <map>
 
 class QComboBox;
 class QLabel;
@@ -38,7 +39,8 @@ signals:
 
 private slots:
     void onRunClicked();
-    void onAllDataFetched();
+    void onAllDataFetched(std::vector<Bar> benchmarkBars,
+                          std::map<std::string, std::vector<Bar>> rawBars);
     void onStrategyChanged();
 
 private:
@@ -68,6 +70,7 @@ private:
     QDateEdit* endDate_ = nullptr;
     QDoubleSpinBox* capital_ = nullptr;
     QPushButton* runBtn_ = nullptr;
+    QPushButton* exportBtn_ = nullptr;
     QProgressBar* progress_ = nullptr;
     QTableView* resultView_ = nullptr;
     GridSearchTableModel* resultModel_ = nullptr;

@@ -35,11 +35,27 @@ public:
     /// 板块指数列表（通达信 880xxx 行业 / 885xxx 概念），默认不支持返回空
     virtual std::vector<StockInfo> getSectorIndices() { return {}; }
 
-    /// K线数据 (返回升序 bar 序列)
+    /// K线数据 (返回升序 bar 序列，通常为前复权)
     virtual std::vector<Bar> getBars(const StockCode& code,
                                      BarPeriod period,
                                      DateTime start,
                                      DateTime end) = 0;
+
+    /// 不复权 K线（真实价），默认回退到前复权
+    virtual std::vector<Bar> getRawBars(const StockCode& code,
+                                        BarPeriod period,
+                                        DateTime start,
+                                        DateTime end) {
+        return getBars(code, period, start, end);
+    }
+
+    /// 后复权 K线（对齐聚宽 use_real_price 动态前复权的收益率口径），默认回退到前复权
+    virtual std::vector<Bar> getHfqBars(const StockCode& code,
+                                        BarPeriod period,
+                                        DateTime start,
+                                        DateTime end) {
+        return getBars(code, period, start, end);
+    }
 
     /// 实时行情（订阅/取消订阅）
     virtual void subscribeQuote(const StockCode& code) = 0;

@@ -23,6 +23,16 @@ struct PaperTradeConfig {
     double slippage = 0.001;      // 滑点比例 (0.1%)
 };
 
+/// 模拟交易账户快照 — 用于停止/重启后恢复
+struct PaperTradeEngineState {
+    Amount initialCapital = 0.0;
+    Amount cash = 0.0;
+    std::string currentTradeDate;             // 当前交易日（YYYY-MM-DD）
+    std::vector<Position> positions;
+    std::vector<Trade> trades;
+    std::map<std::string, std::vector<Bar>> history;  // code -> 日线历史
+};
+
 /// 模拟交易引擎 — 实时行情驱动（多股票）
 ///
 /// 与 BacktestEngine 共用 IStrategy 接口，但由实时 Quote/Tick 驱动。
@@ -58,6 +68,11 @@ public:
     void stop();
     bool isRunning() const { return running_; }
 
+    /// 导出当前账户快照（用于持久化）
+    PaperTradeEngineState capture() const;
+    /// 恢复账户快照（启动时调用，需先 seedHistory 再 restore）
+    void restore(const PaperTradeEngineState& state);
+
     /// 当前组合
     const Portfolio& portfolio() const { return portfolio_; }
 
@@ -75,6 +90,8 @@ private:
     void submitOrder(StockCode code, Direction dir, Volume vol);
     void executeTrade(StockCode code, Direction dir, Volume vol, Price price, DateTime time);
     Position* findPosition(const StockCode& code);
+    /// 新交易日时执行 T+1 解冻：所有持仓 todayBuy → available
+    void settleT1(const DateTime& time);
     /// 该股票绑定的策略列表（未绑定过 → 全部策略，单股票兼容）
     std::vector<std::shared_ptr<IStrategy>> strategiesFor(const StockCode& code) const;
 
@@ -94,6 +111,7 @@ private:
     StockCode currentCode_;               // 当前行情代码
     std::map<std::string, Price> lastPrices_;  // code → 最近报价（按金额下单换算用）
     std::map<std::string, BarSeries> history_;  // code -> 报价历史（BarSeries 增量构建）
+    std::string currentTradeDate_;              // 当前交易日（YYYY-MM-DD），用于 T+1 解冻
 };
 
 } // namespace st

@@ -1,6 +1,7 @@
 #include "ui/widgets/stock_pool_picker.h"
 #include "data/idata_provider.h"
 #include "data/tdx/tdx_models.h"
+#include "foundation/utils/pinyin.h"
 #include "core/thread_pool.h"
 #include "core/log_manager.h"
 #include <QLineEdit>
@@ -25,7 +26,7 @@ StockPoolPicker::StockPoolPicker(IDataProvider* provider, QWidget* parent)
 
     // 搜索过滤框
     searchEdit_ = new QLineEdit(this);
-    searchEdit_->setPlaceholderText(tr("过滤: 代码/名称/拼音首字母…"));
+    searchEdit_->setPlaceholderText(tr("过滤: 代码/名称/全拼/拼音首字母…"));
     searchEdit_->setClearButtonEnabled(true);
     layout->addWidget(searchEdit_);
 
@@ -93,6 +94,11 @@ StockPoolPicker::StockPoolPicker(IDataProvider* provider, QWidget* parent)
 
 void StockPoolPicker::onLoadingFinished(std::vector<StockInfo> stocks) {
     allStocks_ = std::move(stocks);
+    pinyinFullCache_.clear();
+    pinyinFullCache_.reserve(allStocks_.size());
+    for (const auto& s : allStocks_) {
+        pinyinFullCache_.push_back(utils::pinyinFull(s.name));
+    }
     ready_ = true;
     list_->setUpdatesEnabled(false);   // 5213 项批量插入：先禁重绘，插完一次刷新
     list_->clear();
@@ -125,6 +131,7 @@ void StockPoolPicker::onSearchTextChanged(const QString& text) {
 void StockPoolPicker::applyFilter() {
     const QString q = searchEdit_->text().trimmed();
     const bool empty = q.isEmpty();
+    const QString qLower = q.toLower();
     // 批量 setHidden 会逐项触发 itemChanged → 阻断信号 + 禁重绘，最后一次性刷新
     // （5213 项逐个发信号 + 计数 = O(n²) 卡顿）
     list_->setUpdatesEnabled(false);
@@ -137,9 +144,12 @@ void StockPoolPicker::applyFilter() {
             const QString code = QString::fromStdString(s.code.displayCode());
             const QString name = QString::fromUtf8(s.name);
             const QString initials = QString::fromUtf8(s.pinyinInitials);
+            const QString fullPinyin = QString::fromStdString(
+                i < static_cast<int>(pinyinFullCache_.size()) ? pinyinFullCache_[static_cast<size_t>(i)] : "");
             match = code.contains(q, Qt::CaseInsensitive) ||
                     name.contains(q, Qt::CaseInsensitive) ||
-                    initials.contains(q.toUpper());
+                    fullPinyin.contains(qLower) ||
+                    initials.contains(q, Qt::CaseInsensitive);
         }
         item->setHidden(!match);
     }

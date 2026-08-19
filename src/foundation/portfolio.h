@@ -19,6 +19,7 @@ struct Position {
     Amount     profitLoss  = 0.0;    // 浮动盈亏
     Percentage profitLossPct = 0.0;  // 盈亏比例(%)
     Volume     available   = 0;      // 可用数量（可卖）
+    Volume     todayBuy    = 0;      // 当日买入数量（T+1 不可卖）
     int        holdDays    = 0;      // 持仓天数
 
     [[nodiscard]] bool hasPosition() const { return quantity > 0; }

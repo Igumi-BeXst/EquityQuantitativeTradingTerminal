@@ -75,6 +75,7 @@ add_library(st_engine STATIC
     engine/backtest/fee_calculator.cpp
     engine/backtest/performance.cpp
     engine/paper_trade/paper_trade_engine.cpp
+    engine/paper_trade/paper_trade_state_store.cpp
     engine/portfolio/portfolio_engine.cpp
     engine/screener/stock_screener.cpp
     engine/screener/factor_library.cpp

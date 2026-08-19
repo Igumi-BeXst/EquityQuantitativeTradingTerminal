@@ -32,12 +32,13 @@ void MACrossStrategy::onBar(const StrategyContext& ctx) {
 }
 
 double MACrossStrategy::sma(const BarSeries& s, int period, int offset) const {
-    // offset=0 用最近 period 根 (lookback 1..period)
-    // offset=1 用往前偏移一档 (lookback 2..period+1)
+    // offset=0 用最近 period 根（含当前 bar）
+    // offset=1 用往前偏移一档（不含当前 bar）
     if (s.size() < static_cast<size_t>(period + offset + 1)) return 0.0;
     double sum = 0.0;
-    for (int i = 1; i <= period; ++i) {
-        sum += s.lookback(i + offset).close;
+    for (int i = 0; i < period; ++i) {
+        const size_t idx = s.size() - 1 - static_cast<size_t>(i) - static_cast<size_t>(offset);
+        sum += s.at(idx).close;
     }
     return sum / period;
 }

@@ -1,5 +1,238 @@
 # 开发日志 (Development Log)
 
+## 2026-08-17 — 模拟交易体验修复 + T+1 + 账户持久化 + 日志体积控制
+
+### 需求（用户反馈）
+- 模拟交易没有依据 A 股 T+1 规则，当日买入当日可卖
+- 实时报价每 3 秒被当成一根 K 线，日线策略买入点看起来随意
+- 模拟交易停止/重启后账户重置，无法长期持续模拟
+- 交易日志长期增长需要控制体积
+
+### 实施
+- **T+1 规则**
+  - `Position` 增加 `todayBuy`；模拟交易/回测引擎买入时当日不可卖，卖出只允许 `available`
+  - 新交易日自动解冻 `todayBuy → available`
+- **日线聚合**
+  - `BarSeries` 增加可变 `back()`
+  - `PaperTradeEngine::onQuote` 同一交易日合并/更新同一根日线，避免 3 秒 tick 生成多根 K 线
+- **模拟账户持久化**
+  - 新增 `PaperTradeEngineState` / `PaperTradeStateStore`（`paper_trade_state.json`）
+  - `PaperTradeEngine::capture()/restore()` 保存现金、持仓、T+1、成交、历史、当前交易日
+  - 面板停止/退出自动保存；再次启动时策略/参数/资金/滑点/股票池一致则自动恢复，否则全新开始
+- **日志体积控制**
+  - `TradeJournalStore::save` 改为紧凑 JSON（`dump(-1)`）
+  - 超出 `kDefaultMaxEntries`（50000）时，最旧条目自动归档到 `trade_journal.json.archive`（按 id 去重）
+
+### 验证
+- `test_engine` 216/216 全绿（+4：T+1 模拟/回测、日线聚合、账户快照恢复、状态存储 roundtrip、日志归档）
+- `StockTerminal` Debug 构建链接通过
+- 手动复测待开盘后由用户执行：模拟交易 T+1、日线信号、停止/重启恢复
+
+## 2026-08-17 — 修复：关闭量化工作台 Release 崩溃
+
+### 现象
+- Release 版关闭量化工作台时软件直接崩溃。
+
+### 根因/处理
+- 模拟交易状态原先在 `PaperTradePanel` 析构函数里保存，Release 下子控件析构顺序存在风险。
+- 改为在 `QuantWindow::closeEvent` 中先调用 `saveStateNow()` 保存状态，析构函数只负责停止定时器和引擎。
+- 给模拟交易异步回调补充 `QPointer` 空指针保护，避免窗口关闭后回调误执行。
+- 同时修复 Release 增量构建中 `main_window.cpp` 未按新 `TradeJournalStore::save` 签名重编导致的链接错误。
+
+### 验证
+- Debug / Release `StockTerminal` 均重新链接通过。
+- Release 已做 `ninja -C build/release-qt -t clean` 全量重建，避免旧对象文件与新增 `Position::todayBuy` / 新 `TradeJournalStore::save` 签名混用导致运行期崩溃。
+- 手动复测待用户执行：打开量化工作台 → 启动/停止模拟交易 → 关闭窗口不再崩溃；参数优化长时间运行不再崩溃。
+
+## 2026-08-17 — 修复：参数优化进度条提前到 100% 且 ETA 异常
+
+### 现象
+- Release 参数优化约 10 分钟后进度条到 100%，但任务未完成，预计剩余时间突然很高。
+
+### 根因
+- 优化/回测/选股/压力/对比面板进度映射错误：worker 进度 `p` 是 0~100，但 UI 写成 `50 + int(p * 50)`，导致 `p >= 1` 时进度条就被钳制到 100%。
+- ETA 使用真实 `p` 计算，所以进度条 100% 但 ETA 显示还有很长时间。
+
+### 修复
+- 5 个面板统一改为 `50 + int(p / 2.0)`，正确把 0~100 映射到 50~100：
+  - `optimization_panel.cpp`
+  - `backtest_panel.cpp`
+  - `screener_panel.cpp`
+  - `stress_test_panel.cpp`
+  - `strategy_compare_panel.cpp`
+- ETA 初始偏低：IO 拉数据阶段很快但已算作 0~50%，导致刚开始“预计剩余”被错误估小。
+  - 在 `onAllDataFetched()` 进入计算阶段前调用 `eta_.reset()`，重新基于计算阶段实际速度估算剩余时间。
+  - 同样应用到 `advisor_panel.cpp`。
+
+### 验证
+- Debug / Release `StockTerminal` 均重新构建通过。
+- 手动复测待用户执行：参数优化进度应随实际进度平滑走到 100%，完成后才显示完成；开始计算后 ETA 不再异常偏低。
+
+## 2026-08-17 — 参数优化 Tab 增加导出结果
+
+### 实施
+- `optimization_panel` 结果表标题行新增「导出结果」按钮。
+- 复用 `ui/utils/table_csv_export.h`，把当前网格结果表导出为 UTF-8 BOM CSV。
+- 无结果时按钮禁用；开始优化时禁用；有结果后启用。
+
+### 验证
+- Debug / Release `StockTerminal` 均重新构建通过。
+- 手动复测：参数优化完成后点击「导出结果」选择路径，CSV 包含表头与全部网格结果。
+
+## 2026-08-17 — 沪深300基准 + Alpha/Beta + 回测明细排序 + 曲线图例
+
+### 实施
+- **沪深300基准**
+  - `BacktestConfig` / `GridSearchConfig` / `ComparisonConfig` / `StressTestConfig` 增加 `benchmarkBars`
+  - 回测/参数优化/优化建议/策略对比/压力测试 IO 阶段自动拉取 `SH000300` 沪深300 日线
+  - `BacktestEngine` 按回测日期对齐基准净值，`PerformanceCalculator` 计算真实 Alpha/Beta
+- **Alpha/Beta 展示**
+  - 参数优化结果表新增 Alpha/Beta 两列
+  - 策略对比结果表新增 Alpha/Beta 两列
+  - 回测面板原本已有 Alpha/Beta，现在会显示真实值
+- **回测交易明细排序**
+  - `BacktestEngine` 返回前按时间升序、同一时间按代码排序，解决明细顺序杂乱
+- **曲线图例显示不全**
+  - `EquityCurveWidget` 图例宽度做钳制，避免“策略”标注左侧被截断
+
+### 验证
+- Debug / Release `StockTerminal` 均重新构建通过。
+- `test_engine` 216/216 全绿。
+- 手动复测待用户执行：回测/参数优化/策略对比中 Alpha/Beta 应显示非 0 真实值；回测明细按时间有序；净值曲线图例完整显示。
+
+## 2026-08-17 — 修复：量化工作台开关崩溃
+
+### 现象
+- Release 点开/关闭量化工作台直接崩溃。
+
+### 处理
+- `PaperTradePanel::saveState()` 增加空控件防御 + try/catch，避免关闭路径异常崩溃。
+- `EquityCurveWidget::paintEvent` 增加绘图区宽高 <=0 保护。
+- Release 执行 `ninja -C build/release-qt -t clean` 全量重建，排除新增 `benchmarkBars` 等结构字段导致的旧对象 ABI 不匹配。
+
+### 验证
+- Debug / Release `StockTerminal` 均重新构建通过。
+- 手动复测待用户执行：打开量化工作台、关闭量化工作台，不再崩溃。
+
+## 2026-08-17 — 修复：SMA 均线计算漏掉当前 bar 导致回测与聚宽差异巨大
+
+### 现象
+- 同样的单只股票（600667 太极实业）、同样参数、同样日期，StockTerminal 回测 433% vs 聚宽 21%。
+
+### 根因
+- `smaAt()` / `MACrossStrategy::sma()` 原实现用 `lookback(1..period)` 计算均线，**不包含当前 bar**，导致信号整体滞后一天。
+- 聚宽等平台均线默认包含当日收盘，因此 StockTerminal 的均线类策略信号晚一天，单票回测收益差距巨大。
+
+### 修复
+- `strategy_helpers.h::smaAt()` 改为包含当前 bar（offset=0 含当前，offset=1 不含当前）。
+- `ma_cross_strategy.cpp::sma()` 同步修正。
+- 影响：双均线、动量离场、均值回归等使用 SMA 的策略，信号时间与主流平台对齐。
+
+### 验证
+- `test_engine` 216/216 全绿。
+- Debug / Release `StockTerminal` 重新构建通过。
+- 手动复测待用户执行：重新回测 600667 相同参数，收益应与聚宽更接近。
+
+## 2026-08-17 — 回测引擎改为聚宽兼容时序（昨日收盘信号 → 今日开盘成交）
+
+### 背景
+- 同样参数、同样单票（600667）、同样日期，StockTerminal 与聚宽第一笔买入差 3 天。
+- 根因：原回测在当天 onBar 中能看到当天完整 K 线，却在当天开盘价成交，存在未来函数；聚宽是“昨日收盘信号 → 今日开盘成交”。
+
+### 修复
+- `BacktestEngine::run` 调整每日流程：
+  1. 策略 onBar 时历史**不含今日 bar**（只看到昨日及以前）
+  2. 信号基于昨日收盘
+  3. 今日开盘价撮合
+  4. 收盘后再把今日 bar 追加进历史
+- 影响：回测、参数优化、优化建议、策略对比、压力测试全部使用该引擎，统一对齐聚宽时序。
+
+### 验证
+- `test_engine` 216/216 全绿。
+- Debug / Release `StockTerminal` 重新构建通过。
+- 手动复测待用户执行：同样参数回测 600667，第一笔买入应与聚宽一致（约 2023-11-20 @7.91 前复权）。
+
+## 2026-08-17 — 修复按金额下单股数换算 + A股 100 股整手
+
+### 背景
+- 聚宽 `order_value(可用资金*0.9)` 按开盘价换算股数并向下取整到 100 股；StockTerminal 原来用 `amount/10` 占位，导致买入数量偏小（900 vs 1100），收益差异大。
+
+### 修复
+- `Order` 增加 `targetAmount` 字段。
+- `BacktestEngine::placeOrder` 对 `buyByAmount` 记录目标金额。
+- `matchOrders` 买入时：
+  - 用今日开盘价换算目标金额对应的股数
+  - 向下取整到 100 股整数倍
+  - 再受可用资金限制
+
+### 验证
+- `test_engine` 216/216 全绿。
+- Debug / Release 构建通过。
+- 手动复测：第一笔买入数量应从 900 变为 1100，与聚宽一致。
+
+## 2026-08-17 — 对齐聚宽 use_real_price：前复权信号 + 真实价成交
+
+### 背景
+- 聚宽 `set_option('use_real_price', True)` 的策略信号基于**前复权** K 线，但**成交/盯市使用不复权真实价**。
+- StockTerminal 此前全部使用前复权价成交，导致第一笔买入成交价约 7.64（前复权）而不是真实价约 7.91，收益与聚宽仍有差异。
+
+### 实施
+- **数据层**：`IDataProvider` 新增 `getRawBars()`（默认回退到 `getBars()`）；腾讯、TDX 实现不复权 K 线拉取；`MultiProvider` 转发。
+- **配置层**：`BacktestConfig` / `GridSearchConfig` / `ComparisonConfig` / `StressTestConfig` 增加 `rawBars`。
+- **引擎**：`BacktestEngine` 信号仍用前复权历史；撮合时若存在当日不复权 bar 则用真实开盘价成交，收盘盯市用真实收盘价；不可用时回退前复权价。
+- **UI**：回测、参数优化、优化建议、策略对比、压力测试 5 个面板在 IO 阶段额外拉取不复权 K 线并传入配置。
+
+### 验证
+- `test_engine` 217/217 全绿。
+- Debug `StockTerminal` 构建通过。
+- Release `StockTerminal` 已重新链接通过（含最新 raw bars 数据层改动，避免 ABI 不匹配）。
+- 手动复测待用户执行：同样参数回测 600667，第一笔买入成交价应接近真实开盘价（约 7.91），总收益应更接近聚宽 21.26%。
+
+## 2026-08-19 — 回测 warm-up：用起始日前 K 线预填策略指标历史
+
+### 背景
+- 对齐聚宽后仍差异较大（StockTerminal 44.04% vs 聚宽 21.26%）。
+- 根因之一：StockTerminal 只加载 `startDate~endDate` 的 K 线，策略在回测首日起才开始积累均线/动量历史；聚宽在回测前就能拿到历史数据计算指标，导致信号起点不同。
+
+### 修复
+- `BacktestEngine`：回测循环前用缓存中 `startDate` 之前的 K 线预填 `seriesByCode`，让策略第一天就能看到 warm-up 历史；交易/净值仍只从 `startDate` 开始。
+- 新增 `kBacktestWarmupCalendarDays = 400`，回测/参数优化/策略对比 IO 阶段从 `startDate - 400天` 开始拉取前复权 K 线（优化建议/压力测试原本已从 2015 加载，天然覆盖）。
+- 新增单测 `PreStartHistoryIsAvailableToStrategy` 验证首根 bar 能看到起始日前 30 根历史。
+
+### 验证
+- `test_engine` 218/218 全绿。
+- Debug / Release `StockTerminal` 重新构建通过。
+- 手动复测待用户执行：同样参数回测 600667，信号起点应更接近聚宽。
+
+
+## 2026-08-20 — 对齐聚宽 use_real_price：不复权信号 + 1 跳滑点
+
+### 背景
+- 拿到聚宽完整成交明细后逐笔对比，发现两处关键差异：
+  1. **信号价格口径**：聚宽 `use_real_price=True` 的 `get_bars` 在回测中返回的是真实价（不复权）序列；StockTerminal 用静态前复权信号，导致 2024-09 买入差一天（StockTerminal 09-26 vs 聚宽 09-27）。
+  2. **成交滑点**：聚宽每笔市价单成交价基本是“开盘价 ± 0.01 元”（买 +0.01、卖 -0.01），StockTerminal 按开盘价精确成交，导致持仓/现金累积偏离。
+
+### 修复
+- **回测信号改用不复权 K 线**：
+  - 回测/参数优化/优化建议/策略对比/压力测试 IO 阶段，缓存的历史 K 线由 `getBars()`（前复权）改为 `getRawBars()`（不复权）。
+  - 成交仍用不复权真实开盘价；信号与成交口径统一为聚宽 `use_real_price=True` 的真实价模式。
+- **新增滑点配置**：
+  - `BacktestConfig` / `GridSearchConfig` / `ComparisonConfig` / `StressTestConfig` 增加 `slippagePerShare`。
+  - `BacktestEngine::matchOrders` 按买卖方向应用滑点：买入 `open + slippage`、卖出 `open - slippage`，资金检查按含滑点价格。
+  - 5 个量化面板默认 `slippagePerShare = 0.01`，对齐聚宽默认 1 跳。
+- 顺带新增 `IDataProvider::getHfqBars()`（腾讯/TDX/MultiProvider 实现后复权），保留备用。
+
+### 验证
+- 用 TDX 真实数据 + 聚宽费率 + 0.01 滑点重跑 600667 动量策略：
+  - 修复前：总收益约 44~48%
+  - 修复后：总收益约 **25.99%**（聚宽 21.26%）
+- 成交明细在 2024-09/10、2024-11、2025-02/03、2025-05、2026-07 等关键段与聚宽逐笔数量/价格基本一致。
+- `test_engine` 218/218 全绿。
+- Debug / Release `StockTerminal` 重新构建通过。
+- 手动复测待用户执行：Release 版同样参数回测，收益应大幅接近聚宽（约 26% vs 21%）。
+
+
+
 ## 2026-08-16 — P10 第三十三轮：模拟交易搜索选股 + 多股票同时模拟
 
 ### 需求（用户反馈）

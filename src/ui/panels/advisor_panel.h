@@ -8,6 +8,7 @@
 #include <memory>
 #include <optional>
 #include <vector>
+#include <map>
 
 class QComboBox;
 class QLabel;
@@ -43,7 +44,8 @@ signals:
 
 private slots:
     void onRunClicked();
-    void onAllDataFetched();
+    void onAllDataFetched(std::vector<Bar> benchmarkBars,
+                          std::map<std::string, std::vector<Bar>> rawBars);
     void onStrategyChanged();
     void onUseRefined();
 

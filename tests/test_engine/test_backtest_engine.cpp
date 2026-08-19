@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 #include "engine/backtest/backtest_engine.h"
+#include "engine/strategy/templates/momentum_strategy.h"
 #include "data/data_cache.h"
 #include "foundation/utils/datetime.h"
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <thread>
 
@@ -49,6 +51,26 @@ public:
 private:
     bool bought_ = false;
     bool sold_ = false;
+};
+
+// 策略: 第1根 Bar 买入，第2根 Bar 尝试卖出（用于验证分钟级 T+1）
+class BuyThenSellNextBarStrategy : public IStrategy {
+public:
+    std::string name() const override { return "BuyThenSellNextBar"; }
+    void initialize() override {}
+    void onStart() override {}
+    void onStop() override {}
+
+    void onBar(const StrategyContext&) override {
+        ++calls_;
+        if (calls_ == 1) {
+            buy(100);
+        } else if (calls_ == 2) {
+            sell(100);
+        }
+    }
+private:
+    int calls_ = 0;
 };
 
 std::vector<Bar> makeRisingSeries(const StockCode& code, int n, double startPrice) {
@@ -118,6 +140,53 @@ TEST(BacktestEngineTest, BuyAndHoldRisingMarket) {
     EXPECT_GT(result.trades.size(), 0u);
     // 期末总资产应大于初始（上涨）
     EXPECT_GT(result.finalPortfolio.totalAsset, config.initialCapital);
+}
+
+// 策略: 记录第一根 bar 时 history 的长度（验证回测起始日前的 warm-up 数据已预填）
+class RecordFirstHistorySizeStrategy : public IStrategy {
+public:
+    std::string name() const override { return "RecordFirstHistorySize"; }
+    void initialize() override {}
+    void onStart() override {}
+    void onStop() override {}
+    void onBar(const StrategyContext& ctx) override {
+        if (!recorded_) {
+            firstSize_ = ctx.history ? ctx.history->size() : 0;
+            recorded_ = true;
+        }
+    }
+    size_t firstSize() const { return firstSize_; }
+private:
+    bool recorded_ = false;
+    size_t firstSize_ = 0;
+};
+
+TEST(BacktestEngineTest, PreStartHistoryIsAvailableToStrategy) {
+    StockCode code(Market::SH, "600519");
+    std::vector<double> closes;
+    for (int i = 0; i < 40; ++i) closes.push_back(100.0 + i);
+    auto bars = makeSeriesFromCloses(code, closes);
+
+    DataCache cache;
+    cache.cacheBars(code, BarPeriod::Daily, bars);
+
+    BacktestConfig config;
+    config.symbols = {code};
+    config.startDate = bars[30].time;
+    config.endDate = bars.back().time;
+    config.initialCapital = 100000.0;
+    config.period = BarPeriod::Daily;
+
+    auto strategy = std::make_shared<RecordFirstHistorySizeStrategy>();
+    BacktestEngine engine;
+    engine.setConfig(config);
+    engine.setDataCache(&cache);
+    engine.addStrategy(strategy);
+
+    auto result = engine.run();
+    ASSERT_TRUE(result.success) << result.error;
+    // 第一根 bar 时应能看到 startDate 之前的 30 根 warm-up 历史
+    EXPECT_EQ(strategy->firstSize(), 30u);
 }
 
 TEST(BacktestEngineTest, NoDataReturnsError) {
@@ -222,4 +291,88 @@ TEST(BacktestEngineTest, TradeStatsFilled) {
     EXPECT_NEAR(result.performance.winRate, 100.0, 0.01);
     EXPECT_GT(result.performance.totalPnl, 0.0);
     EXPECT_GT(result.performance.profitFactor, 1.0);
+}
+
+TEST(BacktestEngineTest, T1BlocksSameDaySellInMinuteBars) {
+    StockCode code(Market::SH, "600519");
+
+    std::vector<Bar> bars;
+    const auto base = utils::parseDateTime("2026-08-03 09:30:00");
+    for (int i = 0; i < 5; ++i) {
+        Bar b;
+        b.code = code;
+        b.period = BarPeriod::Minute1;
+        b.time = base + std::chrono::minutes(i);
+        b.open = b.high = b.low = b.close = 100.0 + i;
+        b.volume = 1000;
+        bars.push_back(b);
+    }
+
+    DataCache cache;
+    cache.cacheBars(code, BarPeriod::Minute1, bars);
+
+    BacktestConfig config;
+    config.symbols = {code};
+    config.startDate = bars.front().time;
+    config.endDate = bars.back().time;
+    config.initialCapital = 100000.0;
+    config.period = BarPeriod::Minute1;
+
+    BacktestEngine engine;
+    engine.setConfig(config);
+    engine.setDataCache(&cache);
+    engine.addStrategy(std::make_shared<BuyThenSellNextBarStrategy>());
+
+    auto result = engine.run();
+    ASSERT_TRUE(result.success) << result.error;
+
+    // 第1根买入，第2根尝试卖出：同一天内卖出应被 T+1 拦截
+    ASSERT_EQ(result.trades.size(), 1u);
+    EXPECT_EQ(result.trades[0].direction, Direction::Buy);
+    ASSERT_FALSE(result.finalPortfolio.positions.empty());
+    EXPECT_EQ(result.finalPortfolio.positions[0].quantity, 100);
+}
+
+TEST(BacktestEngineTest, MomentumStrategyProducesTradesWithSyntheticData) {
+    StockCode code(Market::SH, "600519");
+
+    std::vector<Bar> bars;
+    const auto base = utils::parseDate("2024-01-02");
+    for (int i = 0; i < 80; ++i) {
+        Bar b;
+        b.code = code;
+        b.period = BarPeriod::Daily;
+        b.time = utils::addTradingDays(base, i);
+        double close = 10.0 + i * 0.3;  // 持续上涨，3日动量远超 5%
+        b.open = close - 0.1;
+        b.high = close + 0.2;
+        b.low = close - 0.2;
+        b.close = close;
+        b.volume = 10000;
+        bars.push_back(b);
+    }
+
+    DataCache cache;
+    cache.cacheBars(code, BarPeriod::Daily, bars);
+
+    auto strategy = std::make_shared<MomentumStrategy>();
+    strategy->lookbackPeriod_ = 3;
+    strategy->exitPeriod_ = 2;
+    strategy->thresholdPct_ = 50;  // 5%
+
+    BacktestConfig config;
+    config.symbols = {code};
+    config.startDate = bars.front().time;
+    config.endDate = bars.back().time;
+    config.initialCapital = 100000.0;
+    config.period = BarPeriod::Daily;
+
+    BacktestEngine engine;
+    engine.setConfig(config);
+    engine.setDataCache(&cache);
+    engine.addStrategy(strategy);
+
+    auto result = engine.run();
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_FALSE(result.trades.empty());
 }

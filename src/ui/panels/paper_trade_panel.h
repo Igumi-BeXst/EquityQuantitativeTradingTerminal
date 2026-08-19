@@ -22,6 +22,7 @@ class TradeTableModel;
 class IStrategy;
 class TradeJournalEngine;
 class StockPoolPicker;
+struct PaperTradeState;
 
 /// 模拟交易面板 — 搜索多选股票（全市场）+ 策略 → 实时行情驱动 PaperTradeEngine（多股票）
 class PaperTradePanel : public QWidget {
@@ -34,6 +35,9 @@ public:
     /// 注入交易日志引擎（供 MainWindow 装配后，模拟成交自动落库）
     void setJournal(std::shared_ptr<TradeJournalEngine> journal);
 
+    /// 保存当前模拟账户状态（供 QuantWindow 关闭前调用，避免在析构中访问子控件）
+    void saveStateNow();
+
 private slots:
     void onToggleClicked();
     void onStrategyChanged();
@@ -43,6 +47,9 @@ private:
     void refreshStatus();
     std::shared_ptr<IStrategy> makeStrategy() const;
     std::vector<StockCode> selectedSymbols() const;
+    std::string statePath() const;
+    void saveState();
+    bool loadMatchingState(PaperTradeState& state) const;
 
     IDataProvider* provider_ = nullptr;
     std::unique_ptr<PaperTradeEngine> engine_;

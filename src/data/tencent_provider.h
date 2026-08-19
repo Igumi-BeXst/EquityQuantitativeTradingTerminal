@@ -36,6 +36,10 @@ public:
 
     std::vector<Bar> getBars(const StockCode& code, BarPeriod period,
                              DateTime start, DateTime end) override;
+    std::vector<Bar> getRawBars(const StockCode& code, BarPeriod period,
+                                DateTime start, DateTime end) override;
+    std::vector<Bar> getHfqBars(const StockCode& code, BarPeriod period,
+                                DateTime start, DateTime end) override;
 
     /// 分时数据（同步，仅 SH/SZ A 股）
     std::optional<IntradayData> getIntraday(const StockCode& code);
@@ -106,6 +110,12 @@ private:
     /// 拉取日/周/月K线（qfq 前复权）。start==epoch 表示拉最近 640 根。
     std::vector<Bar> fetchKlineBars(const StockCode& code, BarPeriod period,
                                     DateTime start, DateTime end);
+    /// 拉取日/周/月K线（不复权真实价）
+    std::vector<Bar> fetchRawKlineBars(const StockCode& code, BarPeriod period,
+                                       DateTime start, DateTime end);
+    /// 拉取日/周/月K线（后复权）
+    std::vector<Bar> fetchHfqKlineBars(const StockCode& code, BarPeriod period,
+                                       DateTime start, DateTime end);
 
     /// 拉取分钟K线（m5/m15/m30/m60，320 根）
     std::vector<Bar> fetchMinuteBars(const StockCode& code, BarPeriod period);

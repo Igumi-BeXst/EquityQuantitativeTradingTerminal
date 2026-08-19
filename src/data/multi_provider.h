@@ -25,6 +25,10 @@ public:
     std::vector<StockInfo> getSectorIndices() override;
     std::vector<Bar> getBars(const StockCode& code, BarPeriod period,
                              DateTime start, DateTime end) override;
+    std::vector<Bar> getRawBars(const StockCode& code, BarPeriod period,
+                                DateTime start, DateTime end) override;
+    std::vector<Bar> getHfqBars(const StockCode& code, BarPeriod period,
+                                DateTime start, DateTime end) override;
     void subscribeQuote(const StockCode& code) override;
     void unsubscribeQuote(const StockCode& code) override;
     std::vector<Quote> batchQuote(const std::vector<StockCode>& codes) override;

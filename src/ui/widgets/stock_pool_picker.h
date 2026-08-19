@@ -18,7 +18,7 @@ class IDataProvider;
 ///
 /// 替换各量化面板内置的精选股池（curated_stocks.h）：
 /// 构造后经 IO 线程池拉取 SH/SZ 全量列表（过滤为可交易 A 股），
-/// 加载完成自动全选；搜索框按 代码/名称/拼音首字母 过滤可见项，
+/// 加载完成自动全选；搜索框按 代码/名称/全拼/拼音首字母 过滤可见项，
 /// 「全选/清空」作用于当前过滤结果；已选数量实时显示。
 class StockPoolPicker : public QWidget {
     Q_OBJECT
@@ -57,6 +57,7 @@ private:
     QLabel* statusLabel_ = nullptr;
 
     std::vector<StockInfo> allStocks_;
+    std::vector<std::string> pinyinFullCache_;  // 全拼缓存，避免每次过滤重复转换
     bool ready_ = false;
 };
 

@@ -37,6 +37,10 @@ public:
     std::vector<StockInfo> getSectorIndices() override;  // 通达信板块指数（880行业/885概念）
     std::vector<Bar> getBars(const StockCode& code, BarPeriod period,
                              DateTime start, DateTime end) override;
+    std::vector<Bar> getRawBars(const StockCode& code, BarPeriod period,
+                                DateTime start, DateTime end) override;
+    std::vector<Bar> getHfqBars(const StockCode& code, BarPeriod period,
+                                DateTime start, DateTime end) override;
     std::optional<IntradayData> getIntraday(const StockCode& code) override;
     std::vector<Quote> batchQuote(const std::vector<StockCode>& codes) override;
     /// 交互优先批量报价：用户主动请求（板块面板等）标记为交互，可抢占后台批量刷新
@@ -97,6 +101,8 @@ private:
     std::vector<Bar> fetchBarsRaw(const StockCode& code, BarPeriod period,
                                   uint16_t startIdx, uint16_t count);
     std::vector<Bar> qfqAdjust(std::vector<Bar> bars,
+                               const std::vector<tdx::TdxGbbqRec>& gbbq);
+    std::vector<Bar> hfqAdjust(std::vector<Bar> bars,
                                const std::vector<tdx::TdxGbbqRec>& gbbq);
     std::vector<StockInfo> loadStockList(Market market);
 

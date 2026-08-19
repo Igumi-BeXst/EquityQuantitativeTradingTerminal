@@ -119,6 +119,9 @@ GridSearchResult GridSearchOptimizer::evaluateOne(
     bcfg.initialCapital = cfg.initialCapital;
     bcfg.period = cfg.period;
     bcfg.feeConfig = cfg.feeConfig;
+    bcfg.slippagePerShare = cfg.slippagePerShare;
+    bcfg.benchmarkBars = cfg.benchmarkBars;
+    bcfg.rawBars = cfg.rawBars;
     bcfg.keepEquitySnapshots = cfg.keepEquitySnapshots;
 
     BacktestEngine engine;

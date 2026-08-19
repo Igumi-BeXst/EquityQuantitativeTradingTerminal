@@ -50,6 +50,8 @@ public:
 
     /// Access the last bar (most recent)
     [[nodiscard]] const Bar& current() const;
+    /// Mutable access to the last bar (for intraday aggregation)
+    Bar& back();
     [[nodiscard]] int currentIndex() const { return static_cast<int>(size()) - 1; }
 
     /// Access by index (0 = oldest)

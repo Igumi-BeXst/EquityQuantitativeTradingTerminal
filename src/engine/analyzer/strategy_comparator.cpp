@@ -31,6 +31,9 @@ std::vector<ComparisonItemResult> StrategyComparator::run(const ComparisonConfig
             bcfg.initialCapital = cfg.initialCapital;
             bcfg.period = cfg.period;
             bcfg.feeConfig = cfg.feeConfig;
+            bcfg.slippagePerShare = cfg.slippagePerShare;
+            bcfg.benchmarkBars = cfg.benchmarkBars;
+            bcfg.rawBars = cfg.rawBars;
             // 全市场大池内存优化：净值曲线引擎内部累积，不存每日 Portfolio 快照
             bcfg.keepEquitySnapshots = false;
 

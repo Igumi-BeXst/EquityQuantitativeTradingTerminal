@@ -11,6 +11,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <map>
 
 namespace st {
 
@@ -30,6 +31,9 @@ struct ComparisonConfig {
     Amount initialCapital = 100000.0;
     BarPeriod period = BarPeriod::Daily;
     FeeConfig feeConfig;
+    double slippagePerShare = 0.0;           // 每股滑点（元）
+    std::vector<Bar> benchmarkBars;          // 基准指数日线（沪深300），用于 Alpha/Beta
+    std::map<std::string, std::vector<Bar>> rawBars;  // 不复权日线（真实价成交）
     DataCache* cache = nullptr;              // 复用已加载缓存
 };
 

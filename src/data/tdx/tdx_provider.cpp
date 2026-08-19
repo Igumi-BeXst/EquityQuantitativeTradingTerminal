@@ -299,6 +299,19 @@ std::vector<Bar> TdxProvider::getBars(const StockCode& code, BarPeriod period,
                           [](const Bar& a, const Bar& b) { return a.time == b.time; }),
               all.end());
 
+    // 兼容 TDX 长区间分页偶发漏掉最新 bar：单独补拉最新 1 根并合并
+    {
+        auto latest = fetchBarsRaw(code, period, 0, 1);
+        if (!latest.empty()) {
+            all.push_back(latest.front());
+            std::sort(all.begin(), all.end(),
+                      [](const Bar& a, const Bar& b) { return a.time < b.time; });
+            all.erase(std::unique(all.begin(), all.end(),
+                                  [](const Bar& a, const Bar& b) { return a.time == b.time; }),
+                      all.end());
+        }
+    }
+
     if (isEpoch) {
         if (all.size() > desired) {
             all.erase(all.begin(), all.end() - static_cast<long>(desired));
@@ -314,6 +327,119 @@ std::vector<Bar> TdxProvider::getBars(const StockCode& code, BarPeriod period,
         period == BarPeriod::Monthly || period == BarPeriod::Quarterly ||
         period == BarPeriod::Yearly) {
         all = qfqAdjust(std::move(all), ensureGbbq(code));
+    }
+    return all;
+}
+
+std::vector<Bar> TdxProvider::getRawBars(const StockCode& code, BarPeriod period,
+                                         DateTime start, DateTime end) {
+    InteractiveGuard guard(this);  // 交互优先
+    if (tdx::tdxMarket(code.market()) < 0 || tdx::klineCategory(period) < 0) {
+        return {};
+    }
+    const bool isEpoch = start < utils::parseDate("2000-01-01");
+    const uint16_t desired = static_cast<uint16_t>(isMinutePeriod(period) ? 320 : 640);
+
+    std::vector<Bar> all;
+    uint16_t startIdx = 0;
+    while (startIdx < 10000) {
+        auto seg = fetchBarsRaw(code, period, startIdx, kMaxBarsPerRequest);
+        if (seg.empty()) break;
+        all.insert(all.end(), seg.begin(), seg.end());
+        if (seg.size() < kMaxBarsPerRequest) break;
+        const DateTime oldest = seg.front().time;
+        if (!isEpoch && oldest <= start) break;
+        startIdx += kMaxBarsPerRequest;
+    }
+
+    std::sort(all.begin(), all.end(),
+              [](const Bar& a, const Bar& b) { return a.time < b.time; });
+    all.erase(std::unique(all.begin(), all.end(),
+                          [](const Bar& a, const Bar& b) { return a.time == b.time; }),
+              all.end());
+
+    // 兼容 TDX 长区间分页偶发漏掉最新 bar：单独补拉最新 1 根并合并
+    {
+        auto latest = fetchBarsRaw(code, period, 0, 1);
+        if (!latest.empty()) {
+            all.push_back(latest.front());
+            std::sort(all.begin(), all.end(),
+                      [](const Bar& a, const Bar& b) { return a.time < b.time; });
+            all.erase(std::unique(all.begin(), all.end(),
+                                  [](const Bar& a, const Bar& b) { return a.time == b.time; }),
+                      all.end());
+        }
+    }
+
+    if (isEpoch) {
+        if (all.size() > desired) {
+            all.erase(all.begin(), all.end() - static_cast<long>(desired));
+        }
+    } else {
+        all.erase(std::remove_if(all.begin(), all.end(),
+                                 [&](const Bar& b) { return b.time < start || b.time > end; }),
+                  all.end());
+    }
+
+    // 不复权：直接返回原始价
+    return all;
+}
+
+std::vector<Bar> TdxProvider::getHfqBars(const StockCode& code, BarPeriod period,
+                                         DateTime start, DateTime end) {
+    InteractiveGuard guard(this);  // 交互优先
+    if (tdx::tdxMarket(code.market()) < 0 || tdx::klineCategory(period) < 0) {
+        return {};
+    }
+    const bool isEpoch = start < utils::parseDate("2000-01-01");
+    const uint16_t desired = static_cast<uint16_t>(isMinutePeriod(period) ? 320 : 640);
+
+    std::vector<Bar> all;
+    uint16_t startIdx = 0;
+    while (startIdx < 10000) {
+        auto seg = fetchBarsRaw(code, period, startIdx, kMaxBarsPerRequest);
+        if (seg.empty()) break;
+        all.insert(all.end(), seg.begin(), seg.end());
+        if (seg.size() < kMaxBarsPerRequest) break;
+        const DateTime oldest = seg.front().time;
+        if (!isEpoch && oldest <= start) break;
+        startIdx += kMaxBarsPerRequest;
+    }
+
+    std::sort(all.begin(), all.end(),
+              [](const Bar& a, const Bar& b) { return a.time < b.time; });
+    all.erase(std::unique(all.begin(), all.end(),
+                          [](const Bar& a, const Bar& b) { return a.time == b.time; }),
+              all.end());
+
+    // 兼容 TDX 长区间分页偶发漏掉最新 bar：单独补拉最新 1 根并合并
+    {
+        auto latest = fetchBarsRaw(code, period, 0, 1);
+        if (!latest.empty()) {
+            all.push_back(latest.front());
+            std::sort(all.begin(), all.end(),
+                      [](const Bar& a, const Bar& b) { return a.time < b.time; });
+            all.erase(std::unique(all.begin(), all.end(),
+                                  [](const Bar& a, const Bar& b) { return a.time == b.time; }),
+                      all.end());
+        }
+    }
+
+    if (isEpoch) {
+        if (all.size() > desired) {
+            all.erase(all.begin(), all.end() - static_cast<long>(desired));
+        }
+    } else {
+        all.erase(std::remove_if(all.begin(), all.end(),
+                                 [&](const Bar& b) { return b.time < start || b.time > end; }),
+                  all.end());
+    }
+
+    // 后复权：用全部除权除息事件做单调累乘/累加，收益率口径与聚宽动态前复权一致
+    if (period == BarPeriod::Daily || period == BarPeriod::Weekly ||
+        period == BarPeriod::Monthly || period == BarPeriod::Quarterly ||
+        period == BarPeriod::Yearly) {
+        all = hfqAdjust(std::move(all), ensureGbbq(code));
     }
     return all;
 }
@@ -375,6 +501,56 @@ std::vector<Bar> TdxProvider::qfqAdjust(std::vector<Bar> bars,
             if (m > 1e-12) {
                 M = M / m;
                 A = (A - c) / m;
+            }
+        }
+        const auto adj = [&](double v) {
+            return std::round((v * M + A) * 100.0) / 100.0;
+        };
+        bar.open = adj(bar.open);
+        bar.high = adj(bar.high);
+        bar.low = adj(bar.low);
+        bar.close = adj(bar.close);
+    }
+    return bars;
+}
+
+std::vector<Bar> TdxProvider::hfqAdjust(std::vector<Bar> bars,
+                                        const std::vector<tdx::TdxGbbqRec>& gbbq) {
+    // 只收集除权除息事件（category==1），按日期升序（旧→新）
+    std::vector<const tdx::TdxGbbqRec*> events;
+    for (const auto& g : gbbq) {
+        if (g.category == 1) events.push_back(&g);
+    }
+    if (events.empty()) return bars;
+    std::sort(events.begin(), events.end(),
+              [](const tdx::TdxGbbqRec* a, const tdx::TdxGbbqRec* b) {
+                  return a->date < b->date;  // 旧→新
+              });
+
+    const auto barDateOf = [](const Bar& b) -> uint32_t {
+        const std::time_t tt = std::chrono::system_clock::to_time_t(b.time);
+        std::tm tmv{};
+#ifdef _WIN32
+        localtime_s(&tmv, &tt);
+#else
+        localtime_r(&tt, &tmv);
+#endif
+        return static_cast<uint32_t>(
+            (tmv.tm_year + 1900) * 10000 + (tmv.tm_mon + 1) * 100 + tmv.tm_mday);
+    };
+
+    // 后复权仿射变换：P_hfq = P_raw * M + A。
+    // 每经过一个除权除息事件：M <- M*m，A <- A + c*M_old。
+    for (auto& bar : bars) {
+        const uint32_t barDate = barDateOf(bar);
+        double M = 1.0, A = 0.0;
+        for (const auto* e : events) {  // 事件按日期升序
+            if (e->date > barDate) break;  // 该事件发生在 bar 之后，不影响
+            const double m = (10.0 + e->songZhuanGu + e->peiGu) / 10.0;
+            const double c = (e->fenHong - e->peiGu * e->peiGuJia) / 10.0;
+            if (m > 1e-12) {
+                A = A + c * M;
+                M = M * m;
             }
         }
         const auto adj = [&](double v) {
