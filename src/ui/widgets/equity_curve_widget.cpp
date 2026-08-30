@@ -48,6 +48,12 @@ void EquityCurveWidget::setIncludeZero(bool includeZero) {
     update();
 }
 
+void EquityCurveWidget::setPercentMode(bool percentMode) {
+    percentMode_ = percentMode;
+    if (percentMode) includeZero_ = true;
+    update();
+}
+
 void EquityCurveWidget::paintEvent(QPaintEvent*) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
@@ -105,9 +111,11 @@ void EquityCurveWidget::paintEvent(QPaintEvent*) {
         p.drawLine(QPointF(plot.left() - kAxisTickLen, y),
                    QPointF(plot.left(), y));
         p.setPen(QColor("#a0a0a0"));
+        const QString yText = percentMode_
+            ? QString::number(v, 'f', 1) + QStringLiteral("%")
+            : QString::number(v, 'f', 3);
         p.drawText(QRectF(0, y - 7, plot.left() - kAxisTickLen - 2, 14),
-                   Qt::AlignRight | Qt::AlignVCenter,
-                   QString::number(v, 'f', 3));
+                   Qt::AlignRight | Qt::AlignVCenter, yText);
     }
     (void)fm;
 
@@ -121,9 +129,11 @@ void EquityCurveWidget::paintEvent(QPaintEvent*) {
                    Qt::AlignLeft | Qt::AlignVCenter, tr("0"));
     }
 
-    // ---- 1.0 初始净值虚线 ----
-    p.setPen(QPen(QColor(255, 255, 255, 60), 1, Qt::DashLine));
-    p.drawLine(QPointF(plot.left(), yFor(1.0)), QPointF(plot.right(), yFor(1.0)));
+    // ---- 1.0 初始净值虚线（收益率模式下以 0% 为基准，不再绘制 1.0 线） ----
+    if (!percentMode_) {
+        p.setPen(QPen(QColor(255, 255, 255, 60), 1, Qt::DashLine));
+        p.drawLine(QPointF(plot.left(), yFor(1.0)), QPointF(plot.right(), yFor(1.0)));
+    }
 
     // ---- 各序列折线 + 渐变填充 ----
     for (const auto& s : vis) {
@@ -175,7 +185,7 @@ void EquityCurveWidget::paintEvent(QPaintEvent*) {
     QFontMetrics fm2(f);
     int legendW = 0;
     for (const auto& s : vis) {
-        const QString t = QStringLiteral("%1 %2").arg(s.name).arg(s.data.back(), 0, 'f', 3);
+        const QString t = QStringLiteral("%1 %2%3").arg(s.name).arg(s.data.back(), 0, 'f', 3).arg(s.suffix);
         legendW = std::max(legendW, fm2.horizontalAdvance(t) + 18);
     }
     const int maxLegendW = std::max(8, static_cast<int>(plot.width() - 8));
@@ -190,7 +200,7 @@ void EquityCurveWidget::paintEvent(QPaintEvent*) {
                              legendW + 4,
                              static_cast<double>(vis.size()) * 15.0 + 4), 4, 4);
     for (const auto& s : vis) {
-        const QString t = QStringLiteral("%1 %2").arg(s.name).arg(s.data.back(), 0, 'f', 3);
+        const QString t = QStringLiteral("%1 %2%3").arg(s.name).arg(s.data.back(), 0, 'f', 3).arg(s.suffix);
         p.setPen(Qt::NoPen);
         p.setBrush(s.color);
         p.drawRect(QRectF(lx, ly + 3, 8, 8));
@@ -217,7 +227,7 @@ void EquityCurveWidget::paintEvent(QPaintEvent*) {
             const double v = s.data[hoverIndex_];
             p.setPen(QPen(s.color, 2));
             p.drawEllipse(QPointF(hx, yFor(v)), 3, 3);
-            lines << QStringLiteral("%1: %2").arg(s.name).arg(v, 0, 'f', 3);
+            lines << QStringLiteral("%1: %2%3").arg(s.name).arg(v, 0, 'f', 3).arg(s.suffix);
         }
 
         // 浮框（尽量不超出右边界）

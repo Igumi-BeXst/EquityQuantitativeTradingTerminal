@@ -442,19 +442,23 @@ void BacktestPanel::onResult(const BacktestResult& result) {
     }
 
     setMetrics(result.performance, result);
-    // 策略净值 + 沪深300 基准净值（归一化到 1.0 对比）
+    // 累计收益率曲线（%） + 沪深300 基准收益率，0% 为基准，更直观
     {
         std::vector<EquityCurveWidget::EquitySeries> series;
-        series.push_back({tr("策略"), QColor("#4caf50"), result.performance.equityCurve});
+        std::vector<double> strategyPct;
+        strategyPct.reserve(result.performance.equityCurve.size());
+        for (double v : result.performance.equityCurve) strategyPct.push_back((v - 1.0) * 100.0);
+        series.push_back({tr("策略"), QColor("#4caf50"), std::move(strategyPct), QStringLiteral("%")});
         if (!result.benchmarkEquity.empty() && result.benchmarkEquity.front() > 0.0) {
             std::vector<double> bench;
             bench.reserve(result.benchmarkEquity.size());
             const double base = result.benchmarkEquity.front();
-            for (double v : result.benchmarkEquity) bench.push_back(v / base);
-            series.push_back({tr("沪深300"), QColor("#2196f3"), std::move(bench)});
+            for (double v : result.benchmarkEquity) bench.push_back((v / base - 1.0) * 100.0);
+            series.push_back({tr("沪深300"), QColor("#2196f3"), std::move(bench), QStringLiteral("%")});
         }
         equityCurve_->setSeries(series);
-        equityCurve_->setIncludeZero(true);  // 回测净值图显示 0 轴参考线
+        equityCurve_->setPercentMode(true);   // 收益率模式：0% 轴 + Y 轴带 %
+        equityCurve_->setIncludeZero(true);   // 回测收益率图显示 0 轴参考线
         std::vector<QString> labels;
         labels.reserve(result.equityDates.size());
         for (const auto& d : result.equityDates) {

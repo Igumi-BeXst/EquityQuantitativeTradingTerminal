@@ -21,6 +21,7 @@ public:
         QString name;
         QColor color;
         std::vector<double> data;
+        QString suffix;   // 数值后缀，如 "%"（收益率模式）
     };
 
     explicit EquityCurveWidget(QWidget* parent = nullptr);
@@ -37,6 +38,9 @@ public:
     /// 是否强制把 0 纳入 Y 轴范围并绘制 0 轴参考线（回测净值图建议开启）
     void setIncludeZero(bool includeZero);
 
+    /// 收益率模式：Y 轴带 %，不绘制 1.0 初始净值线（以 0% 为基准）
+    void setPercentMode(bool percentMode);
+
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
@@ -47,6 +51,7 @@ private:
     std::vector<EquitySeries> series_;
     std::vector<QString> xLabels_;
     bool includeZero_ = false;
+    bool percentMode_ = false;
     int hoverIndex_ = -1;
     double hoverX_ = -1.0;
     bool hoverValid_ = false;
