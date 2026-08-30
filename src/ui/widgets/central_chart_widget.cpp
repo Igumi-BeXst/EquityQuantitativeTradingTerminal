@@ -124,6 +124,9 @@ CentralChartWidget::CentralChartWidget(IDataProvider* provider, bool standalone,
     stack_ = new QStackedWidget(this);
     stack_->addWidget(timeline_);   // index 0
     stack_->addWidget(kline_);      // index 1
+    // QStackedWidget 默认显示第一个加入的页面（分时），但周期栏默认选中“日线”，
+    // 必须显式切到 K 线页，否则出现“按钮是日线、图表却是分时”的不一致。
+    stack_->setCurrentWidget(kline_);
     layout->addWidget(stack_, 1);
 
     // 转发 K线十字光标日期（分时不发；筹码面板按日期查询）

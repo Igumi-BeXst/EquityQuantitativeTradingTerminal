@@ -1,5 +1,23 @@
 # 开发日志 (Development Log)
 
+## 2026-08-21 — 修复：主窗口默认周期栏显示「日线」但图表加载「分时」
+
+### 现象
+- 主窗口打开一只股票时，上方周期栏固定选中「日线」，但图表实际显示的是分时数据。
+
+### 根因
+- `CentralChartWidget` 构造时先把 `TimelineChart`（分时页）添加到 `QStackedWidget`，再添加 `KLineChart`（K线页）。
+- 周期栏默认勾选「日线」，但 `QStackedWidget` 默认显示第一个加入的页面，即分时页。
+- 因此出现“按钮是日线、图表却是分时”的不一致；`loadStock()` 又会保留当前页，导致后续开图一直显示分时。
+
+### 修复
+- `CentralChartWidget` 构造时在添加完两个页面后，显式 `stack_->setCurrentWidget(kline_)`，使默认显示与周期栏「日线」一致。
+- 独立图表窗口（`ChartWindow`）同样使用该组件，一并修复。
+
+### 验证
+- Release 构建通过（`cmake --build --preset release-qt --target StockTerminal`）。
+- 手动复测：主窗口打开任意股票，默认应显示日线 K 线；手动点「分时」后开新股票，仍应保持分时。
+
 ## 2026-08-17 — 模拟交易体验修复 + T+1 + 账户持久化 + 日志体积控制
 
 ### 需求（用户反馈）
