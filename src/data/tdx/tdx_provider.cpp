@@ -300,7 +300,8 @@ std::vector<Bar> TdxProvider::getBars(const StockCode& code, BarPeriod period,
               all.end());
 
     // 兼容 TDX 长区间分页偶发漏掉最新 bar：单独补拉最新 1 根并合并
-    {
+    // 仅在主请求有数据时补拉；主请求失败后不应通过“补最新 1 根”伪装成完整数据。
+    if (!all.empty()) {
         auto latest = fetchBarsRaw(code, period, 0, 1);
         if (!latest.empty()) {
             all.push_back(latest.front());
@@ -359,7 +360,8 @@ std::vector<Bar> TdxProvider::getRawBars(const StockCode& code, BarPeriod period
               all.end());
 
     // 兼容 TDX 长区间分页偶发漏掉最新 bar：单独补拉最新 1 根并合并
-    {
+    // 仅在主请求有数据时补拉；主请求失败后不应通过“补最新 1 根”伪装成完整数据。
+    if (!all.empty()) {
         auto latest = fetchBarsRaw(code, period, 0, 1);
         if (!latest.empty()) {
             all.push_back(latest.front());
@@ -413,7 +415,8 @@ std::vector<Bar> TdxProvider::getHfqBars(const StockCode& code, BarPeriod period
               all.end());
 
     // 兼容 TDX 长区间分页偶发漏掉最新 bar：单独补拉最新 1 根并合并
-    {
+    // 仅在主请求有数据时补拉；主请求失败后不应通过“补最新 1 根”伪装成完整数据。
+    if (!all.empty()) {
         auto latest = fetchBarsRaw(code, period, 0, 1);
         if (!latest.empty()) {
             all.push_back(latest.front());

@@ -55,6 +55,8 @@ add_library(st_data STATIC
     data/eastmoney_sector_provider.cpp
     data/eastmoney_funds_provider.cpp
     data/eastmoney_sector_constituents.cpp
+    data/parallel_bar_fetcher.cpp
+    data/bar_disk_cache.cpp
 )
 target_link_libraries(st_data PUBLIC st_foundation st_core Qt6::Sql Qt6::Network nlohmann_json::nlohmann_json ZLIB::ZLIB)
 if(WIN32)

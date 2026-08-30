@@ -4,6 +4,7 @@
 #include "ui/widgets/stock_pool_picker.h"
 #include "data/idata_provider.h"
 #include "data/data_cache.h"
+#include "data/parallel_bar_fetcher.h"
 #include "core/thread_pool.h"
 #include "core/log_manager.h"
 #include "foundation/utils/datetime.h"
@@ -200,31 +201,21 @@ void StressTestPanel::onRunClicked() {
     const auto cache = cache_;
     QPointer<StressTestPanel> guard(this);
     ThreadPool::submitIO([provider, cache, guard, symbols, baseStart, end] {
-        const int total = static_cast<int>(symbols.size());
-        int done = 0;
-        for (const auto& code : symbols) {
-            auto bars = provider->getRawBars(code, BarPeriod::Daily, baseStart, end);
-            if (!bars.empty()) cache->cacheBars(code, BarPeriod::Daily, std::move(bars));
-            ++done;
-            // 节流：IO 阶段每只更新太频繁，每 2% 或末只才上报
-            if (done == total || done * 100 / total != (done - 1) * 100 / total) {
+        // 并行拉取不复权日线（TDX 多连接）+ 收集真实价区间，替代旧的两次串行全市场拉取
+        std::map<std::string, std::vector<Bar>> rawBars;
+        ParallelBarFetcher::fetchRawBars(
+            provider, symbols, BarPeriod::Daily, baseStart, baseStart, end, cache, rawBars, 4,
+            [guard](int done, int total) {
                 QMetaObject::invokeMethod(guard, [guard, done, total] {
                     if (!guard) return;
                     guard->progress_->setValue(done * 50 / total);
                     guard->progressEtaLabel_->setText(
                         guard->eta_.text(static_cast<double>(done) * 50.0 / total));
                 }, Qt::QueuedConnection);
-            }
-        }
+            });
         // 沪深300 基准（用于 Alpha/Beta）
         auto benchmarkBars = provider->getBars(
             StockCode(Market::SH, "000300"), BarPeriod::Daily, baseStart, end);
-        // 不复权真实价
-        std::map<std::string, std::vector<Bar>> rawBars;
-        for (const auto& code : symbols) {
-            auto raw = provider->getRawBars(code, BarPeriod::Daily, baseStart, end);
-            if (!raw.empty()) rawBars[code.fullCode()] = std::move(raw);
-        }
         QMetaObject::invokeMethod(guard, [guard, benchmarkBars = std::move(benchmarkBars),
                                           rawBars = std::move(rawBars)]() mutable {
             if (!guard) return;

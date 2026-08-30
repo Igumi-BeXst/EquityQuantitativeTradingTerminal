@@ -18,6 +18,59 @@
 - Release 构建通过（`cmake --build --preset release-qt --target StockTerminal`）。
 - 手动复测：主窗口打开任意股票，默认应显示日线 K 线；手动点「分时」后开新股票，仍应保持分时。
 
+## 2026-08-21 — 全市场回测数据下载并行化（方案 A）
+
+### 背景
+- 全市场 5213 只回测时，IO 阶段串行拉取 400 天预热数据 + 单独再拉一次真实价区间，约 2 万次 TDX 往返，导致“预计 10+ 分钟”。
+
+### 实施
+- 新增 `data/parallel_bar_fetcher.{h,cpp}`：
+  - 识别 TDX 主源后创建最多 4 个独立 `TdxProvider` 连接并行下载
+  - 股票池按 lane 分片，每个连接串行处理各自分片
+  - 拉取结果统一写入线程安全 `DataCache`
+  - 并行连接失败时回退主数据源
+  - 同时从已拉取的完整区间中收集真实价 `rawBars`，**去掉原来的第二次全市场拉取**
+- 回测 / 参数优化 / 优化建议 / 策略对比 / 压力测试 5 个面板统一接入 `ParallelBarFetcher`。
+- 非 TDX 数据源自动降级为原串行逻辑。
+
+### 验证
+- Release 构建通过（`cmake --build --preset release-qt --target StockTerminal`）。
+- 待手动复测：全市场回测 IO 阶段应显著缩短；结果应与修复前一致。
+
+## 2026-08-21 — 全市场回测数据磁盘缓存（方案 B）
+
+### 实施
+- 新增 `data/bar_disk_cache.{h,cpp}`：
+  - 按 `code` 保存不复权日线到 `%APPDATA%/StockTerminal/data/bar_cache/raw/`
+  - 二进制存储，含 magic/version 校验与区间过滤读取
+- `ParallelBarFetcher` 接入磁盘缓存：
+  - 每个股票先尝试读磁盘缓存，覆盖度足够则不再网络下载
+  - 覆盖判断允许最多 7 个自然日边界误差（周末/节假日）
+  - 首次下载后落盘，后续回测直接命中缓存
+- 新增单测 `BarDiskCacheTest.SaveAndLoadRoundTrip`。
+
+### 验证
+- Debug / Release 构建通过。
+- `test_data` 新增测试通过；其余数据层测试 112/113 通过（`TdxProviderTest.GetBarsReconnectsAfterSendFailure` 为既有连接恢复时序测试，与本轮改动无关）。
+- 待手动复测：第二次全市场回测应明显减少网络下载，结果不变。
+
+## 2026-08-21 — 修复 TDX 断线后 getBars 返回单根残缺数据
+
+### 背景
+- `TdxProviderTest.GetBarsReconnectsAfterSendFailure` 稳定失败。
+- 根因：`getBars / getRawBars / getHfqBars` 的主 K 线请求发送失败后，代码仍会执行“补拉最新 1 根”逻辑；
+  该逻辑会自动重连并拿到 1 根最新 bar，导致函数返回“只含最新 1 根”的残缺数据，而不是空结果。
+- 这不仅是测试问题，也会让真实网络抖动时回测/行情静默拿到不完整序列。
+
+### 修复
+- 三个函数中的“补拉最新 1 根”逻辑增加 `if (!all.empty())` 保护：
+  - 主请求有数据时才补拉最新 1 根
+  - 主请求失败返回空时，直接返回空，等待下一次调用自动重连完整拉取
+
+### 验证
+- `TdxProviderTest.GetBarsReconnectsAfterSendFailure` 通过。
+- `test_data` 113/113 全绿。
+
 ## 2026-08-17 — 模拟交易体验修复 + T+1 + 账户持久化 + 日志体积控制
 
 ### 需求（用户反馈）

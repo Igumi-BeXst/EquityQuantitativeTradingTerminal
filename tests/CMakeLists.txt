@@ -38,6 +38,7 @@ if(BUILD_WITH_QT)
         test_data/test_tdx_provider.cpp
         test_data/test_multi_provider.cpp
         test_data/test_akshare_provider.cpp
+        test_data/test_bar_disk_cache.cpp
         test_data/test_sector_provider.cpp
         test_data/test_funds_provider.cpp
         test_data/test_sector_constituents.cpp
