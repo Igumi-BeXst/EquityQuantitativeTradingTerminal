@@ -47,6 +47,7 @@ struct BacktestResult {
     std::vector<Trade> trades;        // 全部成交记录
     std::vector<Portfolio> equitySnapshots; // 每日净值快照
     std::vector<double> benchmarkEquity;    // 基准净值（原始指数收盘序列，展示时归一化）
+    std::vector<DateTime> equityDates;      // 净值曲线对应的交易日期（与 equityCurve 同步）
 
     // 统计
     int barCount = 0;
@@ -105,6 +106,7 @@ private:
     int nextOrderId_ = 1;
     std::vector<Trade> trades_;
     std::vector<double> equityCurve_;  // 净值曲线累积（keepEquitySnapshots=false 时用）
+    std::vector<DateTime> equityDates_; // 净值曲线各点对应日期
     StockCode currentCode_;   // 当前正在处理的股票（策略查询用）
     DateTime currentTime_;    // 当前 bar 时间（下单时间戳）
     mutable Portfolio cachedPortfolio_;  // getPortfolio 缓存（实例成员，线程隔离）

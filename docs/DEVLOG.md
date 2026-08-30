@@ -45,7 +45,7 @@
   - 二进制存储，含 magic/version 校验与区间过滤读取
 - `ParallelBarFetcher` 接入磁盘缓存：
   - 每个股票先尝试读磁盘缓存，覆盖度足够则不再网络下载
-  - 覆盖判断允许最多 7 个自然日边界误差（周末/节假日）
+  - 覆盖判断允许最多 3 个自然日边界误差（周末）
   - 首次下载后落盘，后续回测直接命中缓存
 - 新增单测 `BarDiskCacheTest.SaveAndLoadRoundTrip`。
 
@@ -70,6 +70,22 @@
 ### 验证
 - `TdxProviderTest.GetBarsReconnectsAfterSendFailure` 通过。
 - `test_data` 113/113 全绿。
+
+## 2026-08-21 — 回测净值图增加坐标轴、0 轴参考线与悬停数据查看
+
+### 实施
+- `EquityCurveWidget`：
+  - 增加左侧 Y 轴刻度和底部 X 轴标签
+  - 支持 0 轴参考线（回测图强制将 0 纳入 Y 轴范围并绘制虚线）
+  - 鼠标悬停/点击显示十字线 + 各序列数值浮框
+  - 支持日期标签：`setXLabels()`
+- `BacktestResult` 增加 `equityDates`：
+  - `BacktestEngine` 与净值曲线同步记录每个交易日
+  - 回测面板将日期传给净值图，悬停/坐标轴可显示具体日期
+
+### 验证
+- Debug / Release 清洁重建通过（`--clean-first`，避免 ABI 陈旧对象）。
+- 待手动复测：回测完成后净值图应显示 Y/X 轴、0 轴参考线；鼠标在曲线上移动/点击可查看对应日期与策略/基准净值。
 
 ## 2026-08-17 — 模拟交易体验修复 + T+1 + 账户持久化 + 日志体积控制
 

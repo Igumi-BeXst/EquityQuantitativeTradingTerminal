@@ -454,6 +454,14 @@ void BacktestPanel::onResult(const BacktestResult& result) {
             series.push_back({tr("沪深300"), QColor("#2196f3"), std::move(bench)});
         }
         equityCurve_->setSeries(series);
+        equityCurve_->setIncludeZero(true);  // 回测净值图显示 0 轴参考线
+        std::vector<QString> labels;
+        labels.reserve(result.equityDates.size());
+        for (const auto& d : result.equityDates) {
+            labels.push_back(QString::fromStdString(utils::toDateString(d)));
+        }
+        if (!labels.empty()) equityCurve_->setXLabels(labels);
+        else equityCurve_->setXLabels({});
     }
     // 名称映射（全市场列表；未加载时显示 "--"）
     std::unordered_map<std::string, std::string> nameByCode;

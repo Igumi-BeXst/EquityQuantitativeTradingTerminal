@@ -181,6 +181,8 @@ void BacktestEngine::initStrategies() {
 
 BacktestResult BacktestEngine::run() {
     result_ = BacktestResult{};
+    equityCurve_.clear();
+    equityDates_.clear();
     if (config_.symbols.empty() || !cache_) {
         result_.error = "股票池为空或未设置数据源";
         return result_;
@@ -345,6 +347,7 @@ BacktestResult BacktestEngine::run() {
         }
         // 净值曲线始终累积（网格搜索不存快照时仍可算绩效/曲线）
         equityCurve_.push_back(account_->netValue());
+        equityDates_.push_back(date);
 
         // 基准净值对齐（缺失时向前借用最近一个基准收盘）
         {
@@ -377,6 +380,7 @@ BacktestResult BacktestEngine::run() {
     // 生成结果
     result_.finalPortfolio = account_->snapshot(DateTime{});
     result_.benchmarkEquity = benchmarkEquity;
+    result_.equityDates = equityDates_;
 
     // 净值曲线
     std::vector<double> equity;
