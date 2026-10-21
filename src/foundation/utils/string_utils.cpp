@@ -1,4 +1,5 @@
 #include "foundation/utils/string_utils.h"
+#include <cstdint>
 #include <sstream>
 
 namespace st::utils {

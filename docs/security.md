@@ -11,7 +11,6 @@ StockTerminal 将**开源公开 + 纯本地单机**分享给他人使用。本�
 | 数据源 token | Tushare / AKShare 等数据服务的访问凭证 |
 | 券商 API 凭证 | XTP 等券商接口的账号/密码/证书（预留） |
 | AI 服务 API key | Claude / GPT 等 AI 服务的密钥（预留） |
-| 数据库口令 | SQLite 本地库口令（可选） |
 
 ## 保护机制
 
@@ -30,7 +29,7 @@ StockTerminal 将**开源公开 + 纯本地单机**分享给他人使用。本�
 ```
 %APPDATA%\StockTerminal\
 ├── config\        (非敏感配置)
-├── data\          (SQLite 数据库)
+├── data\          (本地行情缓存等数据)
 ├── secrets\       (加密凭证, DPAPI)
 └── logs\          (日志)
 ```

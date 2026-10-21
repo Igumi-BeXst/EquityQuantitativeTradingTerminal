@@ -46,6 +46,11 @@ ui_*.h
 *.db
 *.sqlite
 *.sqlite3
+# SQLite WAL 模式的附属文件（后缀不匹配上面的 *.sqlite，必须单独列出）
+*.sqlite-wal
+*.sqlite-shm
+# 即使把缓存目录改到项目内，也不纳入版本控制
+data/
 
 # OS files
 Thumbs.db
@@ -76,3 +81,6 @@ build/
 
 # 根目录验证截图（离屏渲染测试产物）
 /*.png
+
+# 本地临时探测目录（不纳入版本控制）
+/.tmp_*/

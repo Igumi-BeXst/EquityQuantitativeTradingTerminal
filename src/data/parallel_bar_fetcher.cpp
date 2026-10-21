@@ -1,11 +1,10 @@
 #include "data/parallel_bar_fetcher.h"
-#include "data/bar_disk_cache.h"
+#include "data/cached_data_provider.h"
 #include "data/data_cache.h"
 #include "data/idata_provider.h"
 #include "data/tdx/tdx_provider.h"
 #include "core/app_paths.h"
 #include "core/log_manager.h"
-#include "foundation/utils/datetime.h"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -19,7 +18,7 @@ namespace {
 
 bool supportsTdxParallel(IDataProvider* primary) {
     if (!primary) return false;
-    // MultiProvider 的 providerName() 形如 "multi(tdx→tencent)"，TDX 直连为 "tdx"。
+    // MultiProvider 的 providerName() 以 "multi(tdx→" 开头，TDX 直连为 "tdx"。
     return primary->providerName().find("tdx") != std::string::npos;
 }
 
@@ -32,31 +31,6 @@ void filterRawBars(const std::vector<Bar>& bars,
     for (const auto& b : bars) {
         if (b.time >= filterStart && b.time <= end) out.push_back(b);
     }
-}
-
-std::vector<Bar> sliceBars(const std::vector<Bar>& bars,
-                           DateTime start,
-                           DateTime end) {
-    std::vector<Bar> out;
-    out.reserve(bars.size());
-    for (const auto& b : bars) {
-        if (b.time >= start && b.time <= end) out.push_back(b);
-    }
-    return out;
-}
-
-/// 判断磁盘缓存是否覆盖本次请求范围。
-/// 允许最多 3 个自然日的边界误差（应对周末，避免长期使用陈旧缓存）。
-bool diskCacheCovers(const std::vector<Bar>& all,
-                     DateTime fetchStart,
-                     DateTime end) {
-    if (all.empty()) return false;
-    const auto now = utils::now();
-    const auto targetEnd = std::min(end, now);
-    const auto tolerance = std::chrono::hours(24 * 3);
-    const bool coversStart = all.front().time <= fetchStart + tolerance;
-    const bool coversEnd = (targetEnd - all.back().time) <= tolerance;
-    return coversStart && coversEnd;
 }
 
 } // namespace
@@ -78,9 +52,6 @@ void ParallelBarFetcher::fetchRawBars(
 
     const int total = static_cast<int>(codes.size());
     const int step = std::max(1, total / 50);
-    const bool useDisk = supportsTdxParallel(primary);
-    BarDiskCache disk(useDisk ? (AppPaths::dataDir() + "/bar_cache") : std::string{});
-    std::mutex diskMutex;
 
     auto report = [&](int done) {
         if (!onProgress) return;
@@ -99,7 +70,7 @@ void ParallelBarFetcher::fetchRawBars(
     };
 
     if (!supportsTdxParallel(primary) || lanes <= 1) {
-        // 非 TDX 或未启用并行：直接用主数据源串行拉取（不写磁盘缓存，避免跨数据源混用）
+        // 非 TDX 或未启用并行：主数据源的缓存装饰器负责 SQLite 读写。
         int done = 0;
         for (const auto& code : codes) {
             auto bars = primary ? primary->getRawBars(code, period, fetchStart, end)
@@ -111,39 +82,18 @@ void ParallelBarFetcher::fetchRawBars(
         return;
     }
 
-    // TDX 多连接并行 + 磁盘缓存：每个 lane 创建独立 TdxProvider
+    // TDX 多连接并行：每个 lane 有独立 provider 和线程内 SQLite 连接。
     const int n = std::min<int>(std::max(1, lanes), total);
     std::atomic<int> done{0};
     std::mutex rawMutex;
     std::vector<std::thread> threads;
     threads.reserve(n);
 
-    auto fetchOne = [&](const StockCode& code, TdxProvider* provider) {
-        // 1. 先尝试磁盘缓存
-        if (useDisk) {
-            std::vector<Bar> all;
-            {
-                std::lock_guard<std::mutex> lk(diskMutex);
-                all = disk.loadAll(code, period);
-            }
-            if (diskCacheCovers(all, fetchStart, end)) {
-                std::vector<Bar> needed = sliceBars(all, fetchStart, end);
-                if (!needed.empty()) {
-                    std::lock_guard<std::mutex> lk(rawMutex);
-                    commitBars(code, needed);
-                }
-                return;
-            }
-        }
-
-        // 2. 网络拉取
-        auto bars = provider->getRawBars(code, period, fetchStart, end);
+    auto fetchOne = [&](const StockCode& code, IDataProvider* provider) {
+        auto bars = provider ? provider->getRawBars(code, period, fetchStart, end)
+                             : std::vector<Bar>{};
         if (bars.empty() && primary) {
             bars = primary->getRawBars(code, period, fetchStart, end);
-        }
-        if (!bars.empty() && useDisk) {
-            std::lock_guard<std::mutex> lk(diskMutex);
-            disk.save(code, period, bars);
         }
         {
             std::lock_guard<std::mutex> lk(rawMutex);
@@ -153,7 +103,12 @@ void ParallelBarFetcher::fetchRawBars(
 
     for (int lane = 0; lane < n; ++lane) {
         threads.emplace_back([&, lane] {
-            auto provider = std::make_unique<TdxProvider>();
+            // 数据目录不可用时传空路径，让缓存层自行降级（不写盘但仍可拉数据）
+            const std::string dataDir = AppPaths::dataDir();
+            const std::string dbPath =
+                dataDir.empty() ? std::string() : dataDir + "/market_data.sqlite";
+            auto provider = std::make_unique<CachedDataProvider>(
+                std::make_unique<TdxProvider>(), "tdx", dbPath);
             for (int i = lane; i < total; i += n) {
                 const auto& code = codes[i];
                 fetchOne(code, provider.get());

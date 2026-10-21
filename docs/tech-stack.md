@@ -6,7 +6,7 @@
 | UI 框架 | Qt 6.5+ | Widgets, Sql, Network |
 | 构建系统 | CMake 3.21+ | |
 | 包管理器 | vcpkg | manifest mode |
-| 数据存储 | SQLite | 通过 Qt6::Sql |
+| 数据存储 | TDX 回测使用本地二进制 K 线缓存；SQLite DataRepository 模块尚未接入应用流程 | Qt6::Sql |
 | 测试框架 | GoogleTest | |
 | JSON | nlohmann/json | header-only |
 | 日志 | spdlog | 异步输出 |

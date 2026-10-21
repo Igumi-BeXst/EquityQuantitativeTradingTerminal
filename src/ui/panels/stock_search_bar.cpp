@@ -56,34 +56,38 @@ StockSearchBar::StockSearchBar(IDataProvider* provider, QWidget* parent)
         onPopupActivated();
     });
 
-    // 异步加载精选股票池（IO 线程池，不阻塞主线程）
-    if (provider_) {
-        // 安全异步：捕获构造参数 provider + QPointer 守卫投递回主线程
-        QPointer<StockSearchBar> guard(this);
-        ThreadPool::submitIO([provider, guard] {
-            // 等待数据源连接就绪（最多 15s）：避免连接建立期并发请求与 TDX doConnect 竞争
-            for (int i = 0; i < 75 && !provider->isConnected(); ++i) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            }
-            auto sh = provider->getStockList(Market::SH);
-            auto sz = provider->getStockList(Market::SZ);
-            std::vector<StockInfo> all;
-            all.reserve(sh.size() + sz.size());
-            // 过滤为可交易 A 股 + 常见指数（丢弃回购 999999/799999、债券、基金等）
-            for (auto& s : sh) {
-                if (tdx::isTradableAShare(s.code) || tdx::isIndexCode(s.code))
-                    all.push_back(std::move(s));
-            }
-            for (auto& s : sz) {
-                if (tdx::isTradableAShare(s.code) || tdx::isIndexCode(s.code))
-                    all.push_back(std::move(s));
-            }
-            QMetaObject::invokeMethod(guard,
-                [guard, all = std::move(all)]() mutable {
-                    guard->onLoadingFinished(all);
-                }, Qt::QueuedConnection);
-        });
-    }
+}
+
+void StockSearchBar::startLoading() {
+    if (loadingStarted_ || !provider_) return;
+    loadingStarted_ = true;
+
+    // 搜索框只是 UI 初始界面的一部分；只有用户开始使用它时才取全市场列表。
+    // 工作台中有多个隐藏搜索框，构造时预取会重复占用 TDX 请求和共享 IO 线程池。
+    QPointer<StockSearchBar> guard(this);
+    ThreadPool::submitIO([provider = provider_, guard] {
+        // 等待数据源连接就绪（最多 15s）：避免连接建立期并发请求与 TDX doConnect 竞争
+        for (int i = 0; i < 75 && !provider->isConnected(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
+        auto sh = provider->getStockList(Market::SH);
+        auto sz = provider->getStockList(Market::SZ);
+        std::vector<StockInfo> all;
+        all.reserve(sh.size() + sz.size());
+        // 过滤为可交易 A 股 + 常见指数（丢弃回购 999999/799999、债券、基金等）
+        for (auto& s : sh) {
+            if (tdx::isTradableAShare(s.code) || tdx::isIndexCode(s.code))
+                all.push_back(std::move(s));
+        }
+        for (auto& s : sz) {
+            if (tdx::isTradableAShare(s.code) || tdx::isIndexCode(s.code))
+                all.push_back(std::move(s));
+        }
+        QMetaObject::invokeMethod(guard,
+            [guard, all = std::move(all)]() mutable {
+                guard->onLoadingFinished(all);
+            }, Qt::QueuedConnection);
+    });
 }
 
 void StockSearchBar::focusEdit() {
@@ -141,7 +145,13 @@ void StockSearchBar::onTextChanged(const QString&) {
 }
 
 void StockSearchBar::performSearch() {
+    searchRequested_ = true;
     const QString query = edit_->text().trimmed();
+    if (!loadingStarted_) startLoading();
+    if (!loadingFinished_) {
+        edit_->setPlaceholderText(tr("正在加载股票列表…"));
+        return;
+    }
     if (query.isEmpty()) {
         // 空查询：显示已加载前 8 条精选（加载完成前无内容）
         std::vector<StockInfo> hot;
@@ -203,6 +213,7 @@ void StockSearchBar::moveNext(bool down) {
 void StockSearchBar::onLoadingFinished(const std::vector<StockInfo>& stocks) {
     allStocks_ = stocks;
     index_.build(stocks);
+    loadingFinished_ = true;
     if (index_.size() > 0) {
         edit_->setPlaceholderText(
             QStringLiteral("搜索 %1 只股票 (代码/名称/拼音)…")
@@ -210,6 +221,7 @@ void StockSearchBar::onLoadingFinished(const std::vector<StockInfo>& stocks) {
     } else {
         edit_->setPlaceholderText(tr("股票列表加载失败"));
     }
+    if (searchRequested_) performSearch();
 }
 
 } // namespace st

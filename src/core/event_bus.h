@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QPointer>
 #include <QVariantMap>
 #include <QString>
 #include <QHash>
@@ -45,8 +46,15 @@ private:
         int id;
         EventCallback callback;
     };
+    struct QtSubscription {
+        QString event;
+        QPointer<QObject> receiver;
+        QMetaObject::Connection connection;
+    };
     QHash<QString, QVector<CallbackEntry>> callbacks_;
     std::mutex mutex_;
+    QVector<QtSubscription> qtSubscriptions_;
+    std::mutex qtMutex_;
     int nextCallbackId_ = 1;
 };
 

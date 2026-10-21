@@ -41,6 +41,7 @@ private slots:
     void onLoadingFinished(const std::vector<StockInfo>& stocks);
 
 private:
+    void startLoading();
     void showResults(const std::vector<StockInfo>& results);
     void hidePopup();
     void moveNext(bool down);
@@ -52,6 +53,9 @@ private:
     StockSearchIndex index_;
     std::vector<StockInfo> allStocks_;   // 已加载全量（空查询热门前 8）
     std::vector<StockInfo> results_;     // 当前弹层结果
+    bool loadingStarted_ = false;
+    bool loadingFinished_ = false;
+    bool searchRequested_ = false;
     int currentRow_ = -1;
 };
 

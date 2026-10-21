@@ -58,3 +58,34 @@ TEST(BarDiskCacheTest, SaveAndLoadRoundTrip) {
 
     std::filesystem::remove_all(dir, ec);
 }
+
+TEST(BarDiskCacheTest, DifferentPeriodsUseSeparateFiles) {
+    const std::string dir = tempDir();
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    BarDiskCache cache(dir);
+    const StockCode code(Market::SH, "600000");
+
+    Bar daily;
+    daily.code = code;
+    daily.period = BarPeriod::Daily;
+    daily.time = day(2024, 1, 2);
+    daily.close = 10.0;
+    Bar weekly = daily;
+    weekly.period = BarPeriod::Weekly;
+    weekly.close = 20.0;
+
+    cache.save(code, BarPeriod::Daily, {daily});
+    cache.save(code, BarPeriod::Weekly, {weekly});
+
+    EXPECT_NE(cache.filePath(code, BarPeriod::Daily),
+              cache.filePath(code, BarPeriod::Weekly));
+    const auto loadedDaily = cache.loadAll(code, BarPeriod::Daily);
+    const auto loadedWeekly = cache.loadAll(code, BarPeriod::Weekly);
+    ASSERT_EQ(loadedDaily.size(), 1u);
+    ASSERT_EQ(loadedWeekly.size(), 1u);
+    EXPECT_DOUBLE_EQ(loadedDaily[0].close, 10.0);
+    EXPECT_DOUBLE_EQ(loadedWeekly[0].close, 20.0);
+
+    std::filesystem::remove_all(dir, ec);
+}

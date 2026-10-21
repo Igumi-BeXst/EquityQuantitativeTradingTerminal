@@ -21,11 +21,14 @@ bool LogManager::init(const std::string& logFilePath) {
     if (initialized_) return true;
 
     try {
-        // Create log directory if needed
+        // Create log directory if needed.
+        // 必须用带 error_code 的重载：目标目录不可写时（受限令牌/安全软件/策略）
+        // 无参版本会抛 std::filesystem_error，GUI 程序里没人接就 std::terminate -> abort。
         std::filesystem::path path(logFilePath);
         auto parentPath = path.parent_path();
-        if (!parentPath.empty() && !std::filesystem::exists(parentPath)) {
-            std::filesystem::create_directories(parentPath);
+        std::error_code dirEc;
+        if (!parentPath.empty() && !std::filesystem::exists(parentPath, dirEc)) {
+            std::filesystem::create_directories(parentPath, dirEc);
         }
 
         // Console sink (colored)

@@ -12,11 +12,13 @@
 
 namespace st {
 
-/// 策略上下文 — 引擎在每次回调时注入
+/// 策略上下文 — 引擎在每次回调时注入；成员指针仅在本次 onBar 回调期间有效。
 struct StrategyContext {
     const StockCode*  currentCode = nullptr;  // 当前处理的股票
-    const Bar*        currentBar  = nullptr;  // 当前 K 线
-    const BarSeries*  history     = nullptr;  // 该股票的历史序列（含当前 bar）
+    // 回测中指向最近一个已完成 bar（今日 bar 尚未加入历史）；模拟交易中指向当前聚合 bar。
+    const Bar*        currentBar  = nullptr;
+    // 回测中只含截至上一交易日的历史；模拟交易中包含正在更新的当日聚合 bar。
+    const BarSeries*  history     = nullptr;
     const Portfolio*  portfolio   = nullptr;  // 当前组合快照
     BarPeriod         period      = BarPeriod::Daily;
 };

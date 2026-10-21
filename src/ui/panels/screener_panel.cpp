@@ -155,9 +155,8 @@ ScreenerPanel::ScreenerPanel(IDataProvider* provider, QWidget* parent)
     resultView_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     resultView_->setMinimumHeight(180);
     layout->addWidget(new QLabel(tr("选股结果（双击开图）")));
-    layout->addWidget(resultView_);
+    layout->addWidget(resultView_, 1);
 
-    layout->addStretch();
     scroll->setWidget(root);
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);

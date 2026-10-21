@@ -1,6 +1,6 @@
 #include "core/event_bus.h"
-#include <QMetaObject>
 #include <QCoreApplication>
+#include <QMetaObject>
 #include <QThread>
 
 namespace st {
@@ -43,16 +43,30 @@ void EventBus::publish(const QString& event, const QVariantMap& data) {
 }
 
 void EventBus::subscribe(const QString& event, QObject* receiver, const char* slot) {
-    if (!receiver) return;
-    // Use a private signal connection pattern
-    connect(this, SIGNAL(eventFired(QString,QVariantMap)),
-            receiver, slot,
-            Qt::AutoConnection);
-    // Filter by event name: the receiver's slot should check event name
-    // Note: Qt doesn't support "event name filtering" natively.
-    // Receivers receive all events and should filter by event string.
-    // For convenience, we also expose subscribeCallback for lambda filtering.
-    (void)event; // "event" parameter available for future filtering proxy
+    if (!receiver || !slot) return;
+
+    QByteArray signature(slot);
+    if (!signature.isEmpty() && (signature.front() == '1' || signature.front() == '2')) {
+        signature.remove(0, 1);  // SLOT()/SIGNAL() prefix
+    }
+    signature = QMetaObject::normalizedSignature(signature.constData());
+    const qsizetype argsStart = signature.indexOf('(');
+    if (argsStart <= 0) return;
+    const QByteArray methodName = signature.left(argsStart);
+    const QPointer<QObject> guardedReceiver(receiver);
+    const auto connection = QObject::connect(
+        this, &EventBus::eventFired, receiver,
+        [event, guardedReceiver, methodName](const QString& publishedEvent,
+                                             const QVariantMap& data) {
+            if (publishedEvent != event || guardedReceiver.isNull()) return;
+            QMetaObject::invokeMethod(guardedReceiver.data(), methodName.constData(),
+                                      Qt::AutoConnection,
+                                      Q_ARG(QString, publishedEvent),
+                                      Q_ARG(QVariantMap, data));
+        });
+
+    std::lock_guard<std::mutex> lock(qtMutex_);
+    qtSubscriptions_.append({event, guardedReceiver, connection});
 }
 
 int EventBus::subscribeCallback(const QString& event, EventCallback callback) {
@@ -63,9 +77,19 @@ int EventBus::subscribeCallback(const QString& event, EventCallback callback) {
     return id;
 }
 
-void EventBus::unsubscribe(const QString&, QObject* receiver) {
+void EventBus::unsubscribe(const QString& event, QObject* receiver) {
     if (!receiver) return;
-    disconnect(receiver);
+    std::lock_guard<std::mutex> lock(qtMutex_);
+    for (auto it = qtSubscriptions_.begin(); it != qtSubscriptions_.end();) {
+        if (it->event == event && it->receiver.data() == receiver) {
+            QObject::disconnect(it->connection);
+            it = qtSubscriptions_.erase(it);
+        } else if (it->receiver.isNull()) {
+            it = qtSubscriptions_.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void EventBus::unsubscribeCallback(int id) {

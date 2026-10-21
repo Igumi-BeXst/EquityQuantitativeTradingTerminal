@@ -203,7 +203,7 @@ AdvisorPanel::AdvisorPanel(IDataProvider* provider, QWidget* parent)
     resultView_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     resultView_->setMinimumHeight(160);
     layout->addWidget(new QLabel(tr("网格结果（单击行应用参数到回测）")));
-    layout->addWidget(resultView_);
+    layout->addWidget(resultView_, 1);
     connect(resultView_, &QTableView::clicked, this,
             [this](const QModelIndex& idx) {
                 const auto params = resultModel_->paramsAt(idx.row());
@@ -213,7 +213,6 @@ AdvisorPanel::AdvisorPanel(IDataProvider* provider, QWidget* parent)
                 emit applyParams(strategyCombo_->currentData().toString(), map);
             });
 
-    layout->addStretch();
     scroll->setWidget(root);
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);

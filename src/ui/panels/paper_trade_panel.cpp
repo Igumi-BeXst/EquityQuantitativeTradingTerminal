@@ -131,7 +131,7 @@ PaperTradePanel::PaperTradePanel(IDataProvider* provider, QWidget* parent)
     tradesView_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     tradesView_->setMinimumHeight(120);
     layout->addWidget(new QLabel(tr("成交记录")));
-    layout->addWidget(tradesView_);
+    layout->addWidget(tradesView_, 1);
 
     // ---- 日志 ----
     log_ = new QPlainTextEdit;

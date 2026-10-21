@@ -1,6 +1,7 @@
 #pragma once
 
 #include "data/idata_provider.h"
+#include "data/adjustment_data_provider.h"
 #include "data/tdx/tdx_models.h"
 #include "data/tdx/tdx_socket.h"
 #include <atomic>
@@ -20,7 +21,7 @@ namespace st {
 ///
 /// 参考 pytdx / gotdx / injoyai/tdx 的协议实现移植。单连接 + mutex 串行所有请求，
 /// 断线自动重连 + 服务器列表 failover。网络调用全在 IO 池线程。
-class TdxProvider : public IDataProvider {
+class TdxProvider : public IDataProvider, public IAdjustmentDataProvider {
 public:
     TdxProvider();
     ~TdxProvider() override;
@@ -41,6 +42,11 @@ public:
                                 DateTime start, DateTime end) override;
     std::vector<Bar> getHfqBars(const StockCode& code, BarPeriod period,
                                 DateTime start, DateTime end) override;
+    std::optional<std::vector<AdjustmentEvent>> getAdjustmentEvents(
+        const StockCode& code, bool forceRefresh) override;
+    std::vector<Bar> applyAdjustment(std::vector<Bar> rawBars,
+                                    const std::vector<AdjustmentEvent>& events,
+                                    BarPriceMode mode) override;
     std::optional<IntradayData> getIntraday(const StockCode& code) override;
     std::vector<Quote> batchQuote(const std::vector<StockCode>& codes) override;
     /// 交互优先批量报价：用户主动请求（板块面板等）标记为交互，可抢占后台批量刷新
@@ -97,7 +103,8 @@ private:
 
     std::vector<Tick> toTicks(const StockCode& code,
                               const std::vector<tdx::TdxTickRec>& recs) const;
-    std::vector<tdx::TdxGbbqRec> ensureGbbq(const StockCode& code);
+    std::optional<std::vector<tdx::TdxGbbqRec>> ensureGbbq(const StockCode& code,
+                                                           bool forceRefresh = false);
     std::vector<Bar> fetchBarsRaw(const StockCode& code, BarPeriod period,
                                   uint16_t startIdx, uint16_t count);
     std::vector<Bar> qfqAdjust(std::vector<Bar> bars,

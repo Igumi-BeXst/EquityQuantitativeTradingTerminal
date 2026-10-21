@@ -17,6 +17,8 @@ public:
     AKShareProvider();
     ~AKShareProvider() override;
 
+    std::string providerName() const override { return "akshare"; }
+
     bool connect() override;
     void disconnect() override;
     bool isConnected() const override;

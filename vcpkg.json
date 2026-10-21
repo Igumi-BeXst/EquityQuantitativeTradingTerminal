@@ -3,10 +3,22 @@
   "version": "0.1.0",
   "description": "Comprehensive Stock Trading Workstation",
   "dependencies": [
-    "nlohmann-json",
-    "spdlog",
-    "gtest",
-    "talib",
-    "zlib"
-  ]
+    "nlohmann-json"
+  ],
+  "features": {
+    "qt": {
+      "description": "Dependencies for the Qt application and data/engine layers",
+      "dependencies": [
+        "spdlog",
+        "talib",
+        "zlib"
+      ]
+    },
+    "tests": {
+      "description": "Dependencies for unit tests",
+      "dependencies": [
+        "gtest"
+      ]
+    }
+  }
 }

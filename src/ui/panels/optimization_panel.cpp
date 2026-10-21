@@ -175,9 +175,7 @@ OptimizationPanel::OptimizationPanel(IDataProvider* provider, QWidget* parent)
     exportBtn_->setEnabled(false);
     resultHeader->addWidget(exportBtn_);
     layout->addLayout(resultHeader);
-    layout->addWidget(resultTabs_);
-
-    layout->addStretch();
+    layout->addWidget(resultTabs_, 1);
     scroll->setWidget(root);
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);

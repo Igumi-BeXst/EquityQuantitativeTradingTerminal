@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "data/data_cache.h"
 #include "foundation/utils/datetime.h"
+#include <type_traits>
 
 using namespace st;
 
@@ -24,12 +25,29 @@ TEST(DataCacheTest, CacheAndGet) {
     EXPECT_TRUE(cache.has(code, BarPeriod::Daily));
     EXPECT_EQ(cache.size(), 1u);
 
-    auto* series = cache.get(code, BarPeriod::Daily);
+    auto series = cache.get(code, BarPeriod::Daily);
     ASSERT_NE(series, nullptr);
     EXPECT_EQ(series->size(), 3u);
 
     auto loaded = cache.getBars(code, BarPeriod::Daily);
     EXPECT_EQ(loaded.size(), 3u);
+}
+
+TEST(DataCacheTest, GetReturnsOwnedSnapshotThatSurvivesCacheClear) {
+    using GetResult = decltype(std::declval<const DataCache&>().get(
+        std::declval<const StockCode&>(), BarPeriod::Daily));
+    static_assert(std::is_same_v<GetResult, std::shared_ptr<const BarSeries>>,
+                  "get() must keep the cached series alive after releasing the lock");
+
+    DataCache cache;
+    const StockCode code(Market::SH, "600519");
+    std::vector<Bar> bars(2);
+    cache.cacheBars(code, BarPeriod::Daily, bars);
+
+    const auto snapshot = cache.get(code, BarPeriod::Daily);
+    ASSERT_NE(snapshot, nullptr);
+    cache.clear();
+    EXPECT_EQ(snapshot->size(), 2u);
 }
 
 TEST(DataCacheTest, MissReturnsNull) {

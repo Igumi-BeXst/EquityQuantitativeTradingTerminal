@@ -12,13 +12,30 @@ constexpr uint32_t kMagic   = 0x53544231u;  // "STB1"
 constexpr uint32_t kVersion = 1u;
 constexpr uint64_t kMaxBarsPerFile = 100000;
 
+std::string periodSuffix(BarPeriod period) {
+    switch (period) {
+        case BarPeriod::Tick: return "tick";
+        case BarPeriod::Minute1: return "1min";
+        case BarPeriod::Minute5: return "5min";
+        case BarPeriod::Minute15: return "15min";
+        case BarPeriod::Minute30: return "30min";
+        case BarPeriod::Minute60: return "60min";
+        case BarPeriod::Daily: return "daily";
+        case BarPeriod::Weekly: return "weekly";
+        case BarPeriod::Monthly: return "monthly";
+        case BarPeriod::Quarterly: return "quarterly";
+        case BarPeriod::Yearly: return "yearly";
+    }
+    return "period" + std::to_string(static_cast<unsigned int>(period));
+}
+
 } // namespace
 
 BarDiskCache::BarDiskCache(std::string rootDir)
     : rootDir_(std::move(rootDir)) {}
 
 std::string BarDiskCache::filePath(const StockCode& code, BarPeriod period) const {
-    return rootDir_ + "/raw/" + code.fullCode() + ".daily.stb";
+    return rootDir_ + "/raw/" + code.fullCode() + "." + periodSuffix(period) + ".stb";
 }
 
 void BarDiskCache::save(const StockCode& code, BarPeriod period,

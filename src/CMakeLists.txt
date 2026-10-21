@@ -1,5 +1,3 @@
-find_package(ZLIB REQUIRED)
-
 # ============================================
 # Foundation — always builds, zero external deps except nlohmann-json
 # ============================================
@@ -38,6 +36,7 @@ target_link_libraries(st_core PUBLIC st_foundation spdlog::spdlog Qt6::Core cryp
 
 add_library(st_data STATIC
     data/data_repository.cpp
+    data/cached_data_provider.cpp
     data/data_cache.cpp
     data/akshare_provider.cpp
     data/tencent_provider.cpp
@@ -261,17 +260,9 @@ target_link_libraries(custom_index_live PRIVATE st_engine st_data st_core st_fou
 add_executable(custom_index_render tools_custom_index_render.cpp)
 target_link_libraries(custom_index_render PRIVATE st_ui st_engine st_data st_core st_foundation Qt6::Core)
 
-else()
-# Without Qt: just build the Foundation CLI test runner
-add_executable(StockTerminal main.cpp)
-target_link_libraries(StockTerminal PRIVATE st_foundation)
-endif()
-
 # 量化工作台崩溃复现（调试用）
 add_executable(quant_repro tools_quant_repro.cpp)
 target_link_libraries(quant_repro PRIVATE st_ui st_engine st_data st_core st_foundation Qt6::Core)
-
-
 
 # 资金数据实连校准工具（P10 第八轮验证用）
 add_executable(funds_calib tools_funds_calib.cpp)
@@ -285,3 +276,8 @@ target_link_libraries(strategy_check PRIVATE st_engine st_data st_core st_founda
 add_executable(form_render tools_form_render.cpp)
 target_link_libraries(form_render PRIVATE st_ui st_engine st_data st_core st_foundation Qt6::Core)
 
+else()
+# Without Qt: just build the Foundation CLI test runner
+add_executable(StockTerminal main.cpp)
+target_link_libraries(StockTerminal PRIVATE st_foundation)
+endif()

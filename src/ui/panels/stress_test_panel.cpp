@@ -119,7 +119,7 @@ StressTestPanel::StressTestPanel(IDataProvider* provider, QWidget* parent)
     // 净值曲线
     curve_ = new EquityCurveWidget;
     curve_->setMinimumHeight(140);
-    layout->addWidget(curve_);
+    layout->addWidget(curve_, 1);
 
     // 指标
     auto* metricBox = new QGroupBox(tr("当前窗口绩效"));
@@ -154,7 +154,6 @@ StressTestPanel::StressTestPanel(IDataProvider* provider, QWidget* parent)
     addBase(1, 0, tr("收益差(窗口-基线)"), deltaRet_);
     layout->addWidget(baseBox);
 
-    layout->addStretch();
     scroll->setWidget(root);
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);

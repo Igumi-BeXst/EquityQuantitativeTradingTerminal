@@ -52,7 +52,7 @@ PatternPanel::PatternPanel(IDataProvider* provider, QWidget* parent)
     auto* splitter = new QSplitter(Qt::Vertical);
     splitter->addWidget(resultView_);
     splitter->addWidget(chart_);
-    splitter->setStretchFactor(0, 0);
+    splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 1);
     layout->addWidget(splitter, 1);
 

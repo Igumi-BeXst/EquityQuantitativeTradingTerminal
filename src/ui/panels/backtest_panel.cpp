@@ -177,7 +177,7 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
     // ---- 净值曲线 ----
     equityCurve_ = new EquityCurveWidget();
     equityCurve_->setMinimumHeight(140);
-    layout->addWidget(equityCurve_);
+    layout->addWidget(equityCurve_, 1);
 
     // ---- 成交明细 ----
     tradeModel_ = new TradeTableModel(this);
@@ -188,9 +188,8 @@ BacktestPanel::BacktestPanel(IDataProvider* provider, QWidget* parent)
     tradesView_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     tradesView_->setMinimumHeight(120);
     layout->addWidget(new QLabel(tr("成交明细")));
-    layout->addWidget(tradesView_);
+    layout->addWidget(tradesView_, 2);
 
-    layout->addStretch();
     scroll->setWidget(root);
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
@@ -489,7 +488,7 @@ void BacktestPanel::onExportClicked() {
     if (!hasResult_) return;
     const QString path = QFileDialog::getSaveFileName(
         this, tr("导出回测结果"),
-        QString::fromStdString(AppPaths::dataDir() + "/backtest.csv"),
+        QString::fromStdString(AppPaths::documentsDir() + "/backtest.csv"),
         tr("CSV 文件 (*.csv)"));
     if (path.isEmpty()) return;
     QFile file(path);

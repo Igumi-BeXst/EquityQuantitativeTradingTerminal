@@ -48,6 +48,7 @@
 #include <QCloseEvent>
 #include <QKeySequence>
 #include <QDir>
+#include <QDebug>
 #include <QDateTime>
 #include <QFileDialog>
 #include <QPointer>
@@ -111,9 +112,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 }
 
 MainWindow::~MainWindow() {
-    // 关闭前排空在途异步任务：面板/图表的 IO/worker 任务持有 provider_ 裸指针，
-    // 若在 provider_ 释放后再执行 → use-after-free → 关闭时堆损坏。
-    // 事件循环已停止，不会再提交新任务，waitForDone 只等待已在运行/排队的最长任务。
+    // 先排空在途异步任务，避免任务仍持有 provider_ 裸指针时释放数据源。
     ThreadPool::ioPool()->waitForDone();
     ThreadPool::workerPool()->waitForDone();
     if (provider_) provider_->disconnect();
@@ -121,8 +120,17 @@ MainWindow::~MainWindow() {
 
 void MainWindow::initServices() {
     // 1. 用户目录 + 日志 + 配置
-    AppPaths::ensureDirectories();
-    LogManager::instance()->init(AppPaths::logDir() + "/stock_terminal.log");
+    if (!AppPaths::ensureDirectories()) {
+        // 无写权限/策略拦截时目录建不出来，缓存与日志都会静默失效，这里先留痕
+        qWarning() << "无法创建用户数据目录，行情缓存与日志可能不可用:"
+                   << QString::fromStdString(AppPaths::appRoot());
+    }
+    // 旧版缓存放在 Roaming(%APPDATA%)，现已迁到 Local(%LOCALAPPDATA%)；一次性搬运。
+    AppPaths::migrateLegacyData();
+    const std::string logPath = AppPaths::logDir();
+    if (!logPath.empty()) {
+        LogManager::instance()->init(logPath + "/stock_terminal.log");
+    }
 
     auto* cfg = ConfigManager::instance();
     cfg->load(AppPaths::configDir() + "/default.json");
@@ -352,7 +360,7 @@ void MainWindow::createMenus() {
     auto* fileMenu = menuBar()->addMenu(tr("文件(&F)"));
     fileMenu->addAction(tr("截图当前图表(&S)…"), this, [this] {
         if (!centralChart_) return;
-        const QString dir = QString::fromStdString(AppPaths::dataDir() + "/screenshots");
+        const QString dir = QString::fromStdString(AppPaths::screenshotsDir());
         QDir().mkpath(dir);
         const QString code = centralChart_->currentCode().isValid()
             ? QString::fromStdString(centralChart_->currentCode().displayCode())
@@ -719,9 +727,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 
     ConfigManager::instance()->save();
     LogManager::instance()->flush();
-    // 不在 closeEvent 里 disconnect：会与在飞 IO 线程（市场面板/关键数据/盘口 TDX 轮询）
-    // 竞争 provider 内部状态 → 释放无效指针。~MainWindow 已在 waitForDone 后排空后再 disconnect。
-
+    // 不在 closeEvent 里断开数据源；MainWindow 析构时先排空线程池任务再清理 provider。
     QMainWindow::closeEvent(event);
 }
 

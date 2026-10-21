@@ -8,7 +8,7 @@
 
 ## Data 层
 - IDataProvider: 数据源抽象接口
-- DataRepository: SQLite 仓储
+- DataRepository: SQLite 持久化辅助模块（当前未接入应用数据流程）
 - DataCache: 回测内存缓存
 
 ## Engine 层

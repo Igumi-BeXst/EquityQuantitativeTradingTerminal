@@ -1,5 +1,32 @@
 # 开发日志 (Development Log)
 
+## 2026-10-21 — 用户目录分置：可重建缓存放 Local，用户财产留 Roaming
+
+### 背景
+- `AppPaths` 原本把全部私有数据放在 `%APPDATA%`（Roaming）。
+- Roaming 目录会随域账户漫游同步，而行情缓存已增长到 **347.7 MB**（`bar_cache` 的 5211 个 `.stb`）。
+  多数企业组策略把漫游配置限制在 100MB 量级，会导致登录/注销极慢甚至同步失败。
+  引入 SQLite 缓存后体积还会继续增长，因此必须按“能否重建”分开放。
+
+### 改动
+- `AppPaths` 拆成两个根：
+  - **Roaming**（`%APPDATA%\StockTerminal`）：`config\`、`secrets\` —— 用户财产，需要备份/漫游
+  - **Local**（`%LOCALAPPDATA%\StockTerminal`）：`data\`（SQLite / 旧 `.stb`）、`logs\` —— 可重建
+- 用户产物移出 AppData：截图 → `文档\StockTerminal\screenshots`，CSV 导出默认 → `文档\StockTerminal`
+- 新增 `legacyDataDir()`（旧 Roaming/data）与 `migrateLegacyData()`：启动时把旧缓存同卷
+  `rename` 到新位置；跨卷退化为递归复制，**只有复制完全成功才删除原件**，宁可占空间也不丢缓存。
+- `ensureDirectories()` 改为真实校验落地结果。原实现忽略 `create_directories` 的 `ec`，
+  目录没建出来仍返回 `true`，会让上层在不存在的路径上启动缓存/日志。
+- 路径基址改用 `%LOCALAPPDATA%` / `%APPDATA%` 环境变量：`QStandardPaths::AppLocalDataLocation`
+  在低完整性进程（受限令牌/沙箱/部分受管环境）下会解析到 `AppData\LocalLow`，实机已验证。
+- `.gitignore` 补 `*.sqlite-wal`、`*.sqlite-shm`、`data/`（WAL 附属文件后缀不匹配 `*.sqlite`，
+  原先会漏进版本控制）。
+
+### 验证
+- Debug + Release 构建零警告，505 tests 全绿；`AppPathsTest.EnsureDirectoriesCreatesAll`
+  在无写权限环境自动 skip（受限环境下本就建不出目录，不应误报失败）。
+- 实机路径核对：Local / Roaming / 文档 三处落点均符合设计。
+
 ## 2026-08-21 — 修复：主窗口默认周期栏显示「日线」但图表加载「分时」
 
 ### 现象

@@ -161,6 +161,38 @@ private:
     size_t firstSize_ = 0;
 };
 
+class RecordStrategyContextBars : public IStrategy {
+public:
+    std::string name() const override { return "RecordStrategyContextBars"; }
+    void initialize() override {}
+    void onStart() override {}
+    void onStop() override {}
+    void onBar(const StrategyContext& ctx) override {
+        historySizes.push_back(ctx.history ? ctx.history->size() : 0);
+        currentBars.push_back(ctx.currentBar ? *ctx.currentBar : Bar{});
+    }
+
+    std::vector<size_t> historySizes;
+    std::vector<Bar> currentBars;
+};
+
+class ClearCacheDuringBacktestStrategy : public IStrategy {
+public:
+    explicit ClearCacheDuringBacktestStrategy(DataCache* cache) : cache_(cache) {}
+    std::string name() const override { return "ClearCacheDuringBacktest"; }
+    void initialize() override {}
+    void onStart() override {}
+    void onStop() override {}
+    void onBar(const StrategyContext&) override {
+        ++calls;
+        if (calls == 1) cache_->clear();
+    }
+
+    int calls = 0;
+private:
+    DataCache* cache_;
+};
+
 TEST(BacktestEngineTest, PreStartHistoryIsAvailableToStrategy) {
     StockCode code(Market::SH, "600519");
     std::vector<double> closes;
@@ -187,6 +219,64 @@ TEST(BacktestEngineTest, PreStartHistoryIsAvailableToStrategy) {
     ASSERT_TRUE(result.success) << result.error;
     // 第一根 bar 时应能看到 startDate 之前的 30 根 warm-up 历史
     EXPECT_EQ(strategy->firstSize(), 30u);
+}
+
+TEST(BacktestEngineTest, StrategyContextContainsOnlyCompletedBars) {
+    StockCode code(Market::SH, "600519");
+    auto bars = makeRisingSeries(code, 3, 100.0);
+
+    DataCache cache;
+    cache.cacheBars(code, BarPeriod::Daily, bars);
+
+    BacktestConfig config;
+    config.symbols = {code};
+    config.startDate = bars.front().time;
+    config.endDate = bars.back().time;
+    config.initialCapital = 100000.0;
+    config.period = BarPeriod::Daily;
+
+    auto strategy = std::make_shared<RecordStrategyContextBars>();
+    BacktestEngine engine;
+    engine.setConfig(config);
+    engine.setDataCache(&cache);
+    engine.addStrategy(strategy);
+
+    auto result = engine.run();
+    ASSERT_TRUE(result.success) << result.error;
+    ASSERT_EQ(strategy->historySizes.size(), 3u);
+    ASSERT_EQ(strategy->currentBars.size(), 3u);
+    EXPECT_EQ(strategy->historySizes[0], 0u);
+    EXPECT_EQ(strategy->historySizes[1], 1u);
+    EXPECT_EQ(strategy->historySizes[2], 2u);
+    EXPECT_EQ(strategy->currentBars[0].time, DateTime{});
+    EXPECT_EQ(strategy->currentBars[1].time, bars[0].time);
+    EXPECT_EQ(strategy->currentBars[2].time, bars[1].time);
+}
+
+TEST(BacktestEngineTest, CacheClearDoesNotInvalidateBarsInRunningBacktest) {
+    StockCode code(Market::SH, "600519");
+    auto bars = makeRisingSeries(code, 20, 100.0);
+
+    auto cache = std::make_shared<DataCache>();
+    cache->cacheBars(code, BarPeriod::Daily, bars);
+
+    BacktestConfig config;
+    config.symbols = {code};
+    config.startDate = bars.front().time;
+    config.endDate = bars.back().time;
+    config.initialCapital = 100000.0;
+    config.period = BarPeriod::Daily;
+
+    auto strategy = std::make_shared<ClearCacheDuringBacktestStrategy>(cache.get());
+    BacktestEngine engine;
+    engine.setConfig(config);
+    engine.setDataCache(cache.get());
+    engine.addStrategy(strategy);
+
+    auto result = engine.run();
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_EQ(strategy->calls, static_cast<int>(bars.size()));
+    EXPECT_TRUE(cache->getBars(code, BarPeriod::Daily).empty());
 }
 
 TEST(BacktestEngineTest, NoDataReturnsError) {

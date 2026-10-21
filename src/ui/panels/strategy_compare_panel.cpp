@@ -146,12 +146,12 @@ StrategyComparePanel::StrategyComparePanel(IDataProvider* provider, QWidget* par
     resultView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     resultView_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     resultView_->setMinimumHeight(110);
-    layout->addWidget(resultView_);
+    layout->addWidget(resultView_, 1);
 
     // 净值叠加
     equityCurve_ = new EquityCurveWidget;
     equityCurve_->setMinimumHeight(150);
-    layout->addWidget(equityCurve_);
+    layout->addWidget(equityCurve_, 2);
 
     // 蒙特卡洛
     auto* mcBox = new QGroupBox(tr("蒙特卡洛（最优策略日收益重采样）"));
@@ -171,7 +171,6 @@ StrategyComparePanel::StrategyComparePanel(IDataProvider* provider, QWidget* par
     layout->addWidget(mcBox);
     connect(mcBtn_, &QPushButton::clicked, this, &StrategyComparePanel::onMonteCarloClicked);
 
-    layout->addStretch();
     scroll->setWidget(root);
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);

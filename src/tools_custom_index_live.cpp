@@ -1,6 +1,6 @@
 // 自定义指数实连校准工具（P10 第七轮开发用）
 // 用法: custom_index_live [代码1] [代码2] [代码3] ...  默认 600519 000001
-// 走 GUI 同款 MultiProvider 路径（tdx 主源 → tencent 备源），验证指数日线/分时/昨收/实时外推。
+// 走 GUI 同款 MultiProvider 路径（TDX 主源 → AKShare 备源），验证指数日线/分时/昨收/实时外推。
 #include "data/provider_factory.h"
 #include "engine/analyzer/custom_index.h"
 #include "foundation/utils/datetime.h"

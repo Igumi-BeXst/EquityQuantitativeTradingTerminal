@@ -9,6 +9,7 @@ class QLineEdit;
 class QListWidget;
 class QPushButton;
 class QLabel;
+class QShowEvent;
 
 namespace st {
 
@@ -39,11 +40,15 @@ signals:
     /// 勾选变化（面板可据此刷新运行按钮状态）
     void selectionChanged();
 
+protected:
+    void showEvent(QShowEvent* event) override;
+
 private slots:
     void onSearchTextChanged(const QString& text);
     void onLoadingFinished(std::vector<StockInfo> stocks);
 
 private:
+    void startLoading();
     void applyFilter();
     void updateStatus();
     void setAllVisibleChecked(bool on);
@@ -58,6 +63,7 @@ private:
 
     std::vector<StockInfo> allStocks_;
     std::vector<std::string> pinyinFullCache_;  // 全拼缓存，避免每次过滤重复转换
+    bool loadingStarted_ = false;
     bool ready_ = false;
 };
 

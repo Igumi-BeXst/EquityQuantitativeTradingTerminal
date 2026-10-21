@@ -13,9 +13,9 @@ Built with modern C++ and Qt, it uses a layered service architecture and connect
 ## ✨ Features
 
 ### 📈 Market Data & Watching
-- Direct connection to TDX (通达信) market data, with Tencent and AKShare as fallback sources
+- TDX (通达信) as the primary data source, with AKShare as the default disaster-recovery source; Tencent remains separately selectable
 - `MultiProvider` automatic failover between data sources
-- Local SQLite cache for daily/minute bars and fundamental data
+- TDX backtests use a local binary bar cache; the SQLite repository is not wired into application data flows yet
 - Full A-share stock pool (5,000+ stocks) with search by code, name, full pinyin, or pinyin initials
 - Market overview tabs: gainers, losers, industry sectors, concept sectors
 - Dragon-tiger list (龙虎榜) and margin trading (融资融券) data
@@ -83,7 +83,7 @@ The Qt main thread never blocks; long-running tasks run in a `ThreadPool` and re
 | Language | C++17 |
 | UI | Qt 6.5+ (Widgets, Sql, Network) |
 | Build | CMake 3.21+ / Ninja / vcpkg |
-| Storage | SQLite (via Qt6::Sql) |
+| Storage | Local binary bar cache for TDX backtests; SQLite repository module (not wired into the app yet) |
 | Logging | spdlog |
 | JSON | nlohmann/json |
 | HTTP | cpp-httplib |
@@ -135,6 +135,13 @@ build.bat
 cmake --preset default
 cmake --build --preset default
 ctest --preset default
+```
+
+To build only the Foundation CLI without Qt, tests, TA-Lib, spdlog, or ZLIB:
+
+```bat
+cmake --preset foundation
+cmake --build --preset foundation
 ```
 
 ### Build with Qt UI

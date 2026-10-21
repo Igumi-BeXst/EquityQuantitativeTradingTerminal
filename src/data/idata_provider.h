@@ -41,20 +41,28 @@ public:
                                      DateTime start,
                                      DateTime end) = 0;
 
-    /// 不复权 K线（真实价），默认回退到前复权
+    /// 不复权 K线（真实价）；未显式实现时返回空，避免把前复权数据冒充真实价。
     virtual std::vector<Bar> getRawBars(const StockCode& code,
                                         BarPeriod period,
                                         DateTime start,
                                         DateTime end) {
-        return getBars(code, period, start, end);
+        (void)code;
+        (void)period;
+        (void)start;
+        (void)end;
+        return {};
     }
 
-    /// 后复权 K线（对齐聚宽 use_real_price 动态前复权的收益率口径），默认回退到前复权
+    /// 后复权 K线（对齐聚宽 use_real_price 动态前复权的收益率口径）；未显式实现时返回空。
     virtual std::vector<Bar> getHfqBars(const StockCode& code,
                                         BarPeriod period,
                                         DateTime start,
                                         DateTime end) {
-        return getBars(code, period, start, end);
+        (void)code;
+        (void)period;
+        (void)start;
+        (void)end;
+        return {};
     }
 
     /// 实时行情（订阅/取消订阅）

@@ -25,8 +25,8 @@
 - 指数叠加对比：归一化对齐，相对强弱副图
 
 ### 数据 (P1)
-- 免费数据源：AKShare/Tushare HTTP API
-- 本地存储：SQLite
+- 行情主源：TDX；AKShare 作为容灾备源，按接口能力回退
+- 当前本地缓存：内存缓存与 TDX 回测二进制 K 线缓存；SQLite DataRepository 尚未接入应用流程
 - 数据类型：日线/分钟线/Tick，基本面，龙虎榜，北向资金，融资融券
 
 ### 工具 (P8)

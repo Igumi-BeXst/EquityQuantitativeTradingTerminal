@@ -8,23 +8,23 @@
 
 namespace st {
 
-/// 不复权日线磁盘缓存（方案 B 轻量实现）。
+/// 旧版不复权 K 线磁盘缓存；新缓存只用它从 `.stb` 导入数据到 SQLite。
 ///
-/// 存储位置：<root>/raw/<market><code>.daily.stb
+/// 存储位置：<root>/raw/<market><code>.<period>.stb
 /// 二进制格式：magic + version + period + count + 每根 bar 的裸字段。
-/// 目前只用于全市场回测的 warm-up 原始价数据，避免每次回测重复下载同一段历史。
+/// 文件保留在原位置，不再写入新的 `.stb` 数据。
 class BarDiskCache {
 public:
     explicit BarDiskCache(std::string rootDir);
 
-    /// 从磁盘加载某只股票 [start,end] 的日线；未命中/损坏返回空。
+    /// 从磁盘加载某只股票指定周期 [start,end] 的数据；未命中/损坏返回空。
     std::vector<Bar> load(const StockCode& code, BarPeriod period,
                           DateTime start, DateTime end) const;
 
-    /// 从磁盘加载某只股票的全部缓存日线（不做区间过滤，用于覆盖判断）。
+    /// 从磁盘加载某只股票指定周期的全部缓存数据（不做区间过滤，用于覆盖判断）。
     std::vector<Bar> loadAll(const StockCode& code, BarPeriod period) const;
 
-    /// 保存某只股票的一组日线（会覆盖同名缓存文件）。
+    /// 保存某只股票的一组指定周期数据（会覆盖同名缓存文件）。
     void save(const StockCode& code, BarPeriod period,
               const std::vector<Bar>& bars) const;
 

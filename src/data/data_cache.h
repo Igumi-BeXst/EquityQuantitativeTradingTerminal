@@ -17,8 +17,8 @@ public:
     /// 缓存一序列 bars (按 code+period 分组)
     void cacheBars(const StockCode& code, BarPeriod period, std::vector<Bar> bars);
 
-    /// 获取缓存的 bar 序列（返回 nullptr 表示未缓存）
-    const BarSeries* get(const StockCode& code, BarPeriod period) const;
+    /// 获取不可变快照；调用方持有的 shared_ptr 可跨 clear/替换继续安全读取。
+    std::shared_ptr<const BarSeries> get(const StockCode& code, BarPeriod period) const;
 
     /// 获取缓存的 bar 原始向量
     std::vector<Bar> getBars(const StockCode& code, BarPeriod period) const;
@@ -46,7 +46,7 @@ private:
     };
 
     mutable std::mutex mutex_;
-    std::unordered_map<Key, std::shared_ptr<BarSeries>, KeyHash> cache_;
+    std::unordered_map<Key, std::shared_ptr<const BarSeries>, KeyHash> cache_;
 };
 
 } // namespace st

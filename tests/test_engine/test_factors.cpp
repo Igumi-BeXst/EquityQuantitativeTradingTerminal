@@ -260,7 +260,7 @@ TEST(FactorTest, MfiHighForVolumeAccumulation) {
         bar.open = bar.close = price;
         bar.high = price + 0.5;
         bar.low = price - 0.5;
-        bar.volume = vol;
+        bar.volume = static_cast<Volume>(vol);
         bars.push_back(bar);
         price += 1.0;
         vol += 2000.0;   // 放量

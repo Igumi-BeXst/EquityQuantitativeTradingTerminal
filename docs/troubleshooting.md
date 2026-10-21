@@ -6,4 +6,4 @@
 
 ## 运行时问题
 - DLL missing: 将 build/vcpkg_installed/*/bin 加入 PATH
-- SQLite error: 确保有读写 data/ 目录权限
+- SQLite driver error in `DataRepository` tests: 确认 Qt SQLite driver 可用；当前应用行情流程尚未接入该仓储

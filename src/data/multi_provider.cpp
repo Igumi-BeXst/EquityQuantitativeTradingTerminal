@@ -8,13 +8,31 @@ MultiProvider::MultiProvider(std::unique_ptr<IDataProvider> primary,
     : primary_(std::move(primary)), fallback_(std::move(fallback)) {}
 
 IDataProvider* MultiProvider::preferred() const {
-    if (primary_ && primary_->isConnected()) return primary_.get();
+    if (primary_ && primary_->isConnected()) {
+        primaryEverConnected_.store(true, std::memory_order_relaxed);
+        primaryUnavailable_.store(false, std::memory_order_relaxed);
+        return primary_.get();
+    }
+    // TDX connect() queues asynchronous connection work and returns before
+    // isConnected() becomes true. Give it the first request, then switch to
+    // standby after an empty result confirms it is not ready.
+    if (primary_ && primaryConnectAccepted_.load(std::memory_order_relaxed) &&
+        !primaryEverConnected_.load(std::memory_order_relaxed) &&
+        !primaryUnavailable_.load(std::memory_order_relaxed)) {
+        return primary_.get();
+    }
     if (fallback_ && fallback_->isConnected()) return fallback_.get();
     return primary_ ? primary_.get() : fallback_.get();
 }
 
 IDataProvider* MultiProvider::other(IDataProvider* p) const {
     return (p == primary_.get()) ? fallback_.get() : primary_.get();
+}
+
+void MultiProvider::notePrimaryUnavailable(IDataProvider* attempted) const {
+    if (attempted == primary_.get() && primary_ && !primary_->isConnected()) {
+        primaryUnavailable_.store(true, std::memory_order_relaxed);
+    }
 }
 
 std::string MultiProvider::providerName() const {
@@ -24,10 +42,14 @@ std::string MultiProvider::providerName() const {
 }
 
 bool MultiProvider::connect() {
-    bool ok = false;
-    if (primary_) ok = primary_->connect();
-    if (!ok && fallback_) ok = fallback_->connect();
-    return ok;
+    const bool primaryOk = primary_ && primary_->connect();
+    primaryConnectAccepted_.store(primaryOk, std::memory_order_relaxed);
+    primaryUnavailable_.store(false, std::memory_order_relaxed);
+    if (primary_ && primary_->isConnected()) {
+        primaryEverConnected_.store(true, std::memory_order_relaxed);
+    }
+    const bool fallbackOk = fallback_ && fallback_->connect();
+    return primaryOk || fallbackOk;
 }
 
 void MultiProvider::disconnect() {
@@ -43,6 +65,7 @@ bool MultiProvider::isConnected() const {
 std::optional<StockInfo> MultiProvider::getStockInfo(const StockCode& code) {
     IDataProvider* p = preferred();
     if (auto r = p->getStockInfo(code)) return r;
+    notePrimaryUnavailable(p);
     if (IDataProvider* o = other(p)) return o->getStockInfo(code);
     return std::nullopt;
 }
@@ -51,6 +74,7 @@ std::vector<StockInfo> MultiProvider::getStockList(Market market) {
     IDataProvider* p = preferred();
     auto r = p->getStockList(market);
     if (!r.empty()) return r;
+    notePrimaryUnavailable(p);
     if (IDataProvider* o = other(p)) return o->getStockList(market);
     return {};
 }
@@ -63,6 +87,7 @@ std::vector<StockInfo> MultiProvider::getSectorIndices() {
     IDataProvider* p = preferred();
     auto r = p->getSectorIndices();
     if (!r.empty()) return r;
+    notePrimaryUnavailable(p);
     if (IDataProvider* o = other(p)) return o->getSectorIndices();
     return {};
 }
@@ -72,6 +97,7 @@ std::vector<Bar> MultiProvider::getBars(const StockCode& code, BarPeriod period,
     IDataProvider* p = preferred();
     auto bars = p->getBars(code, period, start, end);
     if (!bars.empty()) return bars;
+    notePrimaryUnavailable(p);
     if (IDataProvider* o = other(p)) return o->getBars(code, period, start, end);
     return {};
 }
@@ -81,6 +107,7 @@ std::vector<Bar> MultiProvider::getRawBars(const StockCode& code, BarPeriod peri
     IDataProvider* p = preferred();
     auto bars = p->getRawBars(code, period, start, end);
     if (!bars.empty()) return bars;
+    notePrimaryUnavailable(p);
     if (IDataProvider* o = other(p)) return o->getRawBars(code, period, start, end);
     return {};
 }
@@ -90,6 +117,7 @@ std::vector<Bar> MultiProvider::getHfqBars(const StockCode& code, BarPeriod peri
     IDataProvider* p = preferred();
     auto bars = p->getHfqBars(code, period, start, end);
     if (!bars.empty()) return bars;
+    notePrimaryUnavailable(p);
     if (IDataProvider* o = other(p)) return o->getHfqBars(code, period, start, end);
     return {};
 }
@@ -106,6 +134,7 @@ std::vector<Quote> MultiProvider::batchQuote(const std::vector<StockCode>& codes
     IDataProvider* p = preferred();
     auto quotes = p->batchQuote(codes);
     if (!quotes.empty()) return quotes;
+    notePrimaryUnavailable(p);
     if (IDataProvider* o = other(p)) return o->batchQuote(codes);
     return {};
 }
@@ -114,6 +143,7 @@ std::vector<Quote> MultiProvider::batchQuoteInteractive(const std::vector<StockC
     IDataProvider* p = preferred();
     auto quotes = p->batchQuoteInteractive(codes);
     if (!quotes.empty()) return quotes;
+    notePrimaryUnavailable(p);
     if (IDataProvider* o = other(p)) return o->batchQuoteInteractive(codes);
     return {};
 }
@@ -121,6 +151,7 @@ std::vector<Quote> MultiProvider::batchQuoteInteractive(const std::vector<StockC
 std::optional<IntradayData> MultiProvider::getIntraday(const StockCode& code) {
     IDataProvider* p = preferred();
     if (auto r = p->getIntraday(code)) return r;
+    notePrimaryUnavailable(p);
     if (IDataProvider* o = other(p)) return o->getIntraday(code);
     return std::nullopt;
 }
@@ -128,6 +159,7 @@ std::optional<IntradayData> MultiProvider::getIntraday(const StockCode& code) {
 std::optional<MarketDepth> MultiProvider::getMarketDepth(const StockCode& code) {
     IDataProvider* p = preferred();
     if (auto r = p->getMarketDepth(code)) return r;
+    notePrimaryUnavailable(p);
     if (IDataProvider* o = other(p)) return o->getMarketDepth(code);
     return std::nullopt;
 }
@@ -136,6 +168,7 @@ std::vector<Tick> MultiProvider::getTransactions(const StockCode& code, int limi
     IDataProvider* p = preferred();
     auto ticks = p->getTransactions(code, limit);
     if (!ticks.empty()) return ticks;
+    notePrimaryUnavailable(p);
     if (IDataProvider* o = other(p)) return o->getTransactions(code, limit);
     return {};
 }
@@ -143,6 +176,7 @@ std::vector<Tick> MultiProvider::getTransactions(const StockCode& code, int limi
 std::optional<QuoteFundamentals> MultiProvider::getQuoteFundamentals(const StockCode& code) {
     IDataProvider* p = preferred();
     if (auto r = p->getQuoteFundamentals(code)) return r;
+    notePrimaryUnavailable(p);
     if (IDataProvider* o = other(p)) return o->getQuoteFundamentals(code);
     return std::nullopt;
 }
@@ -157,6 +191,7 @@ std::vector<QuoteFundamentals> MultiProvider::batchQuoteFundamentals(
         if (f.valid) { anyValid = true; break; }
     }
     if (anyValid) return out;
+    notePrimaryUnavailable(p);
     if (IDataProvider* o = other(p)) return o->batchQuoteFundamentals(codes);
     return out;
 }

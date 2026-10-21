@@ -218,14 +218,16 @@ BacktestResult BacktestEngine::run() {
     }
 
     // 加载数据并构建按日期分组的全局时间轴
-    // bar 存指针（指向 DataCache 的 shared_ptr<BarSeries>，缓存贯穿回测，安全）：
+    // bar 存指针；sourceSeriesByCode 持有不可变快照，避免回测期间缓存被清空时悬垂：
     // 全市场 5213 只 × 900 天避免每次组合拷贝 ~300MB
     struct DailyBar { StockCode code; const Bar* bar; };
     std::map<DateTime, std::vector<DailyBar>> timeline;
+    std::map<StockCode, std::shared_ptr<const BarSeries>> sourceSeriesByCode;
 
     for (const auto& code : config_.symbols) {
-        const BarSeries* series = cache_ ? cache_->get(code, config_.period) : nullptr;
+        auto series = cache_ ? cache_->get(code, config_.period) : nullptr;
         if (!series) continue;
+        sourceSeriesByCode.emplace(code, series);
         // 过滤时间范围
         for (const auto& bar : *series) {
             if (bar.time >= config_.startDate && bar.time <= config_.endDate) {
@@ -250,8 +252,9 @@ BacktestResult BacktestEngine::run() {
     // 聚宽兼容：用回测起始日之前的 K 线预填历史，保证策略指标从第一天起就有足够的 warm-up 数据；
     // 交易/净值仍只从 startDate 开始（timeline 已过滤），预填数据不会产生起始日前的成交。
     for (const auto& code : config_.symbols) {
-        const BarSeries* series = cache_ ? cache_->get(code, config_.period) : nullptr;
-        if (!series) continue;
+        auto sourceIt = sourceSeriesByCode.find(code);
+        if (sourceIt == sourceSeriesByCode.end()) continue;
+        const auto& series = sourceIt->second;
         auto& dest = seriesByCode[code];
         for (const auto& bar : *series) {
             if (bar.time >= config_.startDate) break;  // 序列按时间升序

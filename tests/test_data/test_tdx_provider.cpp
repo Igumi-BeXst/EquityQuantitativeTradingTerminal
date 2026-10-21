@@ -164,6 +164,7 @@ std::vector<uint8_t> makeTransactionPayload(int n) {
 struct FakeState {
     bool failOpen = false;
     bool failNextSend = false;
+    int failGbbqResponses = 0;
     int sendCount = 0;
     std::vector<uint8_t> lastRequest;
     std::map<uint16_t, int> sendsByCmd;
@@ -195,6 +196,11 @@ public:
         if (st->lastRequest.size() >= 12) {
             cmd = static_cast<uint16_t>(st->lastRequest[10]) |
                   (static_cast<uint16_t>(st->lastRequest[11]) << 8);
+        }
+        if (cmd == static_cast<uint16_t>(tdx::Cmd::Gbbq) &&
+            st->failGbbqResponses > 0) {
+            --st->failGbbqResponses;
+            return false;
         }
         std::vector<uint8_t> payload;
         if (st->dynamicPayload) payload = st->dynamicPayload(cmd, st->lastRequest);
@@ -461,6 +467,25 @@ TEST(TdxProviderTest, QfqAdjustShareSplit) {
     // 2026-08-04（事件后）：不复权
     EXPECT_EQ(st::utils::toDateString(bars[1].time), "2026-08-04");
     EXPECT_NEAR(bars[1].close, 1328.36, 1e-3);
+    provider.disconnect();
+}
+
+TEST(TdxProviderTest, GbbqFailureDoesNotCacheOrReturnUnadjustedBars) {
+    TdxProvider provider;
+    auto st = std::make_shared<FakeState>();
+    st->payloads[static_cast<uint16_t>(tdx::Cmd::Kline)] = makeKlinePayload2();
+    st->payloads[static_cast<uint16_t>(tdx::Cmd::Gbbq)] = makeEmptyGbbq();
+    st->failGbbqResponses = 1;
+    connectWithFake(provider, st);
+
+    const StockCode code(Market::SH, "600519");
+    auto failed = provider.getBars(code, BarPeriod::Daily, DateTime{}, utils::now());
+    EXPECT_TRUE(failed.empty());
+    EXPECT_EQ(st->sendsByCmd[static_cast<uint16_t>(tdx::Cmd::Gbbq)], 1);
+
+    auto retried = provider.getBars(code, BarPeriod::Daily, DateTime{}, utils::now());
+    ASSERT_EQ(retried.size(), 2u);
+    EXPECT_EQ(st->sendsByCmd[static_cast<uint16_t>(tdx::Cmd::Gbbq)], 2);
     provider.disconnect();
 }
 

@@ -205,7 +205,7 @@ void KLineChart::clearAnnotations() {
 
 void KLineChart::exportData() {
     if (bars_.empty()) return;
-    const QString defaultPath = QString::fromStdString(AppPaths::dataDir() + "/kline.csv");
+    const QString defaultPath = QString::fromStdString(AppPaths::documentsDir() + "/kline.csv");
     const QString path = QFileDialog::getSaveFileName(
         this, tr("导出 K 线数据"), defaultPath, tr("CSV 文件 (*.csv)"));
     if (path.isEmpty()) return;

@@ -12,6 +12,7 @@
 #include <QHBoxLayout>
 #include <QMetaObject>
 #include <QPointer>
+#include <QShowEvent>
 #include <algorithm>
 #include <chrono>
 #include <thread>
@@ -64,10 +65,22 @@ StockPoolPicker::StockPoolPicker(IDataProvider* provider, QWidget* parent)
         emit selectionChanged();
     });
 
-    // 异步加载全市场列表（IO 线程池，不阻塞主线程）
-    if (provider_) {
+}
+
+void StockPoolPicker::showEvent(QShowEvent* event) {
+    QWidget::showEvent(event);
+    startLoading();
+}
+
+void StockPoolPicker::startLoading() {
+    if (loadingStarted_ || !provider_) return;
+    loadingStarted_ = true;
+
+    // 只在包含该选择器的标签页首次显示时加载，避免打开工作台时并发拉取
+    // 多份全市场列表，并在 UI 线程同时创建数万条隐藏列表项。
+    {
         QPointer<StockPoolPicker> guard(this);
-        ThreadPool::submitIO([provider, guard] {
+        ThreadPool::submitIO([provider = provider_, guard] {
             // 等待数据源连接就绪（最多 15s）：避免连接建立期的并发请求
             // 与 TDX doConnect 竞争 → 堆损坏（用户快速打开量化工作台时 8+ 组件同时拉列表）
             for (int i = 0; i < 75 && !provider->isConnected(); ++i) {

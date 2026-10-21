@@ -13,9 +13,9 @@ StockTerminal 是一款集行情看盘、专业 K 线 / 分时图表、多因子
 ## ✨ 功能特性
 
 ### 📈 行情与看盘
-- 通达信（TDX）直连行情，腾讯 / AKShare 作为备用数据源
+- TDX 作为行情主源，AKShare 作为容灾备源
 - `MultiProvider` 多数据源自动容灾切换
-- SQLite 本地缓存：日线 / 分钟线 / 基本面数据
+- TDX 回测使用本地二进制 K 线缓存；SQLite 仓储模块目前未接入应用数据流程
 - 全 A 股股票池（5000+ 只），支持代码、名称、全拼、拼音首字母搜索
 - 市场面板：涨幅榜 / 跌幅榜 / 行业板块 / 概念板块
 - 龙虎榜、融资融券数据
@@ -83,7 +83,7 @@ Qt 主线程永不阻塞；耗时任务在 `ThreadPool` 中执行，通过 `Even
 | 语言 | C++17 |
 | UI | Qt 6.5+（Widgets, Sql, Network） |
 | 构建 | CMake 3.21+ / Ninja / vcpkg |
-| 存储 | SQLite（通过 Qt6::Sql） |
+| 存储 | TDX 回测二进制行情缓存；SQLite 仓储模块（尚未接入应用流程） |
 | 日志 | spdlog |
 | JSON | nlohmann/json |
 | HTTP | cpp-httplib |
@@ -135,6 +135,13 @@ build.bat
 cmake --preset default
 cmake --build --preset default
 ctest --preset default
+```
+
+仅构建 Foundation 命令行程序（不安装 Qt、测试、TA-Lib、spdlog 或 ZLIB 依赖）：
+
+```bat
+cmake --preset foundation
+cmake --build --preset foundation
 ```
 
 ### 带 Qt UI 构建

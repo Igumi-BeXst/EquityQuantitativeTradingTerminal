@@ -5,12 +5,11 @@
     "theme": "dark"
   },
   "data": {
-    "provider": "tdx",
+    "provider": "multi",
     "multi": {
       "primary": "tdx",
-      "fallback": "tencent"
+      "fallback": "akshare"
     },
-    "dbPath": "data/stock_data.db",
     "syncInterval": 300,
     "cacheSize": 5000,
     "tdx": {

@@ -34,6 +34,18 @@ bool isMinutePeriod(BarPeriod p) {
            p == BarPeriod::Minute60;
 }
 
+uint32_t dateNumber(DateTime date) {
+    const auto tt = std::chrono::system_clock::to_time_t(date);
+    std::tm value{};
+#ifdef _WIN32
+    localtime_s(&value, &tt);
+#else
+    localtime_r(&tt, &value);
+#endif
+    return static_cast<uint32_t>((value.tm_year + 1900) * 10000 +
+                                  (value.tm_mon + 1) * 100 + value.tm_mday);
+}
+
 }  // namespace
 
 TdxProvider::TdxProvider()
@@ -327,7 +339,9 @@ std::vector<Bar> TdxProvider::getBars(const StockCode& code, BarPeriod period,
     if (period == BarPeriod::Daily || period == BarPeriod::Weekly ||
         period == BarPeriod::Monthly || period == BarPeriod::Quarterly ||
         period == BarPeriod::Yearly) {
-        all = qfqAdjust(std::move(all), ensureGbbq(code));
+        const auto gbbq = ensureGbbq(code);
+        if (!gbbq) return {};
+        all = qfqAdjust(std::move(all), *gbbq);
     }
     return all;
 }
@@ -442,7 +456,9 @@ std::vector<Bar> TdxProvider::getHfqBars(const StockCode& code, BarPeriod period
     if (period == BarPeriod::Daily || period == BarPeriod::Weekly ||
         period == BarPeriod::Monthly || period == BarPeriod::Quarterly ||
         period == BarPeriod::Yearly) {
-        all = hfqAdjust(std::move(all), ensureGbbq(code));
+        const auto gbbq = ensureGbbq(code);
+        if (!gbbq) return {};
+        all = hfqAdjust(std::move(all), *gbbq);
     }
     return all;
 }
@@ -450,21 +466,61 @@ std::vector<Bar> TdxProvider::getHfqBars(const StockCode& code, BarPeriod period
 // ============================================================
 // 复权（gbbq 仿射变换）
 // ============================================================
-std::vector<tdx::TdxGbbqRec> TdxProvider::ensureGbbq(const StockCode& code) {
-    {
+std::optional<std::vector<tdx::TdxGbbqRec>> TdxProvider::ensureGbbq(
+    const StockCode& code, bool forceRefresh) {
+    if (!forceRefresh) {
         std::lock_guard<std::mutex> lk(gbbqMutex_);
         auto it = gbbqCache_.find(code.fullCode());
         if (it != gbbqCache_.end()) return it->second;
     }
     const int mkt = tdx::tdxMarket(code.market());
-    if (mkt < 0) return {};
+    if (mkt < 0) return std::nullopt;
     const auto req = tdx::buildGbbqReq(static_cast<uint8_t>(mkt), code.code());
     const auto resp = executeCommand(tdx::Cmd::Gbbq, req, requestTimeoutMs_);
-    std::vector<tdx::TdxGbbqRec> recs;
-    if (resp.ok) recs = tdx::decodeGbbq(resp.payload);
+    if (!resp.ok) return std::nullopt;
+    auto recs = tdx::decodeGbbq(resp.payload);
     std::lock_guard<std::mutex> lk(gbbqMutex_);
     gbbqCache_[code.fullCode()] = recs;
     return recs;
+}
+
+std::optional<std::vector<AdjustmentEvent>> TdxProvider::getAdjustmentEvents(
+    const StockCode& code, bool forceRefresh) {
+    auto records = ensureGbbq(code, forceRefresh);
+    if (!records) return std::nullopt;
+    std::vector<AdjustmentEvent> result;
+    result.reserve(records->size());
+    for (const auto& record : *records) {
+        AdjustmentEvent event;
+        event.exDate = utils::parseDate(std::to_string(record.date));
+        event.category = record.category;
+        event.cashDividend = record.fenHong;
+        event.rightsIssuePrice = record.peiGuJia;
+        event.bonusRatio = record.songZhuanGu;
+        event.rightsRatio = record.peiGu;
+        result.push_back(event);
+    }
+    return result;
+}
+
+std::vector<Bar> TdxProvider::applyAdjustment(
+    std::vector<Bar> rawBars, const std::vector<AdjustmentEvent>& events,
+    BarPriceMode mode) {
+    if (mode == BarPriceMode::Raw) return rawBars;
+    std::vector<tdx::TdxGbbqRec> records;
+    records.reserve(events.size());
+    for (const auto& event : events) {
+        tdx::TdxGbbqRec record;
+        record.date = dateNumber(event.exDate);
+        record.category = event.category;
+        record.fenHong = event.cashDividend;
+        record.peiGuJia = event.rightsIssuePrice;
+        record.songZhuanGu = event.bonusRatio;
+        record.peiGu = event.rightsRatio;
+        records.push_back(record);
+    }
+    if (mode == BarPriceMode::Hfq) return hfqAdjust(std::move(rawBars), records);
+    return qfqAdjust(std::move(rawBars), records);
 }
 
 std::vector<Bar> TdxProvider::qfqAdjust(std::vector<Bar> bars,

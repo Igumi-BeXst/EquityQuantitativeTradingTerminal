@@ -41,7 +41,7 @@ bool exportViewToCsv(QAbstractItemView* view, QWidget* parent,
     if (!view || !view->model() || view->model()->rowCount() <= 0) {
         return false;   // 空表格：不弹框静默返回
     }
-    const QString defaultPath = QString::fromStdString(AppPaths::dataDir() + "/") + defaultName;
+    const QString defaultPath = QString::fromStdString(AppPaths::documentsDir() + "/") + defaultName;
     const QString path = QFileDialog::getSaveFileName(
         parent, QObject::tr("导出 CSV"), defaultPath, QObject::tr("CSV 文件 (*.csv)"));
     if (path.isEmpty()) return false;

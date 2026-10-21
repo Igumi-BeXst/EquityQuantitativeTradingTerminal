@@ -10,9 +10,15 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Build modes must be known before dependency discovery.
+option(BUILD_WITH_QT "Build with Qt UI support" OFF)
+option(BUILD_TESTS "Build unit tests" ON)
+
 # Qt helpers — must be set before add_library/add_executable
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
+if(BUILD_WITH_QT)
+    set(CMAKE_AUTOMOC ON)
+    set(CMAKE_AUTORCC ON)
+endif()
 
 # Compile options
 if(MSVC)
@@ -23,24 +29,21 @@ endif()
 
 # vcpkg-managed dependencies
 find_package(nlohmann_json CONFIG REQUIRED)
-find_package(spdlog CONFIG REQUIRED)
-find_package(GTest CONFIG REQUIRED)
-
-# TA-Lib technical analysis library
-find_package(talib CONFIG REQUIRED)
-
-# Qt (optional, from separate install)
-option(BUILD_WITH_QT "Build with Qt UI support" OFF)
 if(BUILD_WITH_QT)
+    find_package(spdlog CONFIG REQUIRED)
+    find_package(talib CONFIG REQUIRED)
+    find_package(ZLIB REQUIRED)
     find_package(Qt6 REQUIRED COMPONENTS Widgets Sql Network)
     add_definitions(-DST_BUILD_WITH_QT)
+endif()
+if(BUILD_TESTS)
+    find_package(GTest CONFIG REQUIRED)
 endif()
 
 # Sources
 add_subdirectory(src)
 
 # Tests
-option(BUILD_TESTS "Build unit tests" ON)
 if(BUILD_TESTS)
     enable_testing()
     include(GoogleTest)

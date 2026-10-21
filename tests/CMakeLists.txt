@@ -20,6 +20,7 @@ if(BUILD_WITH_QT)
     add_executable(test_core
         test_core/test_main.cpp
         test_core/test_config_manager.cpp
+        test_core/test_event_bus.cpp
         test_core/test_thread_pool.cpp
         test_core/test_credential_store.cpp
         test_core/test_app_paths.cpp
@@ -87,4 +88,12 @@ if(BUILD_WITH_QT)
     )
     target_link_libraries(test_intelligence PRIVATE st_intelligence st_engine st_data GTest::gtest GTest::gtest_main)
     gtest_discover_tests(test_intelligence)
+
+    add_executable(test_ui
+        test_ui/test_main.cpp
+        test_ui/test_stock_data_widgets.cpp
+    )
+    target_link_libraries(test_ui PRIVATE st_ui GTest::gtest GTest::gtest_main)
+    gtest_discover_tests(test_ui DISCOVERY_MODE PRE_TEST
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
