@@ -11,12 +11,12 @@ void ScreenResultModel::setResults(
     const std::vector<ScreenResult>& results,
     const std::vector<std::string>& factorNames,
     const std::unordered_map<std::string, std::string>& nameByCode,
-    const std::vector<double>& aiScores) {
+    const std::vector<double>& compositeScores) {
     beginResetModel();
     results_ = results;
     factorNames_ = factorNames;
     nameByCode_ = nameByCode;
-    aiScores_ = aiScores;
+    compositeScores_ = compositeScores;
     endResetModel();
 }
 
@@ -36,7 +36,15 @@ int ScreenResultModel::columnCount(const QModelIndex& parent) const {
 
 QVariant ScreenResultModel::headerData(int section, Qt::Orientation orientation,
                                        int role) const {
-    if (orientation != Qt::Horizontal || role != Qt::DisplayRole) return {};
+    if (orientation != Qt::Horizontal) return {};
+    if (role == Qt::ToolTipRole) {
+        if (section == 3) return tr("多因子加权总分（选股排名依据）");
+        if (section == kFixedColumns && compositeColumn() >= 0) {
+            return tr("K线形态 + 舆情情绪 + 技术指标加权评分（0~100；技术指标恒参与，缺失分项折减）");
+        }
+        return {};
+    }
+    if (role != Qt::DisplayRole) return {};
     if (section < kFixedColumns) {
         switch (section) {
             case 0: return tr("排名");
@@ -46,8 +54,8 @@ QVariant ScreenResultModel::headerData(int section, Qt::Orientation orientation,
             default: return {};
         }
     }
-    if (section == kFixedColumns && aiColumn() >= 0) {
-        return tr("AI 分");   // AI 启用时的第 5 列
+    if (section == kFixedColumns && compositeColumn() >= 0) {
+        return tr("综合评分");   // 勾选综合评分分项时的第 5 列
     }
     const int fi = section - factorBase();
     if (fi >= 0 && fi < static_cast<int>(factorNames_.size())) {
@@ -74,8 +82,8 @@ QVariant ScreenResultModel::data(const QModelIndex& index, int role) const {
             }
             case 3: return QString::number(r.totalScore, 'f', 2);
             default: {
-                if (col == aiColumn() && row < static_cast<int>(aiScores_.size())) {
-                    return QString::number(aiScores_[static_cast<size_t>(row)], 'f', 2);
+                if (col == compositeColumn() && row < static_cast<int>(compositeScores_.size())) {
+                    return QString::number(compositeScores_[static_cast<size_t>(row)], 'f', 2);
                 }
                 const int fi = col - factorBase();
                 if (fi >= 0 && fi < static_cast<int>(r.factorResults.size())) {
@@ -88,11 +96,11 @@ QVariant ScreenResultModel::data(const QModelIndex& index, int role) const {
             }
         }
     }
-    if (role == Qt::ForegroundRole && (col == 3 || col == aiColumn())) {
+    if (role == Qt::ForegroundRole && (col == 3 || col == compositeColumn())) {
         double v = r.totalScore;
-        if (col == aiColumn()) {
-            if (row >= static_cast<int>(aiScores_.size())) return {};
-            v = aiScores_[static_cast<size_t>(row)];
+        if (col == compositeColumn()) {
+            if (row >= static_cast<int>(compositeScores_.size())) return {};
+            v = compositeScores_[static_cast<size_t>(row)];
         }
         if (v >= 60.0) return QColor("#e54648");
         if (v >= 40.0) return QColor("#bbbbbb");

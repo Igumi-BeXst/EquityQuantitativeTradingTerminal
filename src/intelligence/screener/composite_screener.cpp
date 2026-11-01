@@ -1,4 +1,4 @@
-#include "intelligence/screener/ai_screener.h"
+#include "intelligence/screener/composite_screener.h"
 
 #include "foundation/utils/indicators.h"
 #include "intelligence/pattern/pattern_recognizer.h"
@@ -28,15 +28,15 @@ std::optional<double> componentScore(const st::signal::CompositeSignal& cs,
 
 }  // namespace
 
-std::vector<AiScore> runAiScreener(
+std::vector<CompositeScore> runCompositeScreener(
     const std::vector<StockCode>& pool,
     const std::vector<std::vector<Bar>>& barsByCode,
     const std::vector<std::optional<sentiment::SentimentScore>>& sentiments,
-    const AiScreenerConfig& cfg) {
+    const CompositeScreenerConfig& cfg) {
 
     const size_t n = std::min({pool.size(), barsByCode.size(), sentiments.size()});
 
-    std::vector<AiScore> out;
+    std::vector<CompositeScore> out;
     out.reserve(n);
 
     for (size_t i = 0; i < n; ++i) {
@@ -67,7 +67,7 @@ std::vector<AiScore> runAiScreener(
         const auto cs = st::signal::composeSignal(
             patterns, senti, rsiVal, macd, close, prevClose, cfg.weights);
 
-        AiScore s;
+        CompositeScore s;
         s.code = pool[i];
         s.compositeScore = toPercent(cs.score);
         s.patternScore = componentScore(cs, "K线形态");
@@ -77,9 +77,9 @@ std::vector<AiScore> runAiScreener(
         out.push_back(std::move(s));
     }
 
-    // 综合分降序（同分保持输入顺序）
+    // 综合评分降序（同分保持输入顺序）
     std::stable_sort(out.begin(), out.end(),
-                     [](const AiScore& a, const AiScore& b) {
+                     [](const CompositeScore& a, const CompositeScore& b) {
                          return a.compositeScore > b.compositeScore;
                      });
     return out;

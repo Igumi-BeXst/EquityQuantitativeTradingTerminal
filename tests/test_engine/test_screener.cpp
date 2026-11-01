@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include "engine/screener/stock_screener.h"
 #include "engine/screener/factor_library.h"
+#include "engine/screener/alpha191_factors.h"
+#include "engine/screener/fundamental_factors.h"
 #include "engine/screener/ranker.h"
 #include "engine/screener/condition_filter.h"
 #include "data/data_cache.h"
@@ -128,8 +130,8 @@ TEST(StockScreenerTest, RanksByMomentum) {
     screener.setConfig(config);
     screener.setDataCache(&cache);
 
-    // 只加动量因子
-    screener.addFactor(std::make_shared<factors::RocFactor>(), 1.0);
+    // 只加 20 日动量 Alpha191 因子
+    screener.addFactor(std::make_shared<factors::Alpha088>(), 1.0);
 
     auto results = screener.run({strong, weak, fallCode});
     ASSERT_EQ(results.size(), 3u);
@@ -150,11 +152,13 @@ TEST(StockScreenerTest, ValuationFactorUsesInjectedQuotes) {
     qCheap.code = cheap;
     qCheap.valid = true;
     qCheap.peTtm = 10.0;
+    qCheap.peDynamic = 10.0;
     qCheap.marketCap = 1e10;
     QuoteFundamentals qPricey;
     qPricey.code = pricey;
     qPricey.valid = true;
     qPricey.peTtm = 80.0;
+    qPricey.peDynamic = 80.0;
     qPricey.marketCap = 1e10;
 
     std::unordered_map<std::string, QuoteFundamentals> quotes;
@@ -171,13 +175,13 @@ TEST(StockScreenerTest, ValuationFactorUsesInjectedQuotes) {
     screener.setConfig(config);
     screener.setDataCache(&cache);
     screener.setQuoteFundamentals(std::move(quotes));
-    screener.addFactor(std::make_shared<factors::PeTtmFactor>(), 1.0);
+    screener.addFactor(std::make_shared<factors::FundPe>(), 1.0);
 
     auto results = screener.run({cheap, pricey});
     ASSERT_EQ(results.size(), 2u);
     // 低 PE 股应排第一（同 K 线走势下仅估值因子区分）
     EXPECT_EQ(results[0].code, cheap);
-    // 高分值应反映低 PE
+    // 截面标准化后：2 只股票 z=±1 → Φ(1)≈84.1、Φ(-1)≈15.9
     EXPECT_GT(results[0].factorResults[0].score, 70.0);
     EXPECT_LT(results[1].factorResults[0].score, 30.0);
 }
@@ -197,7 +201,7 @@ TEST(StockScreenerTest, ValuationFactorDegradesWithoutQuotes) {
     StockScreener screener;
     screener.setConfig(config);
     screener.setDataCache(&cache);
-    screener.addFactor(std::make_shared<factors::PeTtmFactor>(), 1.0);
+    screener.addFactor(std::make_shared<factors::FundPe>(), 1.0);
 
     auto results = screener.run({code});
     ASSERT_EQ(results.size(), 1u);

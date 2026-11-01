@@ -1,5 +1,64 @@
 # 开发日志 (Development Log)
 
+## 2026-11-01 — 因子库重构：Alpha191 + 量价 + 基本面 三分组（截面标准化打分）
+
+### 需求（用户）
+按参考文章（BigQuant 多因子合成 / FactorHub 因子选股流程 / 知乎五步法）重构选股因子部分：清除原有全部技术因子，改为「Alpha191 因子 / 量价因子 / 基本面因子」三组；用户确认先做 Alpha191 子集+框架、后续补齐；并先验证东财行情快照能否提供基本面字段再决定基本面因子口径。
+
+### 东财快照字段验证（先行）
+`push2delay.eastmoney.com/api/qt/ulist.np/get` 实测：f9 动态 PE、f23 PB、f37 ROE(加权)、f40 营业总收入、f41 营收同比、f45 净利润、f46 净利同比、f49 毛利率、f57 资产负债率 均能返回合理值（茅台/平安银行核对）→ 决定直接扩展现有行情快照解析，不新增 AKShare 财务接口。
+
+### 实施
+- 数据层 `QuoteFundamentals` 扩展：peDynamic/peStatic/pb/roe/revenue/revenueYoY/netProfit/netProfitYoY/grossMargin/debtRatio；`akshare_provider`（东财 ulist）请求与解析增加 f9/f23/f37/f40/f41/f45/f46/f49/f57；旧字段 peTtm 兼容（动态 PE 优先）。
+- 引擎接口 `IFactor` 重构：只计算原始值（移除逐因子 toScore 经验映射），新增 displayName()/description()/higherIsBetter()；`FactorCategory` 收敛为 Alpha191/VolumePrice/Fundamental 三类；删除旧 24 因子及 Intelligence 的 PatternFactor（含单测/演示引用）。
+- 新增 `factor_math.{h,cpp}`：Series + 逐元素/滚动算子（delay/delta/tsSum/tsMean/tsStd/tsMax/tsMin/tsRank/count/sumIf/corr/covar/decayLinear/wma/smaCn/regBeta/regBetaSeq/lowDay/highDay 等），长窗口用前缀和/单调队列 O(n)，NaN 语义统一。
+- 新增 Alpha191 子集 33 个（`alpha191_factors.{h,cpp}`）：002/003/004/005/009/011/013/014/015/018/020/021/022/024/026/027/028/031/034/040/043/046/053/057/063/070/080/085/088/103/110/118/127，均为纯日线 OHLCV/AMOUNT 可算；不含横截面 RANK/行业/市值类。
+- 新增量价因子 10 个（`volume_price_factors.{h,cpp}`）：量比/换手率/VWAP乖离/成交额动量/OBV斜率/MFI/量价相关/量能突破/Amihud非流动性/EFI。
+- 新增基本面因子 8 个（`fundamental_factors.{h,cpp}`）：PE(动态)/PB/ROE/营收同比/净利同比/毛利率/资产负债率/总市值；字段缺失降级 nullopt。
+- `StockScreener` 改为两阶段截面标准化打分：①逐股算原始值 → ②逐因子全池 MAD(5×1.4826) 去极值 → z-score → 方向符号 → Φ(z)×100（缺失=50；零方差=50）→ 加权总分 → 条件过滤/排名；三组各总权重 1.0（组内等权）。
+- 选股面板：因子区按三组分组展示（Alpha191 33 / 量价 10 / 基本面 8），勾选框显示中文名、tooltip 显示公式与数据窗口；结果表列头改用因子中文显示名；综合评分（K线形态+舆情情绪+技术指标）保留为独立附加排序。
+- `src/CMakeLists.txt` / `tests/CMakeLists.txt` 同步；删除 `test_factors.cpp`（旧因子）与 `test_pattern_factor.cpp`；新增 test_factor_math / test_alpha191_factors / test_volume_price_factors / test_fundamental_factors。
+
+### 验证
+- Debug（with-qt）与 Release（release-qt）构建零警告；**573/573 tests 全绿**（新增 95 例：Alpha191 40 + 量价 30 + 基本面 11 + factor_math 14）
+- 选股面板渲染 1280×900 验证三分组勾选布局（截图 `build/form_screener.png`）
+- Release GUI 冒烟 8s 存活（TDX/AKShare 连接正常）
+- 东财快照扩展字段解析新增单测（test_akshare_provider / ParsesExtendedFundamentalFields）
+
+### 已知限制 / 后续
+- Alpha191 仅 33/191（用户确认先子集+框架）；剩余主要依赖横截面 RANK/行业/市值，需后续扩展面板式计算与行业数据。
+- Alpha026 需 ≥235 根日线（默认回看 250 满足；回看调低时该因子缺失→中性 50 分）。
+- 因子方向为启发式（GTJA 口径 higherIsBetter=true；PE/PB/换手率/负债率/总市值=越小越好），待 IC 检验后校准。
+- 全市场 51 因子性能未实测（行情拉取仍是主要耗时）；截面标准化改变了「总分」数值口径（0~100 百分位语义）。
+- 定时任务「跑选股」仍未配置因子与数据缓存（既有问题，本轮未动）。
+
+### 后续修正（同日，用户反馈）
+- **因子默认不勾选**：51 个因子初始全部未选；「开始选股」在未勾选任何因子时禁用（勾选后恢复），因子区加灰字提示「请至少选择 1 个因子」。
+- **Alpha191 tooltip 去公式**：只保留中文含义 + 数据窗口（公式仍保留在代码注释/因子实现中，不展示给用户）。
+
+## 2026-11-01 — 选股面板命名修正：去掉 AI 前缀，按实际行为描述「综合评分」
+
+### 背景（用户反馈 · 图一）
+选股配置中的「AI 因子: ☑形态 ☑情绪（情绪仅拉取池中前 30 只）」与实际行为不符；且该评分是规则加权（K线形态/舆情/技术指标），不属于 AI，用户要求去掉 AI 前缀：
+- 两个勾选框不是参与因子总分筛选的因子，而是「综合评分」的可选分项；技术指标恒参与。
+- 勾选后仅给结果表增加「综合评分」列并按该分降序重排结果，不改变入选股票。
+- 「形态」分项只看近 3 根 K 线，与因子列表里的「形态评分」(近 30 根 K 线统计) 是两回事，原命名无法区分。
+- 「情绪」实为东财新闻舆情情绪，按股票池顺序限前 30 只拉取；其余股票该分项缺失、按剩余分项权重折减。
+
+### 改动
+- `ui/panels/screener_panel.{h,cpp}`：
+  - 行标签「AI」+「AI 因子:」→「综合评分」+「分项:」，去掉 AI 前缀且不再称「因子」；
+  - 「形态」→「K线形态」、「情绪」→「舆情情绪」，与综合信号分项名一致；
+  - 提示改为「（勾选后结果表加「综合评分」列并按分降序重排；技术指标恒参与；舆情仅取池前 30 只，其余缺失分项折减）」；
+  - 补三个 tooltip 说明实际细节：K线形态=近 3 根（区别因子列表的「形态评分」近 30 根统计）、舆情=东财新闻/池顺序前 30 只/缺失折减、综合评分权重 = K线形态 0.4 + 舆情情绪 0.3 + 技术指标 0.3（缺失分项归一化）；
+  - 面板成员/局部变量同步去掉 ai 前缀（`compositePatternCheck_`/`compositeSentimentCheck_`/`compositeEnabled`/`useComposite`/`compositeScores`）；日志「AI 分排序」→「按综合评分排序」。
+- `ui/models/screen_result_model.{h,cpp}`：「AI 分」列改名「综合评分」（`aiScores`/`aiColumn` → `compositeScores`/`compositeColumn`）；新增表头 tooltip（总分=多因子总分；综合评分=形态+情绪+技术加权 0~100）。
+- `intelligence/screener/ai_screener.{h,cpp}` → `composite_screener.{h,cpp}`：`AiScreenerConfig`→`CompositeScreenerConfig`、`AiScore`→`CompositeScore`、`runAiScreener`→`runCompositeScreener`；`src/CMakeLists.txt`、`tests/CMakeLists.txt`、`tests/test_intelligence/test_ai_screener.cpp`→`test_composite_screener.cpp` 同步改名。
+
+### 验证
+- Debug（with-qt）与 Release（release-qt）增量构建均零警告；Debug 505/505 tests 全绿（含 test_ui / CompositeScreenerTest）
+- 选股面板渲染验证 1280×820：新命名行显示完整、提示不截断（截图 `build/form_screener.png`，用 `form_render` 工具渲染）
+
 ## 2026-10-21 — 用户目录分置：可重建缓存放 Local，用户财产留 Roaming
 
 ### 背景

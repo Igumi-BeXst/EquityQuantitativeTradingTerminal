@@ -310,7 +310,7 @@ std::optional<QuoteFundamentals> AKShareProvider::getQuoteFundamentals(const Sto
     // 多主机回退：当前主机失败（空回复/超时）自动换下一个东财节点。
     const std::string secid = (code.market() == Market::SH ? "1." : "0.") + code.code();
     const std::string query = "/api/qt/ulist.np/get?secids=" + secid
-        + "&fields=f12,f8,f115,f20,f21,f38,f39&fltt=2&invt=2";
+        + "&fields=f12,f8,f9,f115,f20,f21,f23,f37,f38,f39,f40,f41,f45,f46,f49,f57&fltt=2&invt=2";
     for (const char* host : kEastMoneyPush2Hosts) {
         const auto body = httpGet(std::string("http://") + host + query);
         if (body.empty()) continue;
@@ -343,7 +343,7 @@ std::vector<QuoteFundamentals> AKShareProvider::batchQuoteFundamentals(
 
     // 多主机回退：当前主机失败（空回复/超时/解析失败）自动换下一个东财节点
     const std::string query = "/api/qt/ulist.np/get?secids=" + secids.str()
-        + "&fields=f12,f8,f115,f20,f21,f38,f39&fltt=2&invt=2";
+        + "&fields=f12,f8,f9,f115,f20,f21,f23,f37,f38,f39,f40,f41,f45,f46,f49,f57&fltt=2&invt=2";
     for (const char* host : kEastMoneyPush2Hosts) {
         const auto body = httpGet(std::string("http://") + host + query);
         if (body.empty()) continue;
@@ -390,16 +390,28 @@ std::optional<QuoteFundamentals> AKShareProvider::parseFundamentals(
         };
         QuoteFundamentals f;
         f.code = code;
+        // —— 交易/股本 ——
         f.turnoverRate = num("f8");       // 换手率 %
-        f.peStatic = num("f115");         // 市盈(静)
         f.marketCap = num("f20");         // 总市值 元
         f.floatCap = num("f21");          // 流通市值 元
         f.totalShares = num("f38");       // 总股本 股
         f.floatShares = num("f39");       // 流通股 股
+        // —— 估值/盈利/成长/财务质量（东财行情快照扩展字段）——
+        f.peDynamic = num("f9");          // 市盈率(动态) 倍
+        f.peStatic = num("f115");         // 市盈率(静态) 倍
+        f.peTtm = f.peDynamic > 0.0 ? f.peDynamic : f.peStatic;  // 兼容旧字段
+        f.pb = num("f23");                // 市净率 倍
+        f.roe = num("f37");               // 净资产收益率(加权) %
+        f.revenue = num("f40");           // 营业总收入 元
+        f.revenueYoY = num("f41");        // 营业总收入同比 %
+        f.netProfit = num("f45");         // 净利润 元
+        f.netProfitYoY = num("f46");      // 净利润同比 %
+        f.grossMargin = num("f49");       // 毛利率 %
+        f.debtRatio = num("f57");         // 资产负债率 %
         // 换手率(实) = 换手率 × 流通股/总股本（全流通时≈换手率）
         f.turnoverRateReal = f.totalShares > 0.0
             ? f.turnoverRate * f.floatShares / f.totalShares : f.turnoverRate;
-        f.valid = f.marketCap > 0.0 || f.totalShares > 0.0;
+        f.valid = f.marketCap > 0.0 || f.totalShares > 0.0 || f.peDynamic > 0.0;
         if (!f.valid) return std::nullopt;
         return f;
     } catch (...) {

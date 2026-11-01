@@ -1,5 +1,20 @@
 # 变更记录
 
+## 2026-11-01 — 因子库重构：Alpha191 + 量价 + 基本面三类（截面标准化打分）
+- 数据：QuoteFundamentals 扩展东财行情快照 PE动/PB/ROE/营收+同比/净利+同比/毛利率/负债率（ulist f9/f23/f37/f40/f41/f45/f46/f49/f57，实测可取）；akshare_provider 解析同步
+- 引擎：IFactor 只算原始值 + displayName/description/higherIsBetter；FactorCategory 三分组；新增 factor_math 算子库；Alpha191 子集 33 + 量价 10 + 基本面 8 共 51 个因子（删除旧 24 因子与 PatternFactor）
+- 打分：StockScreener 两阶段全池截面标准化（MAD 去极值 → z-score → Φ(z)×100，缺失 50）；Alpha191/量价/基本面各组总权重 1.0、组内等权
+- UI：选股面板因子区三组勾选（中文名 + 公式 tooltip），结果表列头中文名；综合评分附加排序保留
+- 测试：Debug + Release 构建零警告；573/573 全绿（+95 新因子测试）；选股面板 1280×900 渲染验证；Release GUI 冒烟 8s 存活
+- 已知限制：Alpha191 仅 33/191（后续补齐）；Alpha026 需 ≥235 根；方向待 IC 校准；全市场性能未实测
+- 后续修正：因子默认不勾选（未选因子时「开始选股」禁用 + 灰字提示）；Alpha191 tooltip 去公式，只保留中文说明 + 数据窗口
+
+## 2026-11-01 — 选股面板命名按实际行为修正（去掉 AI 前缀）
+- 该评分是规则加权（K线形态/舆情情绪/技术指标），不属于 AI：「AI 因子」→「综合评分 分项: K线形态/舆情情绪」；勾选后结果表加「综合评分」列并按分降序重排、不改变入选股票（技术指标恒参与）
+- 提示补全实际限制：舆情取东财新闻仅池顺序前 30 只、其余缺失分项按权重折减；tooltip 区分「K线形态（近 3 根）」与因子列表「形态评分（近 30 根）」，并新增结果表表头 tooltip 区分「总分」
+- 代码同步去掉 AI 前缀：`ai_screener`→`composite_screener`（CompositeScreenerConfig/CompositeScore/runCompositeScreener），ScreenResultModel/ScreenerPanel 成员与「AI 分」列名同步
+- Debug + Release 构建零警告；505/505 tests 全绿；渲染 1280×820 验证布局
+
 ## 2026-08-16 — P10 第三十三轮：模拟交易搜索选股 + 多股票同时模拟
 - 引擎多股票化：addStrategy(code, strategy) 按股票绑定独立策略实例；挂单/最近价按 code 隔离（B 报价不会成交 A 挂单）；单股票旧用法完全兼容
 - 面板：股票池换全市场搜索多选（StockPoolPicker）；启动逐只播种+独立策略；轮询批量报价逐只驱动；状态区新增股票数

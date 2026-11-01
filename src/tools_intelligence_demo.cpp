@@ -1,14 +1,12 @@
-// Intelligence 层实连验证工具 — 用真实行情跑通 4 个模块并打印结果
+// Intelligence 层实连验证工具 — 用真实行情跑通 3 个模块并打印结果
 //
 // 验证内容：
 //   1. PatternRecognizer   形态识别（真实日K 最近形态信号）
-//   2. PatternFactor       形态因子（pattern_score）
-//   3. StrategyAdvisor     策略参数优化建议（MACross 真实网格回测 → 中文建议）
-//   4. SentimentAnalyzer   舆情情绪（本地关键词打分桩）
+//   2. StrategyAdvisor     策略参数优化建议（MACross 真实网格回测 → 中文建议）
+//   3. SentimentAnalyzer   舆情情绪（本地关键词打分桩）
 // 数据：优先连 TDX 拉真实日K；连接失败则回退合成序列（保证离线可演示）。
 #include "intelligence/pattern/pattern_recognizer.h"
 #include "intelligence/advisor/strategy_advisor.h"
-#include "intelligence/screener/pattern_factor.h"
 #include "intelligence/sentiment/sentiment_analyzer.h"
 #include "data/tdx/tdx_provider.h"
 #include "data/data_cache.h"
@@ -103,21 +101,8 @@ int main(int argc, char** argv) {
     std::cout << "  共 " << result.items.size() << " 条信号，最近 10 条：\n";
     printPatterns(series, result);
 
-    // 3. PatternFactor — 形态因子
-    std::cout << "\n===== 2. PatternFactor（" << code.fullCode() << "）=====\n";
-    FactorContext fctx;
-    fctx.code = &code;
-    fctx.bars = &series;
-    st::screener::PatternFactor factor;
-    auto fval = factor.calculate(fctx);
-    if (fval) {
-        std::printf("  pattern_score = %.1f（>50 偏多，<50 偏空）\n", *fval);
-    } else {
-        std::cout << "  pattern_score = 数据不足\n";
-    }
-
-    // 4. StrategyAdvisor — 策略参数优化建议
-    std::cout << "\n===== 3. StrategyAdvisor（MACross 参数优化）=====\n";
+    // 2. StrategyAdvisor — 策略参数优化建议
+    std::cout << "\n===== 2. StrategyAdvisor（MACross 参数优化）=====\n";
     for (auto& b : bars) b.code = code;
     DataCache cache;
     cache.cacheBars(code, BarPeriod::Daily, bars);
@@ -164,8 +149,8 @@ int main(int argc, char** argv) {
         std::cout << "\n";
     }
 
-    // 5. SentimentAnalyzer — 舆情情绪桩
-    std::cout << "\n===== 4. SentimentAnalyzer（关键词打分，无真实新闻源）=====\n";
+    // 3. SentimentAnalyzer — 舆情情绪桩
+    std::cout << "\n===== 3. SentimentAnalyzer（关键词打分，无真实新闻源）=====\n";
     SentimentAnalyzer analyzer;
     std::vector<NewsItem> news;
     NewsItem n1;

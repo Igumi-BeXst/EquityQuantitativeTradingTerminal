@@ -1,4 +1,4 @@
-#include "intelligence/screener/ai_screener.h"
+#include "intelligence/screener/composite_screener.h"
 #include "foundation/stock_code.h"
 #include "foundation/utils/datetime.h"
 #include <gtest/gtest.h>
@@ -7,9 +7,9 @@
 namespace st {
 namespace {
 
-using st::screener::AiScore;
-using st::screener::AiScreenerConfig;
-using st::screener::runAiScreener;
+using st::screener::CompositeScore;
+using st::screener::CompositeScreenerConfig;
+using st::screener::runCompositeScreener;
 using st::sentiment::SentimentScore;
 
 /// 合成 60 根日线：up=true 持续上涨（多头排列），false 持续下跌（空头排列）
@@ -41,29 +41,29 @@ SentimentScore senti(double score) {
     return s;
 }
 
-TEST(AiScreenerTest, RanksByCompositeScoreDescending) {
+TEST(CompositeScreenerTest, RanksByCompositeScoreDescending) {
     // 股票 A 强多头 + 正面情绪；股票 B 强空头 + 负面情绪 → A 在前
     const StockCode a(std::string_view("SH600519"));
     const StockCode b(std::string_view("SZ000001"));
-    auto scores = runAiScreener(
+    auto scores = runCompositeScreener(
         {a, b},
         {makeBars(true, 10.0), makeBars(false, 20.0)},
         {senti(0.6), senti(-0.6)},
-        AiScreenerConfig{});
+        CompositeScreenerConfig{});
     ASSERT_EQ(scores.size(), 2u);
     EXPECT_EQ(scores[0].code, a);
     EXPECT_EQ(scores[1].code, b);
     EXPECT_GT(scores[0].compositeScore, scores[1].compositeScore);
 }
 
-TEST(AiScreenerTest, ScoreMappingRange) {
+TEST(CompositeScreenerTest, ScoreMappingRange) {
     const StockCode a(std::string_view("SH600519"));
     const StockCode b(std::string_view("SZ000001"));
-    auto scores = runAiScreener(
+    auto scores = runCompositeScreener(
         {a, b},
         {makeBars(true, 10.0), makeBars(false, 20.0)},
         {senti(0.6), senti(-0.6)},
-        AiScreenerConfig{});
+        CompositeScreenerConfig{});
     ASSERT_EQ(scores.size(), 2u);
     EXPECT_GT(scores[0].compositeScore, 70.0);   // 强多头 → 高分
     EXPECT_LT(scores[1].compositeScore, 30.0);   // 强空头 → 低分
@@ -71,12 +71,12 @@ TEST(AiScreenerTest, ScoreMappingRange) {
     EXPECT_LE(scores[0].compositeScore, 100.0);
 }
 
-TEST(AiScreenerTest, PatternDisabled) {
+TEST(CompositeScreenerTest, PatternDisabled) {
     // usePattern=false → 形态分项缺失；情绪分项保留
     const StockCode a(std::string_view("SH600519"));
-    AiScreenerConfig cfg;
+    CompositeScreenerConfig cfg;
     cfg.usePattern = false;
-    auto scores = runAiScreener(
+    auto scores = runCompositeScreener(
         {a}, {makeBars(true)}, {senti(0.6)}, cfg);
     ASSERT_EQ(scores.size(), 1u);
     EXPECT_FALSE(scores[0].patternScore.has_value());
@@ -84,14 +84,14 @@ TEST(AiScreenerTest, PatternDisabled) {
     EXPECT_NEAR(*scores[0].sentimentScore, 80.0, 1e-9);
 }
 
-TEST(AiScreenerTest, PatternToggleChangesScore) {
-    // 回归：全选（形态+情绪）与单选情绪（usePattern=false）的 AI 分必须不同
+TEST(CompositeScreenerTest, PatternToggleChangesScore) {
+    // 回归：全选（形态+情绪）与单选情绪（usePattern=false）的综合评分必须不同
     const StockCode a(std::string_view("SH600519"));
-    auto both = runAiScreener(
-        {a}, {makeBars(true)}, {senti(0.6)}, AiScreenerConfig{});
-    AiScreenerConfig cfg;
+    auto both = runCompositeScreener(
+        {a}, {makeBars(true)}, {senti(0.6)}, CompositeScreenerConfig{});
+    CompositeScreenerConfig cfg;
     cfg.usePattern = false;
-    auto sentimentOnly = runAiScreener(
+    auto sentimentOnly = runCompositeScreener(
         {a}, {makeBars(true)}, {senti(0.6)}, cfg);
     ASSERT_EQ(both.size(), 1u);
     ASSERT_EQ(sentimentOnly.size(), 1u);
@@ -100,11 +100,11 @@ TEST(AiScreenerTest, PatternToggleChangesScore) {
     EXPECT_GT(both[0].compositeScore, sentimentOnly[0].compositeScore);
 }
 
-TEST(AiScreenerTest, SentimentDisabled) {
+TEST(CompositeScreenerTest, SentimentDisabled) {
     const StockCode a(std::string_view("SH600519"));
-    AiScreenerConfig cfg;
+    CompositeScreenerConfig cfg;
     cfg.useSentiment = false;
-    auto scores = runAiScreener(
+    auto scores = runCompositeScreener(
         {a}, {makeBars(true)}, {senti(0.6)}, cfg);
     ASSERT_EQ(scores.size(), 1u);
     EXPECT_FALSE(scores[0].sentimentScore.has_value());
@@ -112,26 +112,26 @@ TEST(AiScreenerTest, SentimentDisabled) {
     EXPECT_TRUE(scores[0].technicalScore.has_value());
 }
 
-TEST(AiScreenerTest, MissingSentimentDegrades) {
-    // 无情绪数据 → 情绪分项缺失，不阻塞综合分
+TEST(CompositeScreenerTest, MissingSentimentDegrades) {
+    // 无情绪数据 → 情绪分项缺失，不阻塞综合评分
     const StockCode a(std::string_view("SH600519"));
-    auto scores = runAiScreener(
+    auto scores = runCompositeScreener(
         {a}, {makeBars(true)},
         {std::nullopt},
-        AiScreenerConfig{});
+        CompositeScreenerConfig{});
     ASSERT_EQ(scores.size(), 1u);
     EXPECT_FALSE(scores[0].sentimentScore.has_value());
     EXPECT_FALSE(std::isnan(scores[0].compositeScore));
     EXPECT_GT(scores[0].compositeScore, 50.0);  // 形态+技术仍偏多
 }
 
-TEST(AiScreenerTest, CustomWeightsSentimentDominates) {
-    // 情绪权重 1.0：A 形态好但情绪差 → 综合分低；B 形态差但情绪好 → 综合分高
+TEST(CompositeScreenerTest, CustomWeightsSentimentDominates) {
+    // 情绪权重 1.0：A 形态好但情绪差 → 综合评分低；B 形态差但情绪好 → 综合评分高
     const StockCode a(std::string_view("SH600519"));
     const StockCode b(std::string_view("SZ000001"));
-    AiScreenerConfig cfg;
+    CompositeScreenerConfig cfg;
     cfg.weights = {0.0, 1.0, 0.0};
-    auto scores = runAiScreener(
+    auto scores = runCompositeScreener(
         {a, b},
         {makeBars(true, 10.0), makeBars(false, 20.0)},
         {senti(-0.8), senti(0.8)},
@@ -141,28 +141,28 @@ TEST(AiScreenerTest, CustomWeightsSentimentDominates) {
     EXPECT_LT(scores[1].compositeScore, scores[0].compositeScore);
 }
 
-TEST(AiScreenerTest, EmptyPoolReturnsEmpty) {
-    EXPECT_TRUE(runAiScreener({}, {}, {}, AiScreenerConfig{}).empty());
+TEST(CompositeScreenerTest, EmptyPoolReturnsEmpty) {
+    EXPECT_TRUE(runCompositeScreener({}, {}, {}, CompositeScreenerConfig{}).empty());
 }
 
-TEST(AiScreenerTest, EmptyBarsSkipped) {
+TEST(CompositeScreenerTest, EmptyBarsSkipped) {
     // B 无数据 → 跳过，只输出 A
     const StockCode a(std::string_view("SH600519"));
     const StockCode b(std::string_view("SZ000001"));
-    auto scores = runAiScreener(
+    auto scores = runCompositeScreener(
         {a, b},
         {makeBars(true), {}},
         {senti(0.6), std::nullopt},
-        AiScreenerConfig{});
+        CompositeScreenerConfig{});
     ASSERT_EQ(scores.size(), 1u);
     EXPECT_EQ(scores[0].code, a);
 }
 
-TEST(AiScreenerTest, ComponentsMappedToSignal) {
+TEST(CompositeScreenerTest, ComponentsMappedToSignal) {
     // 分项分数 = composeSignal 分项 score 映射 (score+1)/2*100
     const StockCode a(std::string_view("SH600519"));
-    auto scores = runAiScreener(
-        {a}, {makeBars(true)}, {senti(0.6)}, AiScreenerConfig{});
+    auto scores = runCompositeScreener(
+        {a}, {makeBars(true)}, {senti(0.6)}, CompositeScreenerConfig{});
     ASSERT_EQ(scores.size(), 1u);
     ASSERT_TRUE(scores[0].patternScore.has_value());
     ASSERT_TRUE(scores[0].sentimentScore.has_value());

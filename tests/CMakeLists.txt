@@ -57,7 +57,10 @@ if(BUILD_WITH_QT)
         test_engine/test_paper_trade.cpp
         test_engine/test_strategy_templates.cpp
         test_engine/test_market.cpp
-        test_engine/test_factors.cpp
+        test_engine/test_factor_math.cpp
+        test_engine/test_alpha191_factors.cpp
+        test_engine/test_volume_price_factors.cpp
+        test_engine/test_fundamental_factors.cpp
         test_engine/test_screener.cpp
         test_engine/test_grid_search.cpp
         test_engine/test_grid_heatmap.cpp
@@ -80,8 +83,7 @@ if(BUILD_WITH_QT)
         test_intelligence/test_main.cpp
         test_intelligence/test_pattern_recognizer.cpp
         test_intelligence/test_strategy_advisor.cpp
-        test_intelligence/test_pattern_factor.cpp
-        test_intelligence/test_ai_screener.cpp
+        test_intelligence/test_composite_screener.cpp
         test_intelligence/test_sentiment_analyzer.cpp
         test_intelligence/test_eastmoney_news_provider.cpp
         test_intelligence/test_composite_signal.cpp

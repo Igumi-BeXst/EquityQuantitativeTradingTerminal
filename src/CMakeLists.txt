@@ -80,6 +80,10 @@ add_library(st_engine STATIC
     engine/portfolio/portfolio_engine.cpp
     engine/screener/stock_screener.cpp
     engine/screener/factor_library.cpp
+    engine/screener/factor_math.cpp
+    engine/screener/alpha191_factors.cpp
+    engine/screener/volume_price_factors.cpp
+    engine/screener/fundamental_factors.cpp
     engine/screener/condition_filter.cpp
     engine/screener/ranker.cpp
     engine/scheduler/screener_scope.cpp
@@ -105,8 +109,7 @@ target_link_libraries(st_engine PUBLIC st_data st_core st_foundation talib::tali
 add_library(st_intelligence STATIC
     intelligence/pattern/pattern_recognizer.cpp
     intelligence/advisor/strategy_advisor.cpp
-    intelligence/screener/pattern_factor.cpp
-    intelligence/screener/ai_screener.cpp
+    intelligence/screener/composite_screener.cpp
     intelligence/sentiment/sentiment_analyzer.cpp
     intelligence/sentiment/eastmoney_news_provider.cpp
     intelligence/signal/composite_signal.cpp

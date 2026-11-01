@@ -6,8 +6,7 @@
 #include "data/data_cache.h"
 #include "engine/screener/stock_screener.h"
 #include "engine/screener/factor_library.h"
-#include "intelligence/screener/pattern_factor.h"
-#include "intelligence/screener/ai_screener.h"
+#include "intelligence/screener/composite_screener.h"
 #include "intelligence/sentiment/sentiment_analyzer.h"
 #include "intelligence/sentiment/eastmoney_news_provider.h"
 #include "core/thread_pool.h"
@@ -37,32 +36,6 @@
 
 namespace st {
 
-namespace {
-
-// 因子英文名 → 中文显示名
-QString factorDisplayName(const std::string& name) {
-    static const std::unordered_map<std::string, const char*> kNames = {
-        {"roc_20", "20日动量"}, {"rsi_14", "RSI(14)"}, {"macd_hist", "MACD柱"},
-        {"cci_14", "CCI(14)"}, {"williams_r", "威廉%R"}, {"bias_6", "乖离率"},
-        {"up_streak", "连涨天数"},
-        {"volatility", "年化波动率"}, {"atr_14", "ATR(14)"}, {"max_drawdown", "最大回撤"},
-        {"boll_pos", "布林带位置"}, {"amplitude_20", "20日均振幅"},
-        {"ma_alignment", "均线多头"}, {"adx_14", "ADX(14)"},
-        {"ma_cross", "MA金叉"}, {"price_pos_52w", "52周价格位置"}, {"ma20_slope", "MA20斜率"},
-        {"volume_ratio", "量比"}, {"turnover", "换手率"}, {"obv", "OBV"},
-        {"mfi_14", "MFI(14)"}, {"vol_price", "量价配合"},
-        {"pe_ttm", "市盈率TTM"}, {"market_cap", "总市值"},
-        {"pattern_score", "形态评分"},
-    };
-    auto it = kNames.find(name);
-    return it != kNames.end()
-        ? QStringLiteral("%1 (%2)").arg(QString::fromUtf8(it->second),
-                                        QString::fromStdString(name))
-        : QString::fromStdString(name);
-}
-
-}  // namespace
-
 ScreenerPanel::ScreenerPanel(IDataProvider* provider, QWidget* parent)
     : QWidget(parent), provider_(provider), cache_(std::make_shared<DataCache>()) {
     newsProvider_ = std::make_shared<st::sentiment::EastMoneyNewsProvider>();
@@ -77,39 +50,72 @@ ScreenerPanel::ScreenerPanel(IDataProvider* provider, QWidget* parent)
     auto* form = new QGroupBox(tr("选股配置"));
     auto* fl = new QFormLayout(form);
 
-    // 因子区（2 列勾选）
+    // 因子区：按 Alpha191 / 量价 / 基本面 三分组展示（组内等权，三组各自总权重 1.0）
     candidateFactors_ = factors::defaultFactorSet();
-    // 形态因子（Intelligence 下接选股面板，权重 1.0）
-    candidateFactors_.emplace_back(std::make_shared<st::screener::PatternFactor>(), 1.0);
-    auto* factorBox = new QWidget;
-    auto* fg = new QGridLayout(factorBox);
-    fg->setContentsMargins(0, 0, 0, 0);
-    fg->setSpacing(2);
-    for (size_t i = 0; i < candidateFactors_.size(); ++i) {
-        auto* cb = new QCheckBox(factorDisplayName(candidateFactors_[i].first->name()));
-        cb->setChecked(true);
-        factorChecks_.push_back(cb);
-        fg->addWidget(cb, static_cast<int>(i) / 2, static_cast<int>(i) % 2);
+    factorChecks_.assign(candidateFactors_.size(), nullptr);
+    const std::vector<FactorCategory> categories = {
+        FactorCategory::Alpha191, FactorCategory::VolumePrice, FactorCategory::Fundamental};
+    for (FactorCategory category : categories) {
+        auto* factorBox = new QWidget;
+        auto* fg = new QGridLayout(factorBox);
+        fg->setContentsMargins(0, 0, 0, 0);
+        fg->setSpacing(2);
+        int gridRow = 0;
+        int gridCol = 0;
+        size_t count = 0;
+        for (size_t i = 0; i < candidateFactors_.size(); ++i) {
+            const auto& factor = candidateFactors_[i].first;
+            if (factor->category() != category) continue;
+            auto* cb = new QCheckBox(QString::fromStdString(factor->displayName()));
+            cb->setChecked(false);  // 默认不勾选：由用户显式选择参与打分的因子
+            cb->setToolTip(QString::fromStdString(factor->description()));
+            connect(cb, &QCheckBox::toggled, this, [this] { updateRunButton(); });
+            factorChecks_[i] = cb;
+            fg->addWidget(cb, gridRow, gridCol);
+            if (++gridCol == 4) {
+                gridCol = 0;
+                ++gridRow;
+            }
+            ++count;
+        }
+        const QString label = QStringLiteral("%1 (%2)")
+            .arg(QString::fromStdString(factors::categoryName(category)))
+            .arg(count);
+        fl->addRow(label, factorBox);
     }
-    fl->addRow(tr("因子"), factorBox);
+    auto* factorHint = new QLabel(
+        tr("因子默认不勾选；请至少选择 1 个因子后开始选股（三组各自总权重 1/3）"));
+    factorHint->setStyleSheet(QStringLiteral("color:#888888;"));
+    fl->addRow(QString(), factorHint);
 
-    // AI 因子区（形态 + 情绪；情绪网络拉取限量）
-    auto* aiBox = new QWidget;
-    auto* aiRow = new QHBoxLayout(aiBox);
-    aiRow->setContentsMargins(0, 0, 0, 0);
-    aiRow->setSpacing(8);
-    aiPatternCheck_ = new QCheckBox(tr("形态"));
-    aiPatternCheck_->setChecked(true);
-    aiSentimentCheck_ = new QCheckBox(tr("情绪"));
-    aiSentimentCheck_->setChecked(true);
-    aiRow->addWidget(new QLabel(tr("AI 因子:")));
-    aiRow->addWidget(aiPatternCheck_);
-    aiRow->addWidget(aiSentimentCheck_);
-    auto* aiHint = new QLabel(tr("（情绪仅拉取池中前 30 只）"));
-    aiHint->setStyleSheet(QStringLiteral("color:#888888;"));
-    aiRow->addWidget(aiHint);
-    aiRow->addStretch();
-    fl->addRow(tr("AI"), aiBox);
+    // 综合评分分项（K线形态 + 舆情情绪；技术指标恒参与；舆情网络拉取限量）
+    auto* compositeBox = new QWidget;
+    auto* compositeRow = new QHBoxLayout(compositeBox);
+    compositeRow->setContentsMargins(0, 0, 0, 0);
+    compositeRow->setSpacing(8);
+    compositePatternCheck_ = new QCheckBox(tr("K线形态"));
+    compositePatternCheck_->setChecked(true);
+    compositePatternCheck_->setToolTip(tr(
+        "近 3 根 K 线的形态识别（如吞没/锤头/三兵等）参与综合评分。\n"
+        "与上方因子区的 Alpha191 / 量价 / 基本面因子相互独立，不影响因子打分。"));
+    compositeSentimentCheck_ = new QCheckBox(tr("舆情情绪"));
+    compositeSentimentCheck_->setChecked(true);
+    compositeSentimentCheck_->setToolTip(tr(
+        "东财新闻的舆情情绪参与综合评分。\n"
+        "仅拉取股票池顺序前 30 只的新闻（非按因子得分排名）；其余股票该分项缺失，\n"
+        "综合评分按剩余分项权重折减，不会阻塞选股。"));
+    auto* compositePrefix = new QLabel(tr("分项:"));
+    compositePrefix->setToolTip(tr(
+        "综合评分（0~100）= K线形态 0.4 + 舆情情绪 0.3 + 技术指标 0.3 加权；\n"
+        "缺失分项在剩余分项间归一化权重，技术指标恒参与。"));
+    compositeRow->addWidget(compositePrefix);
+    compositeRow->addWidget(compositePatternCheck_);
+    compositeRow->addWidget(compositeSentimentCheck_);
+    auto* compositeHint = new QLabel(tr("（勾选后结果表加「综合评分」列并按分降序重排；技术指标恒参与；舆情仅取池前 30 只，其余缺失分项折减）"));
+    compositeHint->setStyleSheet(QStringLiteral("color:#888888;"));
+    compositeRow->addWidget(compositeHint);
+    compositeRow->addStretch();
+    fl->addRow(tr("综合评分"), compositeBox);
 
     // 股票池（全市场，异步加载 + 搜索过滤 + 多选）
     stockPicker_ = new StockPoolPicker(provider_, this);
@@ -131,6 +137,8 @@ ScreenerPanel::ScreenerPanel(IDataProvider* provider, QWidget* parent)
 
     auto* runRow = new QHBoxLayout;
     runBtn_ = new QPushButton(tr("开始选股"));
+    runBtn_->setToolTip(tr("请至少勾选一个因子"));
+    updateRunButton();  // 未选因子 → 禁用开始按钮
     progress_ = new QProgressBar;
     progress_->setRange(0, 100);
     progress_->setValue(0);
@@ -173,13 +181,28 @@ std::vector<StockCode> ScreenerPanel::selectedSymbols() const {
     return stockPicker_ ? stockPicker_->selectedSymbols() : std::vector<StockCode>{};
 }
 
-bool ScreenerPanel::aiEnabled() const {
-    return aiPatternCheck_ && aiSentimentCheck_ &&
-        (aiPatternCheck_->isChecked() || aiSentimentCheck_->isChecked());
+bool ScreenerPanel::compositeEnabled() const {
+    return compositePatternCheck_ && compositeSentimentCheck_ &&
+        (compositePatternCheck_->isChecked() || compositeSentimentCheck_->isChecked());
+}
+
+bool ScreenerPanel::anyFactorChecked() const {
+    for (const auto* cb : factorChecks_) {
+        if (cb && cb->isChecked()) return true;
+    }
+    return false;
+}
+
+void ScreenerPanel::updateRunButton() {
+    if (runBtn_) runBtn_->setEnabled(!running_ && anyFactorChecked());
 }
 
 void ScreenerPanel::onRunClicked() {
     if (running_) return;
+    if (!anyFactorChecked()) {
+        LogManager::instance()->log(LogLevel::Warn, "选股: 请至少勾选一个因子");
+        return;
+    }
     auto symbols = selectedSymbols();
     if (symbols.empty()) {
         LogManager::instance()->log(LogLevel::Warn, "选股: 请至少选择一只股票");
@@ -195,8 +218,8 @@ void ScreenerPanel::onRunClicked() {
     const auto end = utils::parseDate(endDate_->date().toString(Qt::ISODate).toStdString());
     const auto start = utils::addTradingDays(end, -lookback_->value());
 
-    // ① IO 池拉数据 → 缓存；AI 情绪勾选时同步拉取池前 30 只的东财新闻（限量防网络阻塞）
-    const bool fetchSentiment = aiSentimentCheck_->isChecked();
+    // ① IO 池拉数据 → 缓存；勾选「舆情情绪」时同步拉取股票池前 30 只的东财新闻（限量防网络阻塞）
+    const bool fetchSentiment = compositeSentimentCheck_->isChecked();
     constexpr int kSentimentLimit = 30;
     IDataProvider* provider = provider_;
     auto newsProvider = newsProvider_;
@@ -213,7 +236,7 @@ void ScreenerPanel::onRunClicked() {
             const auto& code = symbols[i];
             auto bars = provider->getBars(code, BarPeriod::Daily, start, end);
             if (!bars.empty()) cache->cacheBars(code, BarPeriod::Daily, std::move(bars));
-            // 情绪：仅前 kSentimentLimit 只，其余 nullopt 降级缺失
+            // 情绪：仅池前 kSentimentLimit 只，其余 nullopt 降级缺失（综合评分按剩余分项折减）
             if (fetchSentiment && newsProvider && i < kSentimentLimit) {
                 auto news = newsProvider->fetchNews(code, 10);
                 sentiments.push_back(news.empty()
@@ -246,13 +269,13 @@ void ScreenerPanel::onAllDataFetched(
         return;
     }
 
-    // 收集勾选的因子
+    // 收集勾选的因子（结果表列头用中文显示名；引擎内部权重/结果按英文 id 对齐）
     std::vector<std::pair<std::shared_ptr<IFactor>, double>> selected;
     std::vector<std::string> factorNames;
     for (size_t i = 0; i < factorChecks_.size(); ++i) {
-        if (factorChecks_[i]->isChecked() && i < candidateFactors_.size()) {
+        if (factorChecks_[i] && factorChecks_[i]->isChecked() && i < candidateFactors_.size()) {
             selected.push_back(candidateFactors_[i]);
-            factorNames.push_back(candidateFactors_[i].first->name());
+            factorNames.push_back(candidateFactors_[i].first->displayName());
         }
     }
     if (selected.empty()) {
@@ -277,15 +300,15 @@ void ScreenerPanel::onAllDataFetched(
 
     // ② Worker 池选股（安全异步：按值捕获 shared_ptr cache + QPointer 守卫，
     //    面板销毁后任务仍安全；不能用裸 this/裸 cache_ 指针——会 use-after-free）
-    const bool usePattern = aiPatternCheck_->isChecked();
-    const bool useSentiment = aiSentimentCheck_->isChecked();
-    const bool useAi = usePattern || useSentiment;
+    const bool usePattern = compositePatternCheck_->isChecked();
+    const bool useSentiment = compositeSentimentCheck_->isChecked();
+    const bool useComposite = usePattern || useSentiment;
     const auto cache = cache_;
     QPointer<ScreenerPanel> guard(this);
     ThreadPool::submitWorker(
         [guard, cache, selected = std::move(selected), factorNames, symbols, cfg,
          sentiments = std::move(sentiments), quoteMap = std::move(quoteMap),
-         useAi, usePattern, useSentiment]() mutable {
+         useComposite, usePattern, useSentiment]() mutable {
             StockScreener screener;
             screener.setConfig(cfg);
             screener.setDataCache(cache.get());
@@ -299,59 +322,60 @@ void ScreenerPanel::onAllDataFetched(
             });
             auto results = screener.run(symbols);
 
-            // AI 综合评分（形态+情绪+技术）：compositeScore 按 code 对齐到结果行
-            std::vector<double> aiScores;
-            if (useAi) {
+            // 综合评分（K线形态+舆情情绪+技术指标）：compositeScore 按 code 对齐到结果行
+            std::vector<double> compositeScores;
+            if (useComposite) {
                 std::vector<std::vector<Bar>> barsByCode;
                 barsByCode.reserve(symbols.size());
                 for (const auto& code : symbols) {
                     barsByCode.push_back(cache->getBars(code, BarPeriod::Daily));
                 }
-                st::screener::AiScreenerConfig aiCfg;
-                aiCfg.usePattern = usePattern;      // 形态勾选状态真实传入
-                aiCfg.useSentiment = useSentiment;  // 情绪勾选状态真实传入（IO 阶段已按同条件限量拉取）
-                auto ai = st::screener::runAiScreener(symbols, barsByCode, sentiments, aiCfg);
+                st::screener::CompositeScreenerConfig compositeCfg;
+                compositeCfg.usePattern = usePattern;      // 「K线形态」分项勾选状态
+                compositeCfg.useSentiment = useSentiment;  // 「舆情情绪」分项勾选状态（IO 阶段已按同条件限量拉取）
+                auto composite = st::screener::runCompositeScreener(
+                    symbols, barsByCode, sentiments, compositeCfg);
                 std::unordered_map<std::string, double> scoreByCode;
-                for (const auto& s : ai) {
+                for (const auto& s : composite) {
                     scoreByCode[s.code.fullCode()] = s.compositeScore;
                 }
-                aiScores.reserve(results.size());
+                compositeScores.reserve(results.size());
                 for (const auto& r : results) {
                     auto it = scoreByCode.find(r.code.fullCode());
-                    aiScores.push_back(it != scoreByCode.end() ? it->second : 0.0);
+                    compositeScores.push_back(it != scoreByCode.end() ? it->second : 0.0);
                 }
-                // 按 AI 分降序重排（同分保持原总分顺序）
+                // 按综合评分降序重排（同分保持原总分顺序）
                 std::vector<size_t> idx(results.size());
                 std::iota(idx.begin(), idx.end(), 0u);
                 std::stable_sort(idx.begin(), idx.end(), [&](size_t a, size_t b) {
-                    return aiScores[a] > aiScores[b];
+                    return compositeScores[a] > compositeScores[b];
                 });
                 std::vector<ScreenResult> sorted;
                 std::vector<double> sortedScores;
                 sorted.reserve(results.size());
-                sortedScores.reserve(aiScores.size());
+                sortedScores.reserve(compositeScores.size());
                 for (size_t k : idx) {
                     sorted.push_back(results[k]);
-                    sortedScores.push_back(aiScores[k]);
+                    sortedScores.push_back(compositeScores[k]);
                 }
                 results = std::move(sorted);
-                aiScores = std::move(sortedScores);
+                compositeScores = std::move(sortedScores);
             }
 
             QMetaObject::invokeMethod(guard,
                 [guard, results = std::move(results), factorNames,
-                 aiScores = std::move(aiScores)]() mutable {
+                 compositeScores = std::move(compositeScores)]() mutable {
                     if (!guard) return;
-                    guard->onResult(results, factorNames, aiScores);
+                    guard->onResult(results, factorNames, compositeScores);
                 }, Qt::QueuedConnection);
         });
 }
 
 void ScreenerPanel::onResult(const std::vector<ScreenResult>& results,
                              const std::vector<std::string>& factorNames,
-                             const std::vector<double>& aiScores) {
+                             const std::vector<double>& compositeScores) {
     running_ = false;
-    runBtn_->setEnabled(true);
+    updateRunButton();
     progress_->setValue(100);
     progress_->setVisible(false);
 
@@ -362,15 +386,15 @@ void ScreenerPanel::onResult(const std::vector<ScreenResult>& results,
         }
     }
 
-    resultModel_->setResults(results, factorNames, nameByCode, aiScores);
+    resultModel_->setResults(results, factorNames, nameByCode, compositeScores);
     LogManager::instance()->log(LogLevel::Info, "选股完成: {} 只股票进入排名{}",
                                 results.size(),
-                                aiScores.empty() ? "" : "（AI 分排序）");
+                                compositeScores.empty() ? "" : "（按综合评分排序）");
 }
 
 void ScreenerPanel::resetToIdle() {
     running_ = false;
-    runBtn_->setEnabled(true);
+    updateRunButton();
     progress_->setVisible(false);
 }
 

@@ -22,6 +22,29 @@ TEST(AKShareFundamentalsTest, ParsesUlistItem) {
     EXPECT_TRUE(f->valid);
 }
 
+// 东财 ulist.np/get 扩展字段：PB/ROE/营收/净利/毛利率/负债率（基本面因子数据源）
+TEST(AKShareFundamentalsTest, ParsesExtendedFundamentalFields) {
+    const std::string item =
+        R"({"f8":0.48,"f9":20.24,"f12":"600519","f20":1740176092672,)"
+        R"("f21":1740176092672,"f23":6.42,"f37":24.47,"f38":1250081601.0,)"
+        R"("f39":1250081601.0,"f40":133283652508.95,"f41":1.8179,)"
+        R"("f45":64467425981.95,"f46":-0.2465,"f49":89.5811,"f57":11.9016,)"
+        R"("f115":21.18})";
+    const auto f = AKShareProvider::parseFundamentals(item, StockCode("600519"));
+    ASSERT_TRUE(f.has_value());
+    EXPECT_DOUBLE_EQ(f->peDynamic, 20.24);
+    EXPECT_DOUBLE_EQ(f->peStatic, 21.18);
+    EXPECT_DOUBLE_EQ(f->peTtm, 20.24);  // 动态 PE 优先，兼容旧字段
+    EXPECT_DOUBLE_EQ(f->pb, 6.42);
+    EXPECT_DOUBLE_EQ(f->roe, 24.47);
+    EXPECT_DOUBLE_EQ(f->revenue, 133283652508.95);
+    EXPECT_DOUBLE_EQ(f->revenueYoY, 1.8179);
+    EXPECT_DOUBLE_EQ(f->netProfit, 64467425981.95);
+    EXPECT_DOUBLE_EQ(f->netProfitYoY, -0.2465);
+    EXPECT_DOUBLE_EQ(f->grossMargin, 89.5811);
+    EXPECT_DOUBLE_EQ(f->debtRatio, 11.9016);
+}
+
 // 部分流通：换手率(实) = 换手率 × 流通股/总股本
 TEST(AKShareFundamentalsTest, ComputesTurnoverRealForPartialFloat) {
     const std::string item =

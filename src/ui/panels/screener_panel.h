@@ -23,10 +23,15 @@ class DataCache;
 class ScreenResultModel;
 class StockPoolPicker;
 
-/// 选股面板 — 多因子勾选 + AI 因子（形态/情绪）+ 股票池 + topN → 异步选股 → 结果表
+/// 选股面板 — 三分组因子（Alpha191 / 量价 / 基本面）+ 综合评分分项 + 股票池 + topN
+/// → 异步选股 → 结果表
 ///
-/// AI 因子：勾选后 worker 额外跑 runAiScreener（形态+情绪+技术），
-/// 结果表显示「AI 分」列并按 AI 分降序；情绪数据 IO 阶段限量拉取（池前 30 只）。
+/// 因子打分：引擎对全池做截面标准化（MAD 去极值 → z-score → 方向 → Φ(z)×100），
+/// 三组各自总权重 1.0（组内等权），结果表列头显示因子中文名。
+///
+/// 综合评分：勾选分项后 worker 额外跑 runCompositeScreener（K线形态+舆情情绪+技术指标），
+/// 结果表显示「综合评分」列并按综合评分降序重排结果（不改变入选股票）；技术指标恒参与；
+/// 舆情数据 IO 阶段按股票池顺序限量拉取（前 30 只），其余缺失分项按权重折减。
 class ScreenerPanel : public QWidget {
     Q_OBJECT
 
@@ -45,9 +50,11 @@ private slots:
 private:
     void onResult(const std::vector<ScreenResult>& results,
                   const std::vector<std::string>& factorNames,
-                  const std::vector<double>& aiScores);
+                  const std::vector<double>& compositeScores);
     std::vector<StockCode> selectedSymbols() const;
-    bool aiEnabled() const;   // 形态/情绪任一勾选
+    bool compositeEnabled() const;   // 形态/情绪任一勾选
+    bool anyFactorChecked() const;   // 因子区是否有勾选项
+    void updateRunButton();          // 未勾选因子/运行中 → 禁用开始按钮
     void resetToIdle();
 
     IDataProvider* provider_ = nullptr;
@@ -59,9 +66,9 @@ private:
     std::vector<std::pair<std::shared_ptr<IFactor>, double>> candidateFactors_;
     std::vector<QCheckBox*> factorChecks_;
 
-    // AI 因子配置
-    QCheckBox* aiPatternCheck_ = nullptr;    // 形态
-    QCheckBox* aiSentimentCheck_ = nullptr;  // 情绪
+    // 综合评分配置
+    QCheckBox* compositePatternCheck_ = nullptr;    // K线形态分项（近 3 根 K 线）
+    QCheckBox* compositeSentimentCheck_ = nullptr;  // 舆情情绪分项（东财新闻）
 
     StockPoolPicker* stockPicker_ = nullptr;
     QSpinBox* topN_ = nullptr;
