@@ -8,8 +8,9 @@
 - DLL missing: 将 build/vcpkg_installed/*/bin 加入 PATH
 - SQLite driver error in `DataRepository` tests: 确认 Qt SQLite driver 可用；当前应用行情流程尚未接入该仓储
 
-## 全市场选股中途崩溃（0xC0000005 / 堆损坏）
-- 症状：全市场勾选因子开始选股，数据抓取阶段结束后 UI 线程崩溃；WER 显示 `StockTerminal.exe` 0xC0000005，dump 栈顶为 `std::string::_Tidy_deallocate` / `ScreenerPanel::onAllDataFetched` 析构快照 vector。
-- 原因（2026-11-01 已修）：`AKShareProvider::fetch()` 使用 UI 线程创建的成员 `QNetworkAccessManager`，选股 IO 线程回退到 AKShare（TDX 缺数据）时跨线程使用 QNAM，造成堆损坏；崩溃只是稍后在 UI 线程析构 string 时暴露。
-- 修复：AKShareProvider 全部改用 `threadLocalHttp()` 线程本地 QNAM；ScreenerPanel IO 进度回调增加空指针检查；表达式引擎增加矩阵尺寸越界校验。
-- 排查要点：若 `%LOCALAPPDATA%\CrashDumps\StockTerminal.exe.*.dmp` 存在，用 minidump 解析线程栈；同时检查日志是否有 `QObject: Cannot create children for a parent that is in a different thread`——出现即说明仍有跨线程 QObject/QNAM 使用。
+## 全市场选股中途崩溃（0xC0000005 / 增量构建 ABI 不一致）
+- 症状：全市场勾选因子开始选股，数据抓取结束（进度约 50%）时 UI 线程崩溃；WER 显示 `StockTerminal.exe` 0xC0000005，dump 栈顶为 `std::string::_Tidy_deallocate` / `ScreenerPanel::onAllDataFetched` → `vector<QuoteFundamentals>::_Tidy`。
+- 根因（2026-11-01 已修）：release **增量构建**残留了旧 `market_panel.cpp.obj`，其 `vector<QuoteFundamentals>::_Tidy` 模板实例按旧 112-byte 布局析构，而当前 `QuoteFundamentals` 已是 184-byte，导致元素错位、string 指针为 0 而崩溃。
+- 修复：clean rebuild Debug 与 Release（删除对象/库后重新配置编译）；当前 exe 反汇编 `_Tidy` 步长为 `add rbx, 0xB8`（184）。
+- 预防：修改 `QuoteFundamentals`/`Bar`/`StockCode` 等 data 层结构体后必须 clean rebuild，别依赖增量构建。
+- 排查要点：若 `%LOCALAPPDATA%\CrashDumps\StockTerminal.exe.*.dmp` 存在，可算 `(vector.end - vector.begin) / N` 得到元素大小，并与当前 `sizeof` 对比；若崩溃 string 地址落在 `begin + i*旧sizeof + 8`，基本可判定为旧对象文件 ABI 不一致。跨线程 QNAM 警告是另一类独立隐患（已用线程本地 QNAM 修复），不要与 ABI 混淆。

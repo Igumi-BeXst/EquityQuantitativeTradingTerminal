@@ -1,10 +1,11 @@
 # 变更记录
 
-## 2026-11-01 — 修复全市场选股崩溃 + 缺陷因子标注
-- 修复：`AKShareProvider::fetch` 误用 UI 线程创建的成员 `QNetworkAccessManager`（选股 IO 线程回退到 AKShare 行情时跨线程使用，导致堆损坏、主线程析构 `quotes` 快照时崩溃）；统一改用 `threadLocalHttp()` 线程本地 QNAM
-- 修复：`ScreenerPanel` IO 进度回调增加空指针检查；表达式引擎增加矩阵/序列尺寸越界校验（按因子缺值降级）
+## 2026-11-01 — 全市场选股崩溃修复（增量构建 ABI 不一致）+ 缺陷因子标注
+- 根因：release 增量构建残留旧 `market_panel.cpp.obj`，其中 `std::vector<QuoteFundamentals>::_Tidy` 按旧 112-byte 布局析构，而当前元素为 184-byte → 全市场选股在数据抓取结束析构 quotes 时崩溃；clean rebuild Debug + Release 后解决（反汇编步长 `add rbx,0xB8`）
+- 保留加固：AKShareProvider 改用 `threadLocalHttp()` 线程本地 QNAM；ScreenerPanel IO 进度空指针检查；表达式引擎矩阵/序列尺寸校验
 - 标注：Alpha166 / Alpha157 / Alpha030 选股列表显示 `*`、tooltip 前置【缺陷：...】说明；面板提示语补充 *
-- 测试：542/542 全绿；全市场 5223 只 × 3 因子 GUI 压力跑通，跨线程 QNAM 警告清零
+- 测试：clean Debug 542/542 全绿；clean Release 全市场 5223 只 × Alpha001/009/017 连续 2 轮跑通；GUI 冒烟 8s
+- 预防：修改 data 层结构体后必须 clean rebuild（详见 troubleshooting）
 
 ## 2026-11-01 — 面板计算引擎 + Alpha191 全量 191 因子（P1/P2/P3）
 - 引擎：新增 `PanelData`（股票×日期矩阵 + 日期对齐 + 停牌 NaN + 市值）与 MKT/SMB/HML 风格因子（市值=总股本×收盘、B/P 用快照 PB）；新增 GTJA 公式表达式引擎（RANK/TSRANK/CORR/REGRESI/SUMAC/FILTER 等算子 + Series→Matrix 广播）
