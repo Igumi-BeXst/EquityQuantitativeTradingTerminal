@@ -1,5 +1,11 @@
 # 变更记录
 
+## 2026-11-01 — 选股结果表评分可读性修复（因子列显示得分 + z-score 去极值修正）
+- UI：结果表因子列改为显示 **因子得分（0~100）**，表头加「得分」；悬停 tooltip 显示得分 + 自适应格式的原始值（极大/极小用科学计数法），避免 Alpha009 显示 -0.00、Alpha017 显示 5.7e29 长串
+- 引擎：修复 z-score 误用原始值的问题——去极值后的值此前只用于 mean/std，z 仍用原始值导致极端值必得 100 分；现在 z 使用 winsorize 后的值
+- 测试：544/544 全绿（新增 ScreenResultModelTest 2 例）；Debug/Release 零警告；GUI 冒烟 8s
+- 说明：Alpha017 原始值极端是其官方指数公式固有特性，不是计算错误；表格已改为展示标准化得分，原始值可悬停查看
+
 ## 2026-11-01 — 全市场选股崩溃修复（增量构建 ABI 不一致）+ 缺陷因子标注
 - 根因：release 增量构建残留旧 `market_panel.cpp.obj`，其中 `std::vector<QuoteFundamentals>::_Tidy` 按旧 112-byte 布局析构，而当前元素为 184-byte → 全市场选股在数据抓取结束析构 quotes 时崩溃；clean rebuild Debug + Release 后解决（反汇编步长 `add rbx,0xB8`）
 - 保留加固：AKShareProvider 改用 `threadLocalHttp()` 线程本地 QNAM；ScreenerPanel IO 进度空指针检查；表达式引擎矩阵/序列尺寸校验

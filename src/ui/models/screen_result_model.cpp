@@ -1,8 +1,25 @@
 #include "ui/models/screen_result_model.h"
+
 #include <QString>
 #include <QColor>
 
+#include <cmath>
+
 namespace st {
+
+namespace {
+
+/// 原始因子值自适应格式：极大/极小值用科学计数法，避免出现
+/// 5.7e29 被 'f' 格式撑成一长串数字（Alpha017 等指数因子会这样）。
+QString formatRawValue(double v) {
+    if (!std::isfinite(v)) return QStringLiteral("--");
+    const double a = std::abs(v);
+    if (a == 0.0) return QStringLiteral("0");
+    if (a >= 1.0e6 || a < 1.0e-4) return QString::number(v, 'g', 6);
+    return QString::number(v, 'f', 4);
+}
+
+}  // namespace
 
 ScreenResultModel::ScreenResultModel(QObject* parent)
     : QAbstractTableModel(parent) {}
@@ -42,6 +59,10 @@ QVariant ScreenResultModel::headerData(int section, Qt::Orientation orientation,
         if (section == kFixedColumns && compositeColumn() >= 0) {
             return tr("K线形态 + 舆情情绪 + 技术指标加权评分（0~100；技术指标恒参与，缺失分项折减）");
         }
+        const int fi = section - factorBase();
+        if (fi >= 0 && fi < static_cast<int>(factorNames_.size())) {
+            return tr("因子标准化得分（0~100，全市场截面；缺失=50）；原始值见单元格悬停");
+        }
         return {};
     }
     if (role != Qt::DisplayRole) return {};
@@ -59,7 +80,7 @@ QVariant ScreenResultModel::headerData(int section, Qt::Orientation orientation,
     }
     const int fi = section - factorBase();
     if (fi >= 0 && fi < static_cast<int>(factorNames_.size())) {
-        return QString::fromStdString(factorNames_[static_cast<size_t>(fi)]);
+        return QString::fromStdString(factorNames_[static_cast<size_t>(fi)]) + tr(" 得分");
     }
     return {};
 }
@@ -88,12 +109,21 @@ QVariant ScreenResultModel::data(const QModelIndex& index, int role) const {
                 const int fi = col - factorBase();
                 if (fi >= 0 && fi < static_cast<int>(r.factorResults.size())) {
                     const auto& fr = r.factorResults[static_cast<size_t>(fi)];
-                    return fr.rawValue.has_value()
-                        ? QString::number(*fr.rawValue, 'f', 2)
-                        : QStringLiteral("--");
+                    return QString::number(fr.score, 'f', 2);
                 }
                 return {};
             }
+        }
+    }
+    if (role == Qt::ToolTipRole) {
+        const int fi = col - factorBase();
+        if (fi >= 0 && fi < static_cast<int>(r.factorResults.size())) {
+            const auto& fr = r.factorResults[static_cast<size_t>(fi)];
+            QString tip = tr("因子得分：%1 / 100").arg(fr.score, 0, 'f', 2);
+            tip += tr("\n原始值：%1").arg(
+                fr.rawValue.has_value() ? formatRawValue(*fr.rawValue)
+                                        : QStringLiteral("--"));
+            return tip;
         }
     }
     if (role == Qt::ForegroundRole && (col == 3 || col == compositeColumn())) {

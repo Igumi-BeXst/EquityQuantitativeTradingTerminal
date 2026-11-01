@@ -94,6 +94,7 @@ if(BUILD_WITH_QT)
     add_executable(test_ui
         test_ui/test_main.cpp
         test_ui/test_stock_data_widgets.cpp
+        test_ui/test_screen_result_model.cpp
     )
     target_link_libraries(test_ui PRIVATE st_ui GTest::gtest GTest::gtest_main)
     gtest_discover_tests(test_ui DISCOVERY_MODE PRE_TEST

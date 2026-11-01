@@ -181,8 +181,12 @@ std::vector<ScreenResult> StockScreener::run(const std::vector<StockCode>& pool)
 
         double mean = 0.0;
         double stdDev = 0.0;
+        std::vector<double> winsorizedByRow(n, kNaN);  // 去极值后按结果行对齐
         if (!values.empty()) {
             winsorizeMad(values);
+            for (size_t k = 0; k < values.size(); ++k) {
+                winsorizedByRow[rows[k]] = values[k];
+            }
             mean = std::accumulate(values.begin(), values.end(), 0.0) /
                    static_cast<double>(values.size());
             double sqSum = 0.0;
@@ -194,7 +198,8 @@ std::vector<ScreenResult> StockScreener::run(const std::vector<StockCode>& pool)
         for (size_t ri = 0; ri < n; ++ri) {
             auto& score = results[ri].factorResults[fi].score;
             const auto& raw = results[ri].factorResults[fi].rawValue;
-            if (!raw.has_value() || !std::isfinite(*raw) || values.empty()) {
+            if (!raw.has_value() || !std::isfinite(*raw) || values.empty() ||
+                !std::isfinite(winsorizedByRow[ri])) {
                 score = 50.0;  // 缺失 → 中性
                 continue;
             }
@@ -202,7 +207,9 @@ std::vector<ScreenResult> StockScreener::run(const std::vector<StockCode>& pool)
                 score = 50.0;  // 全池无区分度
                 continue;
             }
-            const double z = (*raw - mean) / stdDev;
+            // 注意：z-score 必须使用去极值后的值；若用原始值，极端离群点仍会
+            // 在 σ 已被 winsorize 缩小后产生巨大 z，使该股拿满 100 分。
+            const double z = (winsorizedByRow[ri] - mean) / stdDev;
             const double signedZ = direct ? z : -z;
             score = std::clamp(normalCdf(signedZ) * 100.0, 0.0, 100.0);
         }
