@@ -1,5 +1,11 @@
 # 变更记录
 
+## 2026-11-01 — 修复全市场选股崩溃 + 缺陷因子标注
+- 修复：`AKShareProvider::fetch` 误用 UI 线程创建的成员 `QNetworkAccessManager`（选股 IO 线程回退到 AKShare 行情时跨线程使用，导致堆损坏、主线程析构 `quotes` 快照时崩溃）；统一改用 `threadLocalHttp()` 线程本地 QNAM
+- 修复：`ScreenerPanel` IO 进度回调增加空指针检查；表达式引擎增加矩阵/序列尺寸越界校验（按因子缺值降级）
+- 标注：Alpha166 / Alpha157 / Alpha030 选股列表显示 `*`、tooltip 前置【缺陷：...】说明；面板提示语补充 *
+- 测试：542/542 全绿；全市场 5223 只 × 3 因子 GUI 压力跑通，跨线程 QNAM 警告清零
+
 ## 2026-11-01 — 面板计算引擎 + Alpha191 全量 191 因子（P1/P2/P3）
 - 引擎：新增 `PanelData`（股票×日期矩阵 + 日期对齐 + 停牌 NaN + 市值）与 MKT/SMB/HML 风格因子（市值=总股本×收盘、B/P 用快照 PB）；新增 GTJA 公式表达式引擎（RANK/TSRANK/CORR/REGRESI/SUMAC/FILTER 等算子 + Series→Matrix 广播）
 - 因子：Alpha191 由 33 子集扩为官方 191 条全量（`alpha191_formulas.inc`，BigQuant 全文 + 国泰君安研报 PDF 交叉核对）；新增面板因子 `Alpha191Factor`，alpha143/149/157/165/183/127 自定义兜底，alpha030 用 MKT/SMB/HML 回归

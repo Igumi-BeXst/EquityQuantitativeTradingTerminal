@@ -475,16 +475,26 @@ std::vector<double> extractColumn(const Value& v, size_t col, size_t rows) {
         std::fill(out.begin(), out.end(), v.scalar);
         return out;
     }
-    if (v.isSeries()) return v.data;
+    if (v.isSeries()) {
+        if (v.rows != rows) throw std::runtime_error("序列行数与面板不一致");
+        return v.data;
+    }
+    if (v.rows != rows || col >= v.cols || v.data.size() < rows * v.cols) {
+        throw std::runtime_error("矩阵列越界/尺寸不一致");
+    }
     const size_t cols = v.cols;
     for (size_t t = 0; t < rows; ++t) out[t] = v.data[t * cols + col];
     return out;
 }
 
 void writeColumn(Value& out, size_t col, const std::vector<double>& data) {
+    if (data.size() < out.rows) throw std::runtime_error("列数据长度不足");
     if (out.isSeries()) {
         out.data = data;
         return;
+    }
+    if (col >= out.cols || out.data.size() < out.rows * out.cols) {
+        throw std::runtime_error("矩阵列越界/尺寸不一致");
     }
     const size_t cols = out.cols;
     for (size_t t = 0; t < out.rows; ++t) out.data[t * cols + col] = data[t];

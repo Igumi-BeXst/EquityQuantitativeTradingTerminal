@@ -226,6 +226,22 @@ TEST(Alpha191PanelFactorTest, FactorsProduceValues) {
     }
 }
 
+TEST(Alpha191PanelFactorTest, DefectLabelsAreVisible) {
+    auto factors = factors::makeAlpha191Factors();
+    std::unordered_map<std::string, std::shared_ptr<IFactor>> byId;
+    for (auto& item : factors) byId[item.first->name()] = item.first;
+
+    for (const char* id : {"alpha166", "alpha157", "alpha030"}) {
+        auto it = byId.find(id);
+        ASSERT_TRUE(it != byId.end()) << id;
+        EXPECT_NE(it->second->displayName().find(" *"), std::string::npos) << id;
+        EXPECT_NE(it->second->description().find("【缺陷："), std::string::npos) << id;
+    }
+    ASSERT_TRUE(byId.count("alpha001") > 0);
+    EXPECT_EQ(byId["alpha001"]->displayName().find(" *"), std::string::npos);
+    EXPECT_EQ(byId["alpha001"]->description().find("【缺陷："), std::string::npos);
+}
+
 // ============================ 引擎集成 ============================
 
 TEST(StockScreenerPanelTest, RunsPanelFactorAcrossPool) {

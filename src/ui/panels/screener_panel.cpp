@@ -85,7 +85,7 @@ ScreenerPanel::ScreenerPanel(IDataProvider* provider, QWidget* parent)
         fl->addRow(label, factorBox);
     }
     auto* factorHint = new QLabel(
-        tr("因子默认不勾选；请至少选择 1 个因子后开始选股（三组各自总权重 1/3）"));
+        tr("因子默认不勾选；请至少选择 1 个因子后开始选股（三组各自总权重 1/3；带 * 的因子存在已知缺陷，悬停查看）"));
     factorHint->setStyleSheet(QStringLiteral("color:#888888;"));
     fl->addRow(QString(), factorHint);
 
@@ -250,6 +250,7 @@ void ScreenerPanel::onRunClicked() {
             }
             ++done;
             QMetaObject::invokeMethod(guard, [guard, done, total] {
+                if (!guard || !guard->progress_) return;
                 guard->progress_->setValue(done * 50 / total);
             }, Qt::QueuedConnection);
         }

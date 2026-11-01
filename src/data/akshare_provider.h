@@ -2,9 +2,6 @@
 
 #include "data/idata_provider.h"
 #include "foundation/types.h"
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <memory>
 #include <string>
 
 namespace st {
@@ -59,7 +56,6 @@ private:
     /// 同步 GET 请求（阻塞，内部用事件循环等待）
     std::string fetch(const std::string& url);
 
-    std::unique_ptr<QNetworkAccessManager> http_;
     bool connected_ = false;
 };
 

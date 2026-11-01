@@ -27,11 +27,12 @@ const std::vector<Alpha191FormulaInfo>& alpha191FormulaTable();
 /// SUMAC 窗口等），由 calculatePanel 内的自定义实现兜底。
 class Alpha191Factor : public IFactor {
 public:
-    Alpha191Factor(std::string id, std::string formula, std::string description);
+    Alpha191Factor(std::string id, std::string formula, std::string description,
+                   std::string defectTag = {});
 
     std::string name() const override { return id_; }
     std::string displayName() const override;
-    std::string description() const override { return description_; }
+    std::string description() const override;
     FactorCategory category() const override { return FactorCategory::Alpha191; }
     bool higherIsBetter() const override { return true; }
     std::optional<double> calculate(const FactorContext&) const override {
@@ -40,11 +41,15 @@ public:
     bool isPanel() const override { return true; }
     std::vector<double> calculatePanel(const PanelData& panel) const override;
 
+    /// 已知缺陷/简化/近似说明（空 = 无缺陷标注）
+    const std::string& defectTag() const { return defectTag_; }
+
 private:
     alpha191::Expression expression_;
     std::string id_;
     std::string formula_;
     std::string description_;
+    std::string defectTag_;
 };
 
 /// 创建 191 个 Alpha191 面板因子（权重由因子库统一归一）

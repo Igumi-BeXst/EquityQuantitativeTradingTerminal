@@ -1,5 +1,35 @@
 # 开发日志 (Development Log)
 
+## 2026-11-01 — 全市场选股崩溃修复 + 缺陷因子标注（Alpha166/157/030）
+
+### 用户反馈
+勾选 3 个因子做全市场选股，运行到一半进程直接崩溃（WER: `0xc0000005` 访问冲突）。
+
+### 定位过程（带证据）
+- 从 `%LOCALAPPDATA%\CrashDumps\StockTerminal.exe.25796.dmp` 解析：崩溃线程为主线程，异常地址在 `std::string::_Tidy_deallocate`（RVA 0x4653），读取 `[rax-8]` 时 `rax=0`——即某 `std::string` 的堆缓冲指针为 0、容量字段是垃圾值，属于**堆已被破坏**，在 UI 线程析构时暴露。
+- 栈回溯：`ScreenerPanel::onAllDataFetched`（RVA 0xB0DD7 返回点）→ `std::vector<QuoteFundamentals>::_Tidy`（RVA 0x8220，析构 `StockCode` 内 string）→ `std::string::_Tidy_deallocate`。说明崩溃发生在**数据抓取完成、析构 `quotes` 快照 vector** 时，损坏在更早的 IO 阶段已发生。
+- 用真实全市场 UI 压力复现工具跑选股时，数据抓取阶段稳定出现 Qt 警告：
+  `QObject: Cannot create children for a parent that is in a different thread. (Parent is QNetworkAccessManager..., current thread is QThreadPoolThread...)`
+  定位到 `AKShareProvider::fetch()` 仍使用**构造时在 UI 线程创建的成员 QNAM** `http_`，而选股 IO 线程在 TDX 无数据时回退到 AKShare `getBars`（东财 HTTP）会调用它——跨线程使用 `QNetworkAccessManager` 是已知的堆损坏来源，与崩溃 dump 的「堆先损坏、UI 后崩溃」完全吻合。
+
+### 修复
+- `AKShareProvider` 全线改用 `threadLocalHttp()`（线程本地 QNAM）：删除成员 `http_`、构造函数创建、`isConnected()`/`fetch()` 中的成员 QNAM 访问；所有路径（日线/分时/列表/抓取）统一走线程本地 QNAM。
+- `ScreenerPanel` IO 进度回调增加 `guard`/`progress_` 空检查，面板析构后不再触碰 UI 指针。
+- `alpha191_expression` 的 `extractColumn/writeColumn` 增加行列/尺寸校验：尺寸不一致时抛异常并按因子缺值降级，避免任何越界读写（防御性加固）。
+- **缺陷因子标注**：Alpha166、Alpha157、Alpha030 的 `displayName()` 追加 `" *"`，`description()` 前置 `【缺陷：...】`；选股面板提示语说明「带 * 的因子存在已知缺陷，悬停查看」。
+  - Alpha166：原文损坏，按 20 日收益偏度还原，未做第三方数值核对；
+  - Alpha157：原文含未定义算子 `PROD`，仅实现主项，非官方原式；
+  - Alpha030：MKT/SMB/HML 由当前快照股本/PB 构造，非历史 Fama-French 因子。
+
+### 验证
+- Debug 全量构建零警告；`ctest` **542/542 全绿**。
+- 全市场 5223 只 × 3 因子（Alpha001/030/191）GUI 压力跑通（选股完成、结果表正常），抓取阶段**跨线程 QNAM 警告 0 条**。
+- Release 构建零警告。
+
+### 备注
+- 崩溃 dump 中未包含堆内存，无法事后读取被破坏对象；根因链按「跨线程 QNAM 堆损坏」确认并修复，属于本项目既有 provider 隐患（并非本次面板因子新增代码直接越界）。
+- 若后续再复现，请保留 `%LOCALAPPDATA%\CrashDumps` 下的 dump，便于继续定位。
+
 ## 2026-11-01 — 面板计算引擎 + Alpha191 全量 191 因子（P1/P2/P3）
 
 ### 需求（用户确认）

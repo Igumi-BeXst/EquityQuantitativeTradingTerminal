@@ -60,6 +60,20 @@ std::string makeDescription(const std::string& id, const std::string& formula) {
            formulaCategory(formula) + " GTJA 因子（面板/横截面计算）";
 }
 
+/// 已知缺陷/简化/近似标注（用于 UI 星号 + tooltip）
+std::string makeDefectTag(const std::string& id) {
+    if (id == "alpha166") {
+        return "公式存疑：原文排版损坏且数学不成立，当前按 20 日收益偏度（G1）还原，未经第三方数值核对";
+    }
+    if (id == "alpha157") {
+        return "简化实现：原文含未定义算子 PROD 等，当前仅实现主项 TSRANK(DELAY(-RET,6),5)，与官方原式不等价";
+    }
+    if (id == "alpha030") {
+        return "风格因子近似：MKT/SMB/HML 由当前快照股本/PB 构造（非历史 Fama-French 因子），回归残差仅供近似参考";
+    }
+    return {};
+}
+
 /// ---------------- 自定义实现（通用算子无法表达的少数公式） ----------------
 
 /// Alpha143：SELF 递归累计——上涨日按收益率累乘，其余日保持不变
@@ -225,14 +239,22 @@ const std::vector<Alpha191FormulaInfo>& alpha191FormulaTable() {
     return table;
 }
 
-Alpha191Factor::Alpha191Factor(std::string id, std::string formula, std::string description)
+Alpha191Factor::Alpha191Factor(std::string id, std::string formula, std::string description,
+                               std::string defectTag)
     : expression_(formula), id_(std::move(id)), formula_(std::move(formula)),
-      description_(std::move(description)) {}
+      description_(std::move(description)), defectTag_(std::move(defectTag)) {}
 
 std::string Alpha191Factor::displayName() const {
-    // alpha001 → Alpha001
+    // alpha001 → Alpha001；有缺陷标注时追加 " *"
     std::string digits = id_.size() > 5 ? id_.substr(5) : id_;
-    return "Alpha" + digits;
+    std::string name = "Alpha" + digits;
+    if (!defectTag_.empty()) name += " *";
+    return name;
+}
+
+std::string Alpha191Factor::description() const {
+    if (defectTag_.empty()) return description_;
+    return "【缺陷：" + defectTag_ + "】" + description_;
 }
 
 std::vector<double> Alpha191Factor::calculatePanel(const PanelData& panel) const {
@@ -249,7 +271,8 @@ std::vector<std::pair<std::shared_ptr<IFactor>, double>> makeAlpha191Factors() {
     out.reserve(table.size());
     for (const auto& info : table) {
         out.emplace_back(std::make_shared<Alpha191Factor>(
-            info.id, info.formula, makeDescription(info.id, info.formula)), 1.0);
+            info.id, info.formula, makeDescription(info.id, info.formula),
+            makeDefectTag(info.id)), 1.0);
     }
     return out;
 }

@@ -83,38 +83,32 @@ std::string httpGet(const std::string& url) {
 
 }  // namespace
 
-AKShareProvider::AKShareProvider()
-    : http_(std::make_unique<QNetworkAccessManager>()) {}
+AKShareProvider::AKShareProvider() = default;
 
 AKShareProvider::~AKShareProvider() {
     disconnect();
 }
 
 bool AKShareProvider::connect() {
-    if (!http_) {
-        http_ = std::make_unique<QNetworkAccessManager>();
-    }
     connected_ = true;
     LogManager::instance()->log(LogLevel::Info, "AKShareProvider connected (Qt Network)");
     return true;
 }
 
 void AKShareProvider::disconnect() {
-    // 不访问成员 QNAM（http_）：本 provider 可能在 IO 线程被析构
-    // （fundProvider_ 的 shared_ptr 最后一个引用在 IO 线程释放），
-    // 跨线程调 QNAM::clearAccessCache 有堆损坏风险；清缓存非必需，跳过。
+    // provider 可能在 IO 线程被析构（fundProvider_ 的 shared_ptr 最后引用在 IO 线程释放）：
+    // 网络请求统一走 threadLocalHttp()（线程本地 QNAM），析构时不做跨线程 QNAM 操作。
     connected_ = false;
 }
 
 bool AKShareProvider::isConnected() const {
-    return connected_ && http_ != nullptr;
+    return connected_;
 }
 
 std::string AKShareProvider::fetch(const std::string& url) {
     if (!isConnected()) {
         connect();
     }
-    if (!http_) return {};
 
     QNetworkRequest request{QUrl(QString::fromStdString(url))};
     request.setHeader(QNetworkRequest::UserAgentHeader,
@@ -125,7 +119,7 @@ std::string AKShareProvider::fetch(const std::string& url) {
     request.setTransferTimeout(kTimeoutMs);
 
     QEventLoop loop;
-    QNetworkReply* reply = http_->get(request);
+    QNetworkReply* reply = threadLocalHttp().get(request);
 
     // 超时定时器
     QTimer timer;
