@@ -1,5 +1,32 @@
 # 开发日志 (Development Log)
 
+## 2026-11-01 — 面板计算引擎 + Alpha191 全量 191 因子（P1/P2/P3）
+
+### 需求（用户确认）
+P4（行业/市值中性化后处理）不做；其余按 P1→P2→P3 顺序落地，不额外新增「扩展（非原式）」行业中性因子；Alpha030 / 基准指数类本轮纳入。
+前置事实澄清：GTJA191 官方公式全部为价量类，**没有直接使用行业字段**；市值仅通过 Alpha030 的 MKT/SMB/HML 风格因子间接进入，基准指数出现在 Alpha075/149/181/182 等。
+
+### 实施
+- 新增 `panel.h/.cpp`：`PanelData`（股票 × 日期，行主序矩阵：OHLCV/AMOUNT/VWAP/RET/市值）——全池日期并集对齐、停牌/缺失 NaN、基准指数按日期对齐；构造 MKT（全池等权收益）/SMB（小市值组-大市值组）/HML（高 B/P-低 B/P，B/P 用当前快照 PB）；市值 = 总股本 × 当日收盘（总股本缺失时用快照市值/最新收盘反推）。
+- 新增 `alpha191_expression.h/.cpp`：GTJA 公式表达式引擎（词法/语法/求值）。支持 DELAY/DELTA/SUM/MEAN/STD/TSMAX/TSMIN/TSRANK/CORR/COVIANCE/COUNT/SUMIF/DECAYLINEAR/WMA/SMA/REGBETA/REGRESI/HIGHDAY/LOWDAY/RANK/MAX/MIN/FILTER/SEQUENCE；运算符 `?:`、比较、`&&/||/&`、幂 `^`；变量含 MKT/SMB/HML、BANCHMARKINDEXCLOSE/OPEN、TR/HD/LD/DTM/DBM；Series→Matrix 广播；横截面 RANK 按日计算（升序分位）。
+- GTJA191 官方公式表：`alpha191_formulas.inc`（191 条，BigQuant 全文 + 国泰君安研报 PDF `/ActualText` 交叉核对，整理记录 `alpha191_formula_notes.md`）；接入时补充修正 alpha010/036/054/146/181 的缺参数/错位（见 notes §7），并支持 2 参数 `REGBETA(x, SEQUENCE(n))`（alpha021/147）。
+- `Alpha191Factor`（`alpha191_factors.h/.cpp`）改为面板因子：191 条公式全部注册；少数通用算子无法表达的公式自定义兜底——alpha143（SELF 递归）、alpha149（基准下跌日回归）、alpha157（主项）、alpha165/183（重标极差）、alpha127（窗口）；alpha030 由 `REGRESI(RET, MKT, SMB, HML, 60)` 实现。
+- `StockScreener`：一次构建 PanelData（日线只从缓存读一次并过滤），逐股因子按 filtered bars 计算，面板因子全池计算后按股票合并 raw 值；原有截面标准化（MAD→z-score→Φ(z)×100）/条件/排序逻辑不变。
+- 选股面板：Alpha191 组 191 项（8 列网格，仍默认不勾选）；IO 阶段额外拉取沪深300（SH000300）日线注入引擎（基准缺失时基准类因子降级）；保持未勾选因子禁用「开始选股」。
+- 文档：`alpha191_formula_notes.md` 补充 §7、本 DEVLOG/changelog。
+
+### 验证
+- Debug（with-qt）与 Release（release-qt）构建零警告；**541/541 tests 全绿**（原 573 - 旧 Alpha191 子集 40 例 + 新 test_panel_engine 8 例）。
+- 新增测试覆盖：PanelData 日期/股票对齐与 NaN、横截面 RANK、DELAY/MEAN/SUM、基准与 MKT/SMB/HML 广播、191 条公式全部解析、191 个因子在合成面板上产值、StockScreener 面板因子跑通全池。
+- 面板渲染 1280×1000 验证 Alpha191 191 项分组（`build/form_screener.png`）；Release GUI 冒烟 8s 存活。
+
+### 已知限制
+- alpha166 唯一「存疑」：原文排版坏且数学不成立，按官方长名「20 日收益偏度」还原（notes §4）；alpha157 因原文含 `PROD` 等非标准算子，仅实现主项 `TSRANK(DELAY(-RET,6),5)`。
+- `MAX/MIN` 语义为启发式：第二参数为整数常数且首参数非标量 → 滚动窗口，否则逐元素。
+- SMB/HML 使用当前快照总股本/PB 近似历史风格暴露；基准因子依赖 SH000300 日线，取不到时降级。
+- 191 因子全选 + 全市场的性能未实测（矩阵计算量大，建议按需勾选）；P4 行业/市值中性化未实现。
+- `alpha191_formula_notes.md` 中其它公式修正均以研报原文为准，仅 alpha166 做了语义还原。
+
 ## 2026-11-01 — 因子库重构：Alpha191 + 量价 + 基本面 三分组（截面标准化打分）
 
 ### 需求（用户）

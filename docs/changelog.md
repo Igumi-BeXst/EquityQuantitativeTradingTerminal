@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-11-01 — 面板计算引擎 + Alpha191 全量 191 因子（P1/P2/P3）
+- 引擎：新增 `PanelData`（股票×日期矩阵 + 日期对齐 + 停牌 NaN + 市值）与 MKT/SMB/HML 风格因子（市值=总股本×收盘、B/P 用快照 PB）；新增 GTJA 公式表达式引擎（RANK/TSRANK/CORR/REGRESI/SUMAC/FILTER 等算子 + Series→Matrix 广播）
+- 因子：Alpha191 由 33 子集扩为官方 191 条全量（`alpha191_formulas.inc`，BigQuant 全文 + 国泰君安研报 PDF 交叉核对）；新增面板因子 `Alpha191Factor`，alpha143/149/157/165/183/127 自定义兜底，alpha030 用 MKT/SMB/HML 回归
+- 选股：`StockScreener` 一次构建 PanelData；面板因子全池计算后合并；原截面标准化/条件/排序不变；选股面板 Alpha191 组 191 项（8 列、默认不勾选）+ IO 阶段拉取沪深300基准日线注入
+- 测试：541/541 全绿（新增 test_panel_engine 8 例）；Debug + Release 零警告；面板渲染 1280×1000 验证；Release GUI 冒烟 8s
+- 已知限制：alpha166 按偏度还原（唯一存疑）；alpha157 仅主项；alpha165/183 用 (MAX-MIN)/STD 口径；SMB/HML 用快照近似历史；191 因子全选全市场性能未实测；P4 未做
+
 ## 2026-11-01 — 因子库重构：Alpha191 + 量价 + 基本面三类（截面标准化打分）
 - 数据：QuoteFundamentals 扩展东财行情快照 PE动/PB/ROE/营收+同比/净利+同比/毛利率/负债率（ulist f9/f23/f37/f40/f41/f45/f46/f49/f57，实测可取）；akshare_provider 解析同步
 - 引擎：IFactor 只算原始值 + displayName/description/higherIsBetter；FactorCategory 三分组；新增 factor_math 算子库；Alpha191 子集 33 + 量价 10 + 基本面 8 共 51 个因子（删除旧 24 因子与 PatternFactor）

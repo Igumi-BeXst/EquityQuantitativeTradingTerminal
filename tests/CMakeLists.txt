@@ -58,7 +58,7 @@ if(BUILD_WITH_QT)
         test_engine/test_strategy_templates.cpp
         test_engine/test_market.cpp
         test_engine/test_factor_math.cpp
-        test_engine/test_alpha191_factors.cpp
+        test_engine/test_panel_engine.cpp
         test_engine/test_volume_price_factors.cpp
         test_engine/test_fundamental_factors.cpp
         test_engine/test_screener.cpp

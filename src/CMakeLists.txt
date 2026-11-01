@@ -81,6 +81,8 @@ add_library(st_engine STATIC
     engine/screener/stock_screener.cpp
     engine/screener/factor_library.cpp
     engine/screener/factor_math.cpp
+    engine/screener/panel.cpp
+    engine/screener/alpha191_expression.cpp
     engine/screener/alpha191_factors.cpp
     engine/screener/volume_price_factors.cpp
     engine/screener/fundamental_factors.cpp

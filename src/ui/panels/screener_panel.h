@@ -45,7 +45,8 @@ signals:
 private slots:
     void onRunClicked();
     void onAllDataFetched(std::vector<std::optional<st::sentiment::SentimentScore>> sentiments,
-                          std::vector<st::QuoteFundamentals> quotes);
+                          std::vector<st::QuoteFundamentals> quotes,
+                          std::vector<Bar> benchmarkBars);
 
 private:
     void onResult(const std::vector<ScreenResult>& results,

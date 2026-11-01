@@ -1,61 +1,53 @@
 #pragma once
 
 #include "engine/screener/factor.h"
+#include "engine/screener/alpha191_expression.h"
+
+#include <memory>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace st::factors {
 
-/// Alpha191 因子（国泰君安 191 因子子集）
+/// Alpha191 公式表条目
+struct Alpha191FormulaInfo {
+    std::string id;      // alpha001 ... alpha191
+    std::string formula; // 规范化后的官方公式
+};
+
+/// 全部 191 条官方公式（解析失败/自定义实现的条目也保留）
+const std::vector<Alpha191FormulaInfo>& alpha191FormulaTable();
+
+/// 基于面板表达式引擎的 Alpha191 因子
 ///
-/// 命名 alphaNNN；displayName = "AlphaNNN"；description 为中文含义 + 数据窗口（不展示公式）。
-/// 本子集只实现纯日线 OHLCV/AMOUNT 可算的公式（不含横截面 RANK/行业/市值中性类），
-/// 其余因子后续按批次补齐。
-/// 方向统一按 GTJA 研报口径（公式值越大越偏多），higherIsBetter = true。
+/// 公式来自 GTJA191 官方公式表；横截面 RANK / 基准指数 / 风格因子等
+/// 通过 PanelData 面板计算。少数公式无法用通用算子表达（SELF/FILTER 回归/
+/// SUMAC 窗口等），由 calculatePanel 内的自定义实现兜底。
+class Alpha191Factor : public IFactor {
+public:
+    Alpha191Factor(std::string id, std::string formula, std::string description);
 
-#define ST_DECLARE_ALPHA191(ClassName)                                    \
-    class ClassName : public IFactor {                                    \
-    public:                                                               \
-        std::string name() const override;                                \
-        std::string displayName() const override;                         \
-        std::string description() const override;                         \
-        FactorCategory category() const override {                        \
-            return FactorCategory::Alpha191;                              \
-        }                                                                 \
-        std::optional<double> calculate(const FactorContext& ctx) const override; \
-    };
+    std::string name() const override { return id_; }
+    std::string displayName() const override;
+    std::string description() const override { return description_; }
+    FactorCategory category() const override { return FactorCategory::Alpha191; }
+    bool higherIsBetter() const override { return true; }
+    std::optional<double> calculate(const FactorContext&) const override {
+        return std::nullopt;  // 面板因子，逐股接口不适用
+    }
+    bool isPanel() const override { return true; }
+    std::vector<double> calculatePanel(const PanelData& panel) const override;
 
-// —— 量价结构 / 多空失衡 ——
-ST_DECLARE_ALPHA191(Alpha002)  // 多空失衡的日变化
-ST_DECLARE_ALPHA191(Alpha003)  // 上攻强度累计
-ST_DECLARE_ALPHA191(Alpha004)  // 价格波动突破
-ST_DECLARE_ALPHA191(Alpha005)  // 量价结构相关
-ST_DECLARE_ALPHA191(Alpha009)  // 中间价资金流
-ST_DECLARE_ALPHA191(Alpha011)  // 量价动量
-ST_DECLARE_ALPHA191(Alpha013)  // 价格中枢偏离
-ST_DECLARE_ALPHA191(Alpha014)  // 5 日动量
-ST_DECLARE_ALPHA191(Alpha015)  // 隔夜跳空
-ST_DECLARE_ALPHA191(Alpha018)  // 5 日收益
-ST_DECLARE_ALPHA191(Alpha020)  // 6 日动量
-ST_DECLARE_ALPHA191(Alpha021)  // 价格趋势斜率
-ST_DECLARE_ALPHA191(Alpha022)  // 短期量价平滑
-ST_DECLARE_ALPHA191(Alpha024)  // 短期量价平滑（5 日）
-ST_DECLARE_ALPHA191(Alpha026)  // 长周期量价背离
-ST_DECLARE_ALPHA191(Alpha027)  // 双周期动量平滑
-ST_DECLARE_ALPHA191(Alpha028)  // KDJ 类超买超卖
-ST_DECLARE_ALPHA191(Alpha031)  // 12 日乖离
-ST_DECLARE_ALPHA191(Alpha034)  // 均价 / 现价
-ST_DECLARE_ALPHA191(Alpha040)  // 上涨量能占比
-ST_DECLARE_ALPHA191(Alpha043)  // 6 日净资金流
-ST_DECLARE_ALPHA191(Alpha046)  // 多均线比值
-ST_DECLARE_ALPHA191(Alpha053)  // 12 日上涨天数占比
-ST_DECLARE_ALPHA191(Alpha057)  // KDJ 平滑
-ST_DECLARE_ALPHA191(Alpha063)  // RSI(6) 类
-ST_DECLARE_ALPHA191(Alpha070)  // 成交额波动（6 日）
-ST_DECLARE_ALPHA191(Alpha080)  // 成交量变化率
-ST_DECLARE_ALPHA191(Alpha085)  // 量能时间序列位置
-ST_DECLARE_ALPHA191(Alpha088)  // 20 日动量
-ST_DECLARE_ALPHA191(Alpha103)  // 20 日低点位置
-ST_DECLARE_ALPHA191(Alpha110)  // 上攻/下杀力度比
-ST_DECLARE_ALPHA191(Alpha118)  // 上下影线比
-ST_DECLARE_ALPHA191(Alpha127)  // 12 日回撤平方
+private:
+    alpha191::Expression expression_;
+    std::string id_;
+    std::string formula_;
+    std::string description_;
+};
+
+/// 创建 191 个 Alpha191 面板因子（权重由因子库统一归一）
+std::vector<std::pair<std::shared_ptr<IFactor>, double>> makeAlpha191Factors();
 
 } // namespace st::factors

@@ -1,5 +1,6 @@
 #include "engine/screener/stock_screener.h"
 #include "engine/screener/ranker.h"
+#include "engine/screener/panel.h"
 #include "core/log_manager.h"
 #include "foundation/utils/datetime.h"
 
@@ -61,41 +62,26 @@ void StockScreener::addCondition(const Condition& condition) {
     filter_.addCondition(condition);
 }
 
-ScreenResult StockScreener::evaluate(const StockCode& code) {
+ScreenResult StockScreener::evaluate(const StockCode& code,
+                                     const std::vector<Bar>& bars,
+                                     const QuoteFundamentals* quote) {
     ScreenResult result;
     result.code = code;
 
-    // 从缓存加载日线
-    auto start = config_.lookbackDays > 0
-        ? utils::addTradingDays(config_.endDate, -config_.lookbackDays)
-        : DateTime{};
-    auto bars = cache_ ? cache_->getBars(code, config_.period) : std::vector<Bar>{};
-
-    // 过滤时间范围
-    std::vector<Bar> filtered;
-    for (auto& bar : bars) {
-        if (config_.lookbackDays <= 0 ||
-            (bar.time >= start && bar.time <= config_.endDate)) {
-            filtered.push_back(bar);
-        }
-    }
-    BarSeries series(std::move(filtered));
-
+    BarSeries series(bars);
     FactorContext ctx;
     ctx.code = &code;
     ctx.bars = &series;
-    // 基本面快照（估值/财务因子用；缺失时因子内部降级为 nullopt）
-    auto it = quotes_.find(code.fullCode());
-    if (it != quotes_.end()) {
-        ctx.quote = &it->second;
-    }
+    ctx.quote = quote;
 
-    // 只计算原始值；分数留给 run() 的截面标准化阶段
+    // 逐股时间序列因子只计算原始值；面板因子留给 run() 的全池阶段
     for (const auto& [factor, weight] : factors_) {
         (void)weight;
         FactorResult fr;
         fr.name = factor->name();
-        fr.rawValue = factor->calculate(ctx);
+        if (!factor->isPanel()) {
+            fr.rawValue = factor->calculate(ctx);
+        }
         fr.score = 0.0;
         result.factorResults.push_back(std::move(fr));
     }
@@ -111,27 +97,81 @@ std::vector<ScreenResult> StockScreener::run(const std::vector<StockCode>& pool)
         LogManager::instance()->log(LogLevel::Warn, "StockScreener: 未设置因子");
         return {};
     }
+    if (pool.empty()) return {};
 
-    std::vector<ScreenResult> results;
-    results.reserve(pool.size());
-
-    // ① 逐只计算原始因子值（0~60%）
-    for (size_t i = 0; i < pool.size(); ++i) {
-        results.push_back(evaluate(pool[i]));
-        if (progressCb_) {
-            progressCb_(static_cast<double>(i + 1) / static_cast<double>(pool.size()) * 60.0);
+    // ① 逐股过滤日线（为面板构建与逐股因子共用，只读一次缓存）
+    const auto start = config_.lookbackDays > 0
+        ? utils::addTradingDays(config_.endDate, -config_.lookbackDays)
+        : DateTime{};
+    const size_t n = pool.size();
+    std::vector<std::vector<Bar>> filtered(n);
+    for (size_t i = 0; i < n; ++i) {
+        auto bars = cache_->getBars(pool[i], config_.period);
+        auto& out = filtered[i];
+        out.reserve(bars.size());
+        for (auto& bar : bars) {
+            if (config_.lookbackDays <= 0 ||
+                (bar.time >= start && bar.time <= config_.endDate)) {
+                out.push_back(std::move(bar));
+            }
         }
     }
 
-    // ② 逐因子全池截面标准化（60~95%）：MAD 去极值 → z-score → 方向 → Φ(z)×100
+    // ② 面板因子需要全池 PanelData（基准指数/风格因子）
+    bool hasPanel = false;
+    for (const auto& [factor, weight] : factors_) {
+        (void)weight;
+        if (factor->isPanel()) { hasPanel = true; break; }
+    }
+    PanelData panel;
+    if (hasPanel) {
+        panel = buildPanel(pool, filtered, quotes_, benchmarkBars_);
+        if (!panel.valid) {
+            LogManager::instance()->log(LogLevel::Warn,
+                "StockScreener: 面板数据构建为空（{} 只股票），面板因子降级", n);
+        }
+    }
+
+    std::vector<ScreenResult> results;
+    results.reserve(n);
+
+    // ③ 逐股时间序列因子（0~50%）
+    for (size_t i = 0; i < n; ++i) {
+        const QuoteFundamentals* quote = nullptr;
+        auto it = quotes_.find(pool[i].fullCode());
+        if (it != quotes_.end()) quote = &it->second;
+        results.push_back(evaluate(pool[i], filtered[i], quote));
+        if (progressCb_) {
+            progressCb_(static_cast<double>(i + 1) / static_cast<double>(n) * 50.0);
+        }
+    }
+
+    // ④ 面板因子：全池一次计算，按股票对齐写入原始值（50~60%）
     const size_t factorCount = factors_.size();
-    const size_t resultCount = results.size();
+    for (size_t fi = 0; fi < factorCount; ++fi) {
+        const auto& factor = factors_[fi].first;
+        if (!factor->isPanel()) continue;
+        std::vector<double> values;
+        if (panel.valid) values = factor->calculatePanel(panel);
+        for (size_t ri = 0; ri < n; ++ri) {
+            if (ri < values.size() && std::isfinite(values[ri])) {
+                results[ri].factorResults[fi].rawValue = values[ri];
+            } else {
+                results[ri].factorResults[fi].rawValue.reset();
+            }
+        }
+        if (progressCb_) {
+            progressCb_(60.0);
+        }
+    }
+
+    // ⑤ 逐因子全池截面标准化（60~95%）：MAD 去极值 → z-score → 方向 → Φ(z)×100
     for (size_t fi = 0; fi < factorCount; ++fi) {
         std::vector<double> values;
-        values.reserve(resultCount);
+        values.reserve(n);
         std::vector<size_t> rows;
-        rows.reserve(resultCount);
-        for (size_t ri = 0; ri < resultCount; ++ri) {
+        rows.reserve(n);
+        for (size_t ri = 0; ri < n; ++ri) {
             const auto& raw = results[ri].factorResults[fi].rawValue;
             if (raw.has_value() && std::isfinite(*raw)) {
                 values.push_back(*raw);
@@ -151,7 +191,7 @@ std::vector<ScreenResult> StockScreener::run(const std::vector<StockCode>& pool)
         }
 
         const bool direct = factors_[fi].first->higherIsBetter();
-        for (size_t ri = 0; ri < resultCount; ++ri) {
+        for (size_t ri = 0; ri < n; ++ri) {
             auto& score = results[ri].factorResults[fi].score;
             const auto& raw = results[ri].factorResults[fi].rawValue;
             if (!raw.has_value() || !std::isfinite(*raw) || values.empty()) {
@@ -172,7 +212,7 @@ std::vector<ScreenResult> StockScreener::run(const std::vector<StockCode>& pool)
         }
     }
 
-    // ③ 条件筛选（作用于标准化分数）+ 加权总分
+    // ⑥ 条件筛选 + 加权总分 + 排名
     std::vector<ScreenResult> passed;
     passed.reserve(results.size());
     for (auto& result : results) {
@@ -181,13 +221,12 @@ std::vector<ScreenResult> StockScreener::run(const std::vector<StockCode>& pool)
         passed.push_back(std::move(result));
     }
 
-    // ④ 排名
     auto sorted = Ranker::topN(std::move(passed), config_.topN);
     if (progressCb_) progressCb_(100.0);
 
     LogManager::instance()->log(LogLevel::Info,
-        "StockScreener: {} 只股票中筛选出 {} 只（截面标准化评分）",
-        pool.size(), sorted.size());
+        "StockScreener: {} 只股票中筛选出 {} 只（{} 个因子，面板={}，截面标准化）",
+        pool.size(), sorted.size(), factorCount, hasPanel ? "是" : "否");
     return sorted;
 }
 

@@ -63,6 +63,7 @@ ScreenerPanel::ScreenerPanel(IDataProvider* provider, QWidget* parent)
         int gridRow = 0;
         int gridCol = 0;
         size_t count = 0;
+        const int maxCols = category == FactorCategory::Alpha191 ? 8 : 4;
         for (size_t i = 0; i < candidateFactors_.size(); ++i) {
             const auto& factor = candidateFactors_[i].first;
             if (factor->category() != category) continue;
@@ -72,7 +73,7 @@ ScreenerPanel::ScreenerPanel(IDataProvider* provider, QWidget* parent)
             connect(cb, &QCheckBox::toggled, this, [this] { updateRunButton(); });
             factorChecks_[i] = cb;
             fg->addWidget(cb, gridRow, gridCol);
-            if (++gridCol == 4) {
+            if (++gridCol == maxCols) {
                 gridCol = 0;
                 ++gridRow;
             }
@@ -224,9 +225,11 @@ void ScreenerPanel::onRunClicked() {
     IDataProvider* provider = provider_;
     auto newsProvider = newsProvider_;
     const auto cache = cache_;
+    // 基准指数：Alpha191 基准类因子（Alpha075/149/181/182 等）用沪深300日线
+    const StockCode benchmarkCode(Market::SH, "000300");
     QPointer<ScreenerPanel> guard(this);
     ThreadPool::submitIO([provider, cache, newsProvider, guard, symbols, start, end,
-                          fetchSentiment] {
+                          fetchSentiment, benchmarkCode] {
         const int total = static_cast<int>(symbols.size());
         int done = 0;
         std::vector<std::optional<st::sentiment::SentimentScore>> sentiments;
@@ -252,16 +255,21 @@ void ScreenerPanel::onRunClicked() {
         }
         // 基本面快照（估值/规模因子用）：批量一次拉取；失败时缺项 valid=false 降级
         auto quotes = provider->batchQuoteFundamentals(symbols);
+        // 基准指数日线（取不到时基准类因子自动降级为缺失）
+        auto benchmarkBars = provider->getBars(benchmarkCode, BarPeriod::Daily, start, end);
         QMetaObject::invokeMethod(guard, [guard, sentiments = std::move(sentiments),
-                                          quotes = std::move(quotes)]() mutable {
-            guard->onAllDataFetched(std::move(sentiments), std::move(quotes));
+                                          quotes = std::move(quotes),
+                                          benchmarkBars = std::move(benchmarkBars)]() mutable {
+            guard->onAllDataFetched(std::move(sentiments), std::move(quotes),
+                                    std::move(benchmarkBars));
         }, Qt::QueuedConnection);
     });
 }
 
 void ScreenerPanel::onAllDataFetched(
     std::vector<std::optional<st::sentiment::SentimentScore>> sentiments,
-    std::vector<st::QuoteFundamentals> quotes) {
+    std::vector<st::QuoteFundamentals> quotes,
+    std::vector<Bar> benchmarkBars) {
     progress_->setValue(50);
     auto symbols = selectedSymbols();
     if (symbols.empty()) {
@@ -308,11 +316,13 @@ void ScreenerPanel::onAllDataFetched(
     ThreadPool::submitWorker(
         [guard, cache, selected = std::move(selected), factorNames, symbols, cfg,
          sentiments = std::move(sentiments), quoteMap = std::move(quoteMap),
+         benchmarkBars = std::move(benchmarkBars),
          useComposite, usePattern, useSentiment]() mutable {
             StockScreener screener;
             screener.setConfig(cfg);
             screener.setDataCache(cache.get());
             screener.setQuoteFundamentals(std::move(quoteMap));
+            screener.setBenchmarkBars(std::move(benchmarkBars));
             for (auto& [f, w] : selected) screener.addFactor(f, w);
             screener.setProgressCallback([guard](double p) {
                 QMetaObject::invokeMethod(guard, [guard, p] {

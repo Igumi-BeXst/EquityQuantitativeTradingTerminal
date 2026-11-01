@@ -4,8 +4,11 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace st {
+
+struct PanelData;  // 面板数据（股票 × 日期矩阵），见 panel.h
 
 /// 因子抽象接口
 ///
@@ -32,8 +35,20 @@ public:
     /// 截面标准化时按方向取符号（score = Φ(direction × z) × 100）
     virtual bool higherIsBetter() const { return true; }
 
-    /// 计算原始因子值（数据不足返回 nullopt）
+    /// 计算原始因子值（逐股时间序列因子；数据不足返回 nullopt）
     virtual std::optional<double> calculate(const FactorContext& ctx) const = 0;
+
+    // ---- 面板因子接口（横截面 RANK / 基准指数 / 风格因子等）----
+
+    /// 是否为面板因子（需要全池 PanelData；默认 false）
+    virtual bool isPanel() const { return false; }
+
+    /// 计算面板因子原始值：返回与 panel.stocks 等长的向量（NaN = 缺失）
+    /// 仅 isPanel()==true 时被引擎调用；默认返回空
+    virtual std::vector<double> calculatePanel(const PanelData& panel) const {
+        (void)panel;
+        return {};
+    }
 };
 
 } // namespace st

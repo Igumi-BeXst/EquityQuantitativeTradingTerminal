@@ -106,6 +106,20 @@ TEST(ConditionFilterTest, MissingFactorFails) {
     EXPECT_FALSE(filter.passes(results));
 }
 
+namespace {
+
+std::shared_ptr<IFactor> makeAlphaFactor(const std::string& id) {
+    for (const auto& info : factors::alpha191FormulaTable()) {
+        if (info.id == id) {
+            return std::make_shared<factors::Alpha191Factor>(
+                info.id, info.formula, "测试用 Alpha191 因子");
+        }
+    }
+    return nullptr;
+}
+
+}  // namespace
+
 TEST(StockScreenerTest, RanksByMomentum) {
     // 构造 3 只股票: 强势上涨、弱涨、下跌
     StockCode strong(Market::SH, "600001");
@@ -130,8 +144,10 @@ TEST(StockScreenerTest, RanksByMomentum) {
     screener.setConfig(config);
     screener.setDataCache(&cache);
 
-    // 只加 20 日动量 Alpha191 因子
-    screener.addFactor(std::make_shared<factors::Alpha088>(), 1.0);
+    // 只加 6 日动量 Alpha191 面板因子（Alpha020）
+    auto momentum = makeAlphaFactor("alpha020");
+    ASSERT_TRUE(momentum != nullptr);
+    screener.addFactor(momentum, 1.0);
 
     auto results = screener.run({strong, weak, fallCode});
     ASSERT_EQ(results.size(), 3u);

@@ -11,7 +11,7 @@ namespace st::factors {
 using FactorPtr = std::shared_ptr<IFactor>;
 using WeightedFactor = std::pair<FactorPtr, double>;
 
-/// Alpha191 因子子集（组内等权，组总权重 1.0）
+/// Alpha191 全部 191 个官方公式因子（面板计算；组内等权，组总权重 1.0）
 std::vector<WeightedFactor> alpha191FactorSet();
 
 /// 量价因子（组内等权，组总权重 1.0）

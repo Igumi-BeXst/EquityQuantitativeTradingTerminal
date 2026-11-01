@@ -50,6 +50,9 @@ public:
         quotes_ = std::move(quotes);
     }
 
+    /// 注入基准指数日线（Alpha075/149/181/182 等基准类因子用；缺失时这些因子降级）
+    void setBenchmarkBars(std::vector<Bar> bars) { benchmarkBars_ = std::move(bars); }
+
     /// 设置筛选条件
     void addCondition(const Condition& condition);
 
@@ -62,13 +65,17 @@ public:
     const std::vector<std::pair<std::string, double>>& weights() const { return weights_; }
 
 private:
-    ScreenResult evaluate(const StockCode& code);
+    /// 用已过滤的日线与基本面快照计算逐股时间序列因子的原始值
+    ScreenResult evaluate(const StockCode& code,
+                          const std::vector<Bar>& bars,
+                          const QuoteFundamentals* quote);
 
     ScreenerConfig config_;
     DataCache* cache_ = nullptr;
     std::vector<std::pair<std::shared_ptr<IFactor>, double>> factors_;
     std::vector<std::pair<std::string, double>> weights_;
     std::unordered_map<std::string, QuoteFundamentals> quotes_;  // fullCode → 快照
+    std::vector<Bar> benchmarkBars_;                             // 基准指数日线
     ConditionFilter filter_;
     std::function<void(double)> progressCb_;
 };
