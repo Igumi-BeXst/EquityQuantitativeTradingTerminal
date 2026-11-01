@@ -10,7 +10,7 @@
 | 测试框架 | GoogleTest | |
 | JSON | nlohmann/json | header-only |
 | 日志 | spdlog | 异步输出 |
-| HTTP | cpp-httplib | header-only |
+| HTTP | Qt Network | QNetworkAccessManager，随 Qt 提供 |
 | Python 桥接 | pybind11 | P9 阶段引入 |
 
 ## 编译器要求
@@ -27,7 +27,6 @@
     {"name": "qt6", "features": ["widgets", "sql", "network"]},
     "nlohmann-json",
     "spdlog",
-    "cpp-httplib",
     "gtest"
   ]
 }

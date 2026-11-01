@@ -71,7 +71,7 @@ cmake --preset with-qt && cmake --build --preset with-qt
 | 数据 | SQLite (Qt6::Sql) |
 | 日志 | spdlog |
 | JSON | nlohmann/json |
-| HTTP | cpp-httplib |
+| HTTP | Qt Network (QNetworkAccessManager) |
 | 测试 | GoogleTest |
 
 ## 当前阶段

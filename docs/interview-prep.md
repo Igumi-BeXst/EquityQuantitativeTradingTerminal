@@ -111,7 +111,7 @@
 | 文档 | docs/ 下 **46 个 Markdown、约 1.78 万行**（架构/需求/API/数据库/测试/安全/编码规范/TDX 协议/DEVLOG/难点复盘/10 模块精读教程） |
 | 提交 | **213 次**（2026-08-02 ~ 08-31），P0 ~ P10 共 32 轮迭代 |
 | 体积 | Debug exe 约 9.8MB / Release exe 约 3.1MB |
-| 第三方 | spdlog、nlohmann/json、TA-Lib 0.7.1、GoogleTest、cpp-httplib、zlib |
+| 第三方 | spdlog、nlohmann/json、TA-Lib 0.7.1、GoogleTest、zlib |
 | 数据源 | 通达信 TDX（**直连 :7709 私有协议**，8 个主站 failover）为主源 + 腾讯 / AKShare 备源 + 东财（板块、资金、新闻、基本面） |
 
 ### 2.3 分层与依赖规则

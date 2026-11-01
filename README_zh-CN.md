@@ -86,7 +86,7 @@ Qt 主线程永不阻塞；耗时任务在 `ThreadPool` 中执行，通过 `Even
 | 存储 | TDX 回测二进制行情缓存；SQLite 仓储模块（尚未接入应用流程） |
 | 日志 | spdlog |
 | JSON | nlohmann/json |
-| HTTP | cpp-httplib |
+| HTTP | Qt Network (QNetworkAccessManager) |
 | 技术分析 | TA-Lib |
 | 测试 | GoogleTest |
 

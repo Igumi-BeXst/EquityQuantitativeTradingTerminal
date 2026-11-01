@@ -86,7 +86,7 @@ The Qt main thread never blocks; long-running tasks run in a `ThreadPool` and re
 | Storage | Local binary bar cache for TDX backtests; SQLite repository module (not wired into the app yet) |
 | Logging | spdlog |
 | JSON | nlohmann/json |
-| HTTP | cpp-httplib |
+| HTTP | Qt Network (QNetworkAccessManager) |
 | Technical Analysis | TA-Lib |
 | Testing | GoogleTest |
 
