@@ -4,8 +4,10 @@
 namespace st {
 
 MultiProvider::MultiProvider(std::unique_ptr<IDataProvider> primary,
-                             std::unique_ptr<IDataProvider> fallback)
-    : primary_(std::move(primary)), fallback_(std::move(fallback)) {}
+                             std::unique_ptr<IDataProvider> fallback,
+                             std::unique_ptr<IDataProvider> quoteFallback)
+    : primary_(std::move(primary)), fallback_(std::move(fallback)),
+      quoteFallback_(std::move(quoteFallback)) {}
 
 IDataProvider* MultiProvider::preferred() const {
     if (primary_ && primary_->isConnected()) {
@@ -49,12 +51,15 @@ bool MultiProvider::connect() {
         primaryEverConnected_.store(true, std::memory_order_relaxed);
     }
     const bool fallbackOk = fallback_ && fallback_->connect();
+    // 基本面第三备源（腾讯）不走主/备源连接判定，避免仅腾讯可用时误判整体连接状态
+    if (quoteFallback_) quoteFallback_->connect();
     return primaryOk || fallbackOk;
 }
 
 void MultiProvider::disconnect() {
     if (primary_) primary_->disconnect();
     if (fallback_) fallback_->disconnect();
+    if (quoteFallback_) quoteFallback_->disconnect();
 }
 
 bool MultiProvider::isConnected() const {
@@ -175,24 +180,47 @@ std::vector<Tick> MultiProvider::getTransactions(const StockCode& code, int limi
 
 std::optional<QuoteFundamentals> MultiProvider::getQuoteFundamentals(const StockCode& code) {
     IDataProvider* p = preferred();
-    if (auto r = p->getQuoteFundamentals(code)) return r;
+    if (auto r = p->getQuoteFundamentals(code)) {
+        if (r->valid) return r;
+    }
     notePrimaryUnavailable(p);
-    if (IDataProvider* o = other(p)) return o->getQuoteFundamentals(code);
+    if (IDataProvider* o = other(p)) {
+        if (auto r = o->getQuoteFundamentals(code)) {
+            if (r->valid) return r;
+        }
+    }
+    // 东财/主备源均不可用时，腾讯行情派生基本面（换手率/市值/股本）兜底
+    if (quoteFallback_) {
+        if (auto r = quoteFallback_->getQuoteFundamentals(code)) {
+            if (r->valid) return r;
+        }
+    }
     return std::nullopt;
 }
 
 std::vector<QuoteFundamentals> MultiProvider::batchQuoteFundamentals(
     const std::vector<StockCode>& codes) {
     // 主源整体批量优先；全部无效时整体回退备源（不拼接，避免口径混用）
+    auto anyValid = [](const std::vector<QuoteFundamentals>& rows) {
+        for (const auto& f : rows) {
+            if (f.valid) return true;
+        }
+        return false;
+    };
     IDataProvider* p = preferred();
     auto out = p->batchQuoteFundamentals(codes);
-    bool anyValid = false;
-    for (const auto& f : out) {
-        if (f.valid) { anyValid = true; break; }
-    }
-    if (anyValid) return out;
+    if (anyValid(out)) return out;
     notePrimaryUnavailable(p);
-    if (IDataProvider* o = other(p)) return o->batchQuoteFundamentals(codes);
+    if (IDataProvider* o = other(p)) {
+        auto alt = o->batchQuoteFundamentals(codes);
+        if (anyValid(alt)) return alt;
+    }
+    // 东财批量接口不可用（如网络/接口封锁）时，用腾讯行情派生基本面兜底；
+    // 换手率等字段与主窗口个股数据同源，避免选股里「换手率无数据」。
+    if (quoteFallback_) {
+        auto alt = quoteFallback_->batchQuoteFundamentals(codes);
+        if (anyValid(alt)) return alt;
+    }
     return out;
 }
 

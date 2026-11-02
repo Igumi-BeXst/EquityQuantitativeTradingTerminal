@@ -24,6 +24,7 @@ public:
     std::vector<Bar> bars;
     std::vector<Quote> quotes;
     std::vector<StockInfo> stocks;
+    std::vector<QuoteFundamentals> fundamentals;
 
     std::string providerName() const override { return name; }
     bool connect() override {
@@ -46,6 +47,16 @@ public:
     std::vector<Quote> batchQuote(const std::vector<StockCode>&) override { return quotes; }
     std::optional<IntradayData> getIntraday(const StockCode&) override { return std::nullopt; }
     void refreshQuotes() override {}
+    std::optional<QuoteFundamentals> getQuoteFundamentals(const StockCode& code) override {
+        for (const auto& f : fundamentals) {
+            if (f.code == code) return f;
+        }
+        return std::nullopt;
+    }
+    std::vector<QuoteFundamentals> batchQuoteFundamentals(
+        const std::vector<StockCode>&) override {
+        return fundamentals;
+    }
 };
 
 Bar makeBar(double close) {
@@ -216,6 +227,39 @@ TEST(MultiProviderTest, UnsupportedBarSemanticsDoNotReturnAdjustedBars) {
                                   start, end).empty());
     EXPECT_TRUE(multi->getHfqBars(StockCode("600519"), BarPeriod::Daily,
                                   start, end).empty());
+}
+
+TEST(MultiProviderTest, FundamentalsUseDedicatedThirdFallback) {
+    auto primary = std::make_unique<StubProvider>();
+    auto fallback = std::make_unique<StubProvider>();
+    auto quoteFallback = std::make_unique<StubProvider>();
+    auto* primaryPtr = primary.get();
+    auto* fallbackPtr = fallback.get();
+    auto* quoteFallbackPtr = quoteFallback.get();
+    MultiProvider multi(std::move(primary), std::move(fallback), std::move(quoteFallback));
+
+    const StockCode code(Market::SH, "600000");
+    QuoteFundamentals f;
+    f.code = code;
+    f.valid = true;
+    f.turnoverRate = 3.5;
+    quoteFallbackPtr->fundamentals = {f};
+
+    const auto rows = multi.batchQuoteFundamentals({code});
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_TRUE(rows[0].valid);
+    EXPECT_DOUBLE_EQ(rows[0].turnoverRate, 3.5);
+
+    const auto single = multi.getQuoteFundamentals(code);
+    ASSERT_TRUE(single.has_value());
+    EXPECT_DOUBLE_EQ(single->turnoverRate, 3.5);
+
+    // 主/备源有有效快照时不应依赖第三备源
+    QuoteFundamentals primaryValue = f;
+    primaryValue.turnoverRate = 9.0;
+    primaryPtr->fundamentals = {primaryValue};
+    fallbackPtr->fundamentals.clear();
+    EXPECT_DOUBLE_EQ(multi.getQuoteFundamentals(code)->turnoverRate, 9.0);
 }
 
 TEST(MultiProviderTest, DefaultProviderUsesTdxWithAkshareFailover) {

@@ -1,5 +1,28 @@
 # 开发日志 (Development Log)
 
+## 2026-11-03 — 选股换手率无数据：增加腾讯基本面第三备源（与主窗口同源）
+
+### 用户反馈
+选股结果中「换手率」列全部为 **50.00 分 / 原始值 --**（中性分），但主窗口查看个股时能看到换手率。
+
+### 根因
+- 主窗口的换手率来自 **腾讯行情**（`qt.gtimg.cn`；市场排行/个股关键数据在东财不可用时回退腾讯）；
+- 选股里的 `QuoteFundamentals` 只走 **TDX → AKShare（东财 ulist）** 两源：TDX 日线本身不含换手率；当前环境东财 ulist 全部主机失败（HTTP fetch failed / Bad Gateway / Connection closed），AKShare 返回空；
+- `VpTurnover` 优先用快照 `turnoverRate`，其次回退 `Bar::turnoverRate`；TDX 日线该字段为 0 → 因子取不到值 → 截面中全部缺失 → 中性 50。
+- 实连验证：`fundamental_calib 600000/300750` 等单只股票也拉不到东财数据；同一环境腾讯接口正常。
+
+### 修复
+- `MultiProvider` 新增可选的**基本面第三备源** `quoteFallback`（默认空，不影响行情/K线）：
+  - `getQuoteFundamentals` / `batchQuoteFundamentals` 在主源 + 备源都无有效快照时，自动回退第三备源；
+  - `provider_factory` 在 multi 模式注入 `TencentProvider` 作为该备源；连接/断开同步处理，但不改变主/备源连接判定。
+- 选股因此与主窗口走同一份腾讯换手率数据；腾讯可解析字段（换手率/市盈 TTM/总市值/流通市值/股本等）恢复，PB/ROE/营收等仍需东财（腾讯行情不提供，相关基本面因子在东财不可用时仍为中性）。
+- 新增 `MultiProviderTest.FundamentalsUseDedicatedThirdFallback` 单测（第三备源生效、主源有效时不回退）。
+
+### 验证
+- `ctest` **545/545 全绿**；Debug/Release 零警告；GUI 冒烟 8s。
+- 实连探针（腾讯兜底路径）：`600000 换手率 0.35% / 300750 1.23% / 002866 6.68%` 均可取到，`valid=true`。
+- 全市场选股时腾讯批量按 50 只/请求分块，约 105 次请求（数秒级）；东财失败时选股会多这一步。
+
 ## 2026-11-01 — 选股结果表评分可读性修复（因子列显示得分 + z-score 去极值修正）
 
 ### 用户反馈

@@ -14,7 +14,10 @@ namespace st {
 class MultiProvider : public IDataProvider {
 public:
     MultiProvider(std::unique_ptr<IDataProvider> primary,
-                  std::unique_ptr<IDataProvider> fallback);
+                  std::unique_ptr<IDataProvider> fallback,
+                  /// 基本面/换手率专用第三备源（东财不可用时常可用腾讯行情派生）；
+                  /// 为空则仅在主/备源之间回退，默认不参与行情/K线。
+                  std::unique_ptr<IDataProvider> quoteFallback = nullptr);
 
     std::string providerName() const override;
     bool connect() override;
@@ -52,6 +55,7 @@ private:
 
     std::unique_ptr<IDataProvider> primary_;
     std::unique_ptr<IDataProvider> fallback_;
+    std::unique_ptr<IDataProvider> quoteFallback_;
     mutable std::atomic<bool> primaryConnectAccepted_{false};
     mutable std::atomic<bool> primaryEverConnected_{false};
     mutable std::atomic<bool> primaryUnavailable_{false};

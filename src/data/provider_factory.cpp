@@ -33,14 +33,16 @@ std::unique_ptr<IDataProvider> makeDataProvider() {
         name = cfg->get<std::string>("data.provider", "multi");
     }
     if (name == "multi") {
-        // TDX 主源 + AKShare 容灾备源
+        // TDX 主源 + AKShare 容灾备源；基本面/换手率再挂腾讯行情派生第三备源
+        // （东财 ulist 接口不可用时，主窗口个股换手率走腾讯，选股同样需要兜底）
         std::string primary = "tdx", fallback = "akshare";
         if (auto* cfg = ConfigManager::instance()) {
             primary = cfg->get<std::string>("data.multi.primary", "tdx");
             fallback = cfg->get<std::string>("data.multi.fallback", "akshare");
         }
-        return std::make_unique<MultiProvider>(makeCachedProvider(primary),
-                                               makeCachedProvider(fallback));
+        return std::make_unique<MultiProvider>(
+            makeCachedProvider(primary), makeCachedProvider(fallback),
+            std::make_unique<TencentProvider>());
     }
     return makeCachedProvider(name);
 }
